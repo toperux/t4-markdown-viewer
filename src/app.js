@@ -457,6 +457,9 @@ function pushAnchorEntry(raw) {
 /** Re-render the open document in place: no history entry, no scroll jump. */
 async function refresh() {
   if (!activeTab()) return;
+  // Bank the position as well as restoring it, so a later tab switch or Back
+  // returns here rather than to wherever the entry was last left.
+  rememberScroll();
   await showActive(window.scrollY);
 }
 
@@ -807,6 +810,22 @@ async function onKeydown(event) {
   if (event.key === "F8") {
     event.preventDefault();
     cycleTheme(event.shiftKey ? -1 : 1);
+    return;
+  }
+
+  /*
+   * F5 means "re-read this document", not "reload the webview". Left to the
+   * browser it reloads index.html, which restarts the app — and since the
+   * pending file was consumed at boot, that lands on the empty state having
+   * thrown away every tab and its history. Ctrl+R is the same action, handled
+   * below; both suppress the default.
+   *
+   * Handled before the modal guard, and with any modifier, so no spelling of
+   * a reload key can get past it — Ctrl+F5 and Shift+F5 included.
+   */
+  if (event.key === "F5") {
+    event.preventDefault();
+    refresh();
     return;
   }
 

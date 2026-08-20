@@ -90,7 +90,7 @@ Windows tracks each one separately.
 | `Ctrl+W` | Close the current tab |
 | `Ctrl+Shift+T` | Reopen the last closed tab |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab |
-| `Ctrl+R` | Re-render the current file |
+| `F5` / `Ctrl+R` | Re-read the current file, keeping your scroll position |
 | `F8` | Next theme (`Shift+F8` for previous) |
 
 Mouse thumb buttons work for back/forward, and middle-click closes a tab.
