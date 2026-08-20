@@ -81,7 +81,7 @@ Windows tracks each one separately.
 | Key | Action |
 | --- | --- |
 | `Alt+←` / `Alt+→` | Back / forward through visited documents |
-| `Ctrl+O` | Open a file, wherever the toolbar setting says |
+| `Ctrl+O` | Open a file, wherever Settings says |
 | `Ctrl+T` | Open a file in a new **tab** |
 | `Ctrl+N` | Open a file in a new **window** |
 | `Ctrl+W` | Close the current tab |
@@ -108,10 +108,19 @@ straight to the previous *document*.
 
 ## Tabs and windows
 
-The **New tab / New window** dropdown in the toolbar decides where a file opens
-— whether you double-click it in Explorer, press `Ctrl+O`, or use the Open
-button. The setting is shared by every open window, since it governs where files
-opened from *outside* the app end up.
+![Settings](docs/screenshots/settings.png)
+
+The **gear** opens Settings, where a pair of radio buttons decides where a file
+opens: in a new tab, or in a new window. That covers every way a document
+arrives without you saying otherwise — double-clicking it in Explorer, `Ctrl+O`,
+or the **Open…** button. It is shared by every open window, because an Explorer
+double-click has to land *somewhere* and per-window disagreement about that is
+unguessable.
+
+To go against the default just this once, use the **arrow beside Open…** — it
+offers *Open in new tab* and *Open in new window* directly, and changes nothing
+about the saved setting. `Ctrl+T` and `Ctrl+N` are the same two overrides from
+the keyboard.
 
 Everything runs in one process no matter how many windows are open, so a second
 window costs a webview rather than a whole second copy of the app.

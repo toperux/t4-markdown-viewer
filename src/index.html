@@ -21,12 +21,27 @@
         </div>
         <div id="doc-name" title=""></div>
         <div id="controls">
-          <select id="mode-picker" title="Where a newly opened file goes" aria-label="Open files in">
-            <option value="tab">New tab</option>
-            <option value="window">New window</option>
-          </select>
           <select id="theme-picker" title="Theme (F8 cycles)" aria-label="Theme"></select>
-          <button id="open-btn" title="Open a Markdown file (Ctrl+O)">Open…</button>
+
+          <!-- Split button: the face does whatever Settings says, the arrow
+               offers the other one for this open only. -->
+          <div id="open-split">
+            <button id="open-btn" type="button" title="Open a Markdown file (Ctrl+O)">Open…</button>
+            <button id="open-more" class="split-arrow" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Open in…" title="Open in…">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.5 L8 10.5 L12 6.5" /></svg>
+            </button>
+            <div id="open-menu" role="menu" hidden>
+              <button type="button" role="menuitem" data-mode="tab">Open in new tab</button>
+              <button type="button" role="menuitem" data-mode="window">Open in new window</button>
+            </div>
+          </div>
+
+          <button id="settings-btn" class="nav" type="button" title="Settings" aria-label="Settings">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M 6.55 3.32 L 6.98 1.48 L 9.02 1.48 L 9.45 3.32 L 10.29 3.67 L 11.89 2.67 L 13.33 4.11 L 12.33 5.71 L 12.68 6.55 L 14.52 6.98 L 14.52 9.02 L 12.68 9.45 L 12.33 10.29 L 13.33 11.89 L 11.89 13.33 L 10.29 12.33 L 9.45 12.68 L 9.02 14.52 L 6.98 14.52 L 6.55 12.68 L 5.71 12.33 L 4.11 13.33 L 2.67 11.89 L 3.67 10.29 L 3.32 9.45 L 1.48 9.02 L 1.48 6.98 L 3.32 6.55 L 3.67 5.71 L 2.67 4.11 L 4.11 2.67 L 5.71 3.67 Z" />
+              <circle cx="8" cy="8" r="2.2" />
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -48,6 +63,30 @@
         <p id="error-detail"></p>
       </section>
     </main>
+
+    <!-- A dialog rather than a page: settings should not cost you the document
+         you were reading, and every window shares these values anyway. -->
+    <dialog id="settings-dialog" aria-labelledby="settings-title">
+      <form method="dialog">
+        <h2 id="settings-title">Settings</h2>
+
+        <fieldset>
+          <legend>Opening a file</legend>
+          <p class="hint">
+            Where a document goes when you double-click a <code>.md</code> file in Explorer, press
+            <kbd>Ctrl</kbd>+<kbd>O</kbd>, or click the <b>Open…</b> button. Shared by every window.
+          </p>
+          <label><input type="radio" name="open-mode" value="tab" /> In a new tab</label>
+          <label><input type="radio" name="open-mode" value="window" /> In a new window</label>
+          <p class="hint">
+            <kbd>Ctrl</kbd>+<kbd>T</kbd>, <kbd>Ctrl</kbd>+<kbd>N</kbd> and the arrow beside
+            <b>Open…</b> override this for a single file.
+          </p>
+        </fieldset>
+
+        <div id="settings-actions"><button value="close">Done</button></div>
+      </form>
+    </dialog>
 
     <script src="vendor/highlight.min.js"></script>
     <script src="app.js"></script>

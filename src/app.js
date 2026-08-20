@@ -13,8 +13,12 @@ const els = {
   docName: document.getElementById("doc-name"),
   tabs: document.getElementById("tabs"),
   picker: document.getElementById("theme-picker"),
-  modePicker: document.getElementById("mode-picker"),
   openBtn: document.getElementById("open-btn"),
+  openMore: document.getElementById("open-more"),
+  openMenu: document.getElementById("open-menu"),
+  settingsBtn: document.getElementById("settings-btn"),
+  settings: document.getElementById("settings-dialog"),
+  modeRadios: document.querySelectorAll('#settings-dialog input[name="open-mode"]'),
   emptyOpenBtn: document.getElementById("empty-open-btn"),
   content: document.getElementById("content"),
   empty: document.getElementById("empty"),
@@ -394,13 +398,40 @@ async function refresh() {
   await showActive(window.scrollY);
 }
 
-/** Where a newly opened file goes, per the toolbar setting. */
+/** Where a newly opened file goes, per the Settings choice. */
 async function openDocument(path) {
   if (state.openMode === "window" && tabs.length > 0) {
     await invoke("open_window", { path });
   } else {
     await openTab(path);
   }
+}
+
+/* ---------------- open mode ---------------- */
+
+/**
+ * Reflect the mode in the UI without writing it back. Also called when another
+ * window changes it, so it must not re-broadcast.
+ */
+function showOpenMode(mode) {
+  state.openMode = mode;
+  for (const radio of els.modeRadios) radio.checked = radio.value === mode;
+  els.openBtn.title =
+    mode === "window"
+      ? "Open a Markdown file in a new window (Ctrl+O)"
+      : "Open a Markdown file in a new tab (Ctrl+O)";
+}
+
+function setOpenMode(mode) {
+  showOpenMode(mode);
+  invoke("set_open_mode", { mode }).catch(console.error);
+}
+
+/** `undefined` toggles. */
+function showOpenMenu(open) {
+  const next = open ?? els.openMenu.hidden;
+  els.openMenu.hidden = !next;
+  els.openMore.setAttribute("aria-expanded", String(next));
 }
 
 /* ---------------- dragging ---------------- */
@@ -707,6 +738,15 @@ function onLinkClick(event) {
 }
 
 async function onKeydown(event) {
+  // The dialog is modal; let it own the keyboard, including Escape to close.
+  if (els.settings.open) return;
+
+  if (event.key === "Escape" && !els.openMenu.hidden) {
+    showOpenMenu(false);
+    els.openMore.focus();
+    return;
+  }
+
   if (event.altKey && !event.ctrlKey && !event.metaKey) {
     if (event.key === "ArrowLeft") {
       event.preventDefault();
@@ -775,6 +815,7 @@ function onMouseUp(event) {
 
 async function main() {
   els.openBtn.addEventListener("click", async () => {
+    showOpenMenu(false);
     const p = await pickFile();
     if (p) await openDocument(p);
   });
@@ -782,11 +823,40 @@ async function main() {
     const p = await pickFile();
     if (p) await openDocument(p);
   });
-  els.picker.addEventListener("change", (e) => selectTheme(e.target.value));
-  els.modePicker.addEventListener("change", (e) => {
-    state.openMode = e.target.value;
-    invoke("set_open_mode", { mode: state.openMode }).catch(console.error);
+
+  els.openMore.addEventListener("click", () => showOpenMenu());
+  els.openMenu.addEventListener("click", async (e) => {
+    const item = e.target.closest("button[data-mode]");
+    if (!item) return;
+    showOpenMenu(false);
+    const p = await pickFile();
+    if (!p) return;
+    // Deliberately bypasses openDocument: the point of this menu is to override
+    // the saved default for one file without changing it.
+    if (item.dataset.mode === "window") await invoke("open_window", { path: p });
+    else await openTab(p);
   });
+  // Capture, so a click anywhere else dismisses the menu before that click does
+  // whatever else it was going to do.
+  document.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (!els.openMenu.hidden && !e.target.closest("#open-split")) showOpenMenu(false);
+    },
+    true,
+  );
+
+  els.settingsBtn.addEventListener("click", () => {
+    showOpenMenu(false);
+    els.settings.showModal();
+  });
+  for (const radio of els.modeRadios) {
+    radio.addEventListener("change", () => {
+      if (radio.checked) setOpenMode(radio.value);
+    });
+  }
+
+  els.picker.addEventListener("change", (e) => selectTheme(e.target.value));
   els.content.addEventListener("click", onLinkClick);
   els.back.addEventListener("click", () => go(-1));
   els.forward.addEventListener("click", () => go(1));
@@ -808,8 +878,7 @@ async function main() {
   });
 
   const settings = await invoke("get_settings");
-  state.openMode = settings.open_mode ?? "tab";
-  els.modePicker.value = state.openMode;
+  showOpenMode(settings.open_mode ?? "tab");
   await loadThemeList();
   await applyTheme(settings.theme);
 
@@ -833,10 +902,7 @@ async function main() {
     await loadThemeList();
     if (state.theme) await applyTheme(state.theme);
   });
-  await listen("open-mode-changed", (e) => {
-    state.openMode = e.payload;
-    els.modePicker.value = e.payload;
-  });
+  await listen("open-mode-changed", (e) => showOpenMode(e.payload));
 
   // Another window's tab is hovering over this one.
   await listenHere("tab-drag-over", (e) => {
