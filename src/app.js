@@ -169,6 +169,17 @@ function show(which) {
 }
 
 function renderDocument(doc, scrollY) {
+  /*
+   * Drop any fragment left over from the previous document. Without this, a
+   * `#f5` still sitting in the URL means clicking `#f5` in the *next* file is
+   * not a change of fragment, so the browser performs no jump at all.
+   * replaceState rather than assigning location.hash: no extra entry, no
+   * hashchange, no trailing "#".
+   */
+  if (location.hash) {
+    history.replaceState(null, "", location.href.split("#")[0]);
+  }
+
   els.content.innerHTML = doc.html;
   resolveMedia(els.content, doc.dir);
   wrapTables(els.content);
@@ -386,10 +397,61 @@ async function go(delta) {
   if (!tab) return;
   const target = tab.index + delta;
   if (target < 0 || target >= tab.entries.length) return;
+
+  const from = currentEntry(tab);
   rememberScroll();
   tab.index = target;
+  const to = currentEntry(tab);
+
+  /*
+   * Anchors put several entries on one document. Stepping between them is a
+   * scroll, not a load — re-rendering would flash the page, re-run highlighting
+   * and lose nothing but time. The watcher is already pointed at this file too.
+   */
+  if (from && to && samePath(from.path, to.path)) {
+    window.scrollTo(0, to.scrollY ?? 0);
+    updateChrome();
+    return;
+  }
+
   syncWatch();
   await showActive();
+}
+
+/**
+ * Record an in-page jump as a history entry, so Back returns to where the link
+ * was clicked from rather than skipping the whole document.
+ *
+ * The browser is left to perform the jump itself. That is what makes `:target`
+ * match, which is what keeps the heading clear of the sticky bar — doing the
+ * scroll by hand would mean reimplementing that offset.
+ */
+function pushAnchorEntry(raw) {
+  let id = raw;
+  try {
+    id = decodeURIComponent(raw);
+  } catch {
+    /* malformed escapes: use the raw text */
+  }
+  // A link to nothing scrolls nowhere, so it should not cost a Back press.
+  if (!document.getElementById(id)) return;
+
+  const tab = activeTab();
+  const entry = currentEntry(tab);
+  if (!entry) return;
+
+  rememberScroll(); // the spot being left, captured before the browser moves
+  tab.entries.length = tab.index + 1; // drop the forward branch
+  tab.entries.push({ path: entry.path, scrollY: 0, hash: id });
+  tab.index = tab.entries.length - 1;
+  updateChrome();
+
+  // The jump happens after this handler returns; record where it landed so
+  // Forward comes back to exactly the same place.
+  requestAnimationFrame(() => {
+    const landed = currentEntry(activeTab());
+    if (landed?.hash === id) landed.scrollY = window.scrollY;
+  });
 }
 
 /** Re-render the open document in place: no history entry, no scroll jump. */
@@ -719,7 +781,11 @@ function onLinkClick(event) {
   const href = a.getAttribute("href");
   if (!href) return;
 
-  if (href.startsWith("#")) return; // in-page anchor: let the browser do it
+  // In-page anchor: the browser performs the jump, we just record it.
+  if (href.startsWith("#")) {
+    pushAnchorEntry(href.slice(1));
+    return;
+  }
 
   event.preventDefault();
 

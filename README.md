@@ -106,8 +106,10 @@ document you opened in another. Each entry remembers its scroll position, so
 going Back returns you to the spot you left rather than the top of the page.
 Navigating after going back discards the forward branch.
 
-In-page `#anchor` links jump without creating a history entry — Back skips
-straight to the previous *document*.
+In-page `#anchor` links get a history entry too, so Back returns to the line you
+clicked the link from rather than skipping the whole document. Stepping between
+two anchors in one file is a scroll, not a reload — no flash, no re-highlight. A
+link pointing at an id that does not exist scrolls nowhere and costs no entry.
 
 ## Tabs and windows
 
