@@ -1,6 +1,6 @@
 name: Release
 
-# Tag a commit `v0.1.0` and push the tag; this builds the NSIS installer and
+# Tag a commit `v<version>` and push the tag; this builds the NSIS installer and
 # publishes it. `workflow_dispatch` builds the same artifact without releasing,
 # for when you want to check the packaging without burning a version number.
 on:

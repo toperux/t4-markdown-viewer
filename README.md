@@ -28,10 +28,10 @@ executable; a comparable Electron build starts around 150 MB.
 
 ## Installing
 
-Download `T4-Markdown-Viewer_0.1.0_x64-setup.exe` from
+Download `T4-Markdown-Viewer_1.0.0_x64-setup.exe` from
 [Releases](https://github.com/toperux/t4-markdown-viewer/releases) — or build it
 yourself, in which case it lands in `src-tauri/target/release/bundle/nsis/`
-under Tauri's own name, `T4 Markdown Viewer_0.1.0_x64-setup.exe`.
+under Tauri's own name, `T4 Markdown Viewer_1.0.0_x64-setup.exe`.
 
 It is a **per-user** install — no admin prompt — landing in
 `%LOCALAPPDATA%\T4 Markdown Viewer`. Uninstall from Add/Remove Programs.
@@ -43,7 +43,7 @@ prompt, and it is not worth several hundred dollars a year for this. Each
 release lists the installer's SHA-256 so you can check you got what was built:
 
 ```powershell
-Get-FileHash '.\T4-Markdown-Viewer_0.1.0_x64-setup.exe' -Algorithm SHA256
+Get-FileHash '.\T4-Markdown-Viewer_1.0.0_x64-setup.exe' -Algorithm SHA256
 ```
 
 ### Making it the default for `.md`
