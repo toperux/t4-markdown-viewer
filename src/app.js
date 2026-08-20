@@ -277,7 +277,7 @@ let watching = null;
 /** Keep the Rust watcher pointed at exactly the files this window has open. */
 function syncWatch() {
   const paths = [...new Set(tabs.map((t) => currentEntry(t)?.path).filter(Boolean))];
-  const key = paths.join(" ");
+  const key = paths.join("\0");
   if (key === watching) return;
   watching = key;
   invoke("watch_files", { paths }).catch(console.error);
