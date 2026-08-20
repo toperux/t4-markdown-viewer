@@ -5,6 +5,7 @@ edition = "2021"
 description = "A fast, themeable Markdown viewer for Windows"
 authors = ["Christopher Montevirgen"]
 license = "MIT"
+repository = "https://github.com/toperux/t4-markdown-viewer"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
