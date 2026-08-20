@@ -7,6 +7,8 @@ Built on [Tauri v2](https://v2.tauri.app) — a Rust shell around the WebView2
 runtime that already ships with Windows 11. The whole app is a single ~6 MB
 executable; a comparable Electron build starts around 150 MB.
 
+![Azure DevOps theme](docs/screenshots/azure-devops.png)
+
 ## Features
 
 - **Open by double-click.** `.md`, `.markdown`, `.mdown`, `.mkd`, `.mdtext`
@@ -145,6 +147,16 @@ disappearing from under you is a worse surprise than an empty one.
 Bundled: `azure-devops` (default), `azure-devops-dark`, `github-light`,
 `github-dark`, `solarized-light`, `solarized-dark`, `dracula`, `dracula-green`,
 `dracula-blue`, `sakura`, `tufte`.
+
+The same page in four of them — a theme owns every colour, the type scale and
+the code chrome, so they are not recolourings of one look:
+
+| | |
+| --- | --- |
+| ![azure-devops-dark](docs/screenshots/azure-devops-dark.png) | ![dracula-blue](docs/screenshots/dracula-blue.png) |
+| `azure-devops-dark` | `dracula-blue` |
+| ![tufte](docs/screenshots/tufte.png) | ![azure-devops](docs/screenshots/azure-devops.png) |
+| `tufte` | `azure-devops` |
 
 To write your own, copy `themes/_template.css` into
 
