@@ -112,11 +112,18 @@ The tab strip appears once a window holds two documents. From there a tab can be
 - or dropped anywhere else, including this window's own text, to tear it out
   into a new window at the cursor.
 
-A tab carries its history and scroll positions with it.
+Once a tab leaves the strip it vacates its slot and a chip follows the cursor in
+its place. A tab carries its history and scroll positions with it.
 
-Because the strip stays hidden while a window holds a single document, there is
-nothing to grab in that case — a lone document is already in its own window, so
-use the `Ctrl+N` / New window setting to split things up instead.
+**The drop target is whatever window you can see** under the cursor, decided by
+real z-order rather than a guess. Releasing over your own window tears the tab
+off even if another window happens to be buried underneath — you could not have
+aimed at something invisible, so it does not count as a target.
+
+With a single document the strip is hidden, so the **file path in the toolbar
+becomes the drag handle**. Tearing off there would just recreate the window you
+already have, but dropping it onto another window merges the two, leaving this
+one empty.
 
 Closing the last tab leaves the window empty rather than destroying it; a window
 disappearing from under you is a worse surprise than an empty one.
@@ -181,11 +188,18 @@ most recently focused window or to a new window, per the setting; cold starts
 read it in `setup()`.
 
 **Dragging is pointer capture, not HTML5 drag-and-drop.** DnD cannot cross a
-webview boundary and every window here is its own webview. Instead the strip
+webview boundary and every window here is its own webview. Instead the bar
 captures the pointer, and Rust answers "which of my windows is under this screen
-point" by testing each window's client rect. A tab is plain JSON — path plus
-history — so moving one between windows is a hand-off through Rust rather than
-any kind of webview state migration.
+point" with `WindowFromPoint` — the compositor's own answer, since Tauri exposes
+no z-order and window rectangles alone cannot tell which one is on top. A tab is
+plain JSON — path plus history — so moving one between windows is a hand-off
+through Rust rather than any kind of webview state migration.
+
+**Screen coordinates come from the window, not the pointer event.**
+`screenX * devicePixelRatio` assumes a single scale factor for the whole
+desktop and lands in the wrong place across monitors set to different scaling.
+Rust reports the window's own physical origin and scale at drag start, and the
+frontend maps `clientX/clientY` through those.
 
 Three things about that were only discoverable by hitting them:
 

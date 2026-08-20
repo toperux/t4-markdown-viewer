@@ -209,6 +209,8 @@ function updateChrome() {
   els.forward.disabled = !tab || tab.index >= tab.entries.length - 1;
   els.docName.textContent = tab ? tab.path : "";
   els.docName.title = tab ? tab.path : "";
+  // Only a drag handle while it stands in for a hidden strip.
+  els.docName.classList.toggle("handle", tabs.length === 1);
   appWindow
     .setTitle(tab ? `${tab.label} — Markdown Viewer` : "Markdown Viewer")
     .catch(() => {});
@@ -253,7 +255,7 @@ function renderTabs() {
   if (dropCaret >= tabs.length) nodes.push(caretElement());
 
   els.tabs.replaceChildren(...nodes);
-  if (drag?.moved) markDragging(true);
+  paintDrag();
 }
 
 function caretElement() {
@@ -415,17 +417,48 @@ const PROBE_MS = 30; // throttle for the cross-window hit test
 const STRIP_SLACK = 24; // vertical grace before a drag counts as leaving
 
 let drag = null;
+let ghostEl = null;
 
-/** Physical screen point for Rust; pointer events report CSS pixels. */
-function screenPoint(event) {
-  const dpr = window.devicePixelRatio || 1;
-  return { x: event.screenX * dpr, y: event.screenY * dpr };
+/**
+ * Pointer position as a physical screen point, from the window's own origin and
+ * scale. Deliberately not `screenX * devicePixelRatio`: that assumes one scale
+ * factor for the whole desktop and lands in the wrong place as soon as two
+ * monitors are set to different scaling.
+ */
+function screenPoint(event, origin) {
+  return {
+    x: origin.x + event.clientX * origin.scale,
+    y: origin.y + event.clientY * origin.scale,
+  };
 }
 
-function markDragging(on) {
+/** A chip that follows the cursor once the tab leaves the strip. */
+function moveGhost(event) {
+  if (!ghostEl) {
+    ghostEl = document.createElement("div");
+    ghostEl.className = "tab-ghost";
+    document.body.appendChild(ghostEl);
+  }
+  const tab = tabs.find((t) => t.id === drag.id);
+  ghostEl.textContent = tab ? tab.label : "";
+  ghostEl.style.transform = `translate(${event.clientX - 16}px, ${event.clientY - 14}px)`;
+  ghostEl.hidden = false;
+}
+
+function hideGhost() {
+  if (ghostEl) ghostEl.hidden = true;
+}
+
+/** Reflect drag state in the DOM. Safe to call with no drag in progress. */
+function paintDrag() {
+  const detached = Boolean(drag?.detached);
   els.tabs.querySelectorAll(".tab").forEach((el) => {
-    el.classList.toggle("dragging", Boolean(on) && Number(el.dataset.id) === drag?.id);
+    const mine = Number(el.dataset.id) === drag?.id;
+    el.classList.toggle("dragging", Boolean(drag?.moved) && mine && !detached);
+    el.classList.toggle("detached", detached && mine);
   });
+  document.documentElement.classList.toggle("dragging-tab", Boolean(drag?.moved));
+  if (!detached) hideGhost();
 }
 
 /** Slot a tab released at `clientX` would occupy, in current DOM order. */
@@ -450,6 +483,30 @@ function reorderTo(target) {
   renderTabs();
 }
 
+function beginDrag(event, id) {
+  event.preventDefault();
+  drag = {
+    id,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    moved: false,
+    detached: false,
+    lastProbe: 0,
+    origin: null,
+  };
+  // Fetched rather than derived in JS so the screen mapping is exact; it lands
+  // before the pointer has moved far enough to count as a drag.
+  invoke("window_origin")
+    .then((o) => {
+      if (drag) drag.origin = o;
+    })
+    .catch(console.error);
+  // Capture on the bar, not the tab or the strip: reordering rebuilds the tab
+  // elements mid-drag, and the path handle lives outside the strip entirely.
+  els.bar.setPointerCapture(event.pointerId);
+}
+
 function onTabPointerDown(event) {
   const el = event.target.closest(".tab");
   if (!el) return;
@@ -461,23 +518,20 @@ function onTabPointerDown(event) {
     return;
   }
   if (event.button !== 0 || event.target.closest(".tab-close")) return;
-
-  event.preventDefault();
-  drag = {
-    id,
-    pointerId: event.pointerId,
-    startX: event.clientX,
-    startY: event.clientY,
-    moved: false,
-    detached: false,
-    lastProbe: 0,
-  };
-  // Capture on the strip, not the tab: reordering rebuilds the tab elements
-  // mid-drag, which would destroy a capture held by one of them.
-  els.tabs.setPointerCapture(event.pointerId);
+  beginDrag(event, id);
 }
 
-function onTabPointerMove(event) {
+/**
+ * With a single document the strip is hidden, so the path doubles as its drag
+ * handle. Tearing off is meaningless there — the document already has a window
+ * to itself — but dragging it onto another window merges the two.
+ */
+function onDocNamePointerDown(event) {
+  if (event.button !== 0 || !els.tabs.hidden || activeId === null) return;
+  beginDrag(event, activeId);
+}
+
+function onDragMove(event) {
   if (!drag || event.pointerId !== drag.pointerId) return;
 
   if (!drag.moved) {
@@ -485,12 +539,15 @@ function onTabPointerMove(event) {
     const dy = event.clientY - drag.startY;
     if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
     drag.moved = true;
-    markDragging(true);
   }
 
+  // A hidden strip has a zero-sized rect sitting at the origin, which would
+  // otherwise read as "inside" for any pointer near the top of the window.
   const strip = els.tabs.getBoundingClientRect();
   const inStrip =
-    event.clientY >= strip.top - STRIP_SLACK && event.clientY <= strip.bottom + STRIP_SLACK;
+    !els.tabs.hidden &&
+    event.clientY >= strip.top - STRIP_SLACK &&
+    event.clientY <= strip.bottom + STRIP_SLACK;
 
   if (inStrip) {
     if (drag.detached) {
@@ -498,27 +555,33 @@ function onTabPointerMove(event) {
       invoke("drag_cancel").catch(() => {});
     }
     reorderTo(insertionIndex(event.clientX));
+    paintDrag();
     return;
   }
 
   drag.detached = true;
+  paintDrag();
+  moveGhost(event);
+
+  if (!drag.origin) return; // origin still in flight; nothing to map with yet
   const now = performance.now();
   if (now - drag.lastProbe < PROBE_MS) return;
   drag.lastProbe = now;
-  const { x, y } = screenPoint(event);
+  const { x, y } = screenPoint(event, drag.origin);
   invoke("drag_over", { x, y }).catch(console.error);
 }
 
-async function onTabPointerUp(event) {
+async function onDragEnd(event) {
   if (!drag || event.pointerId !== drag.pointerId) return;
   const d = drag;
   drag = null;
   try {
-    els.tabs.releasePointerCapture(d.pointerId);
+    els.bar.releasePointerCapture(d.pointerId);
   } catch {
     /* capture already gone */
   }
-  markDragging(false);
+  hideGhost();
+  paintDrag();
 
   if (!d.moved) {
     await activateTab(d.id);
@@ -531,7 +594,9 @@ async function onTabPointerUp(event) {
 
   const tab = tabs.find((t) => t.id === d.id);
   if (!tab) return;
-  const { x, y } = screenPoint(event);
+  const origin = d.origin ?? (await invoke("window_origin").catch(() => null));
+  if (!origin) return;
+  const { x, y } = screenPoint(event, origin);
   try {
     const outcome = await invoke("drop_tab", {
       x,
@@ -545,12 +610,13 @@ async function onTabPointerUp(event) {
   }
 }
 
-function onTabPointerCancel() {
+function onDragCancel() {
   if (!drag) return;
-  const d = drag;
+  const detached = drag.detached;
   drag = null;
-  markDragging(false);
-  if (d.detached) invoke("drag_cancel").catch(() => {});
+  hideGhost();
+  paintDrag();
+  if (detached) invoke("drag_cancel").catch(() => {});
   renderTabs();
 }
 
@@ -726,9 +792,11 @@ async function main() {
   els.forward.addEventListener("click", () => go(1));
 
   els.tabs.addEventListener("pointerdown", onTabPointerDown);
-  els.tabs.addEventListener("pointermove", onTabPointerMove);
-  els.tabs.addEventListener("pointerup", onTabPointerUp);
-  els.tabs.addEventListener("pointercancel", onTabPointerCancel);
+  els.docName.addEventListener("pointerdown", onDocNamePointerDown);
+  // Capture lands on the bar, so the whole drag is tracked from there.
+  els.bar.addEventListener("pointermove", onDragMove);
+  els.bar.addEventListener("pointerup", onDragEnd);
+  els.bar.addEventListener("pointercancel", onDragCancel);
   els.tabs.addEventListener("click", onTabClick);
 
   document.addEventListener("keydown", onKeydown);

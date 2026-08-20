@@ -220,10 +220,55 @@ body {
   background: rgba(128, 128, 128, 0.3);
 }
 
-/* The tab being dragged stays in place but recedes, so the gap reads as "this
-   is what you are moving" without a ghost element following the cursor. */
+/* While being reordered inside the strip the tab stays put and recedes; the
+   live reorder is the feedback. */
 .tab.dragging {
   opacity: 0.4;
+}
+
+/* Once it leaves the strip it vacates its slot entirely, leaving a gap the
+   exact size of the tab, and the ghost below takes over as the thing you are
+   moving. `visibility` rather than `display` so the gap keeps its width. */
+.tab.detached {
+  visibility: hidden;
+}
+
+.tab-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 100;
+  /* Must never win a hit test — neither the page's nor, indirectly, the
+     compositor's when Rust asks which window is under the cursor. */
+  pointer-events: none;
+  max-width: 14rem;
+  padding: 0.25rem 0.625rem;
+  border: 1px solid var(--ui-accent);
+  border-radius: 4px;
+  background: var(--ui-bg);
+  color: var(--ui-fg);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  font: 400 0.8125rem/1.4 "Segoe UI", system-ui, sans-serif;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.95;
+}
+
+.tab-ghost[hidden] {
+  display: none;
+}
+
+/* Pointer capture keeps events on the bar, but the cursor is still drawn from
+   whatever sits under it — so the whole document has to agree during a drag. */
+html.dragging-tab,
+html.dragging-tab * {
+  cursor: grabbing !important;
+}
+
+/* Stands in for the strip when only one document is open. */
+#doc-name.handle {
+  cursor: grab;
 }
 
 /* Where a tab released right now would land — drawn in this window even when

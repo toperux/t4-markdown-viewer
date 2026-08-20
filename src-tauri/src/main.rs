@@ -42,6 +42,13 @@ struct AppState {
 }
 
 #[derive(Serialize)]
+struct Origin {
+    x: f64,
+    y: f64,
+    scale: f64,
+}
+
+#[derive(Serialize)]
 struct Document {
     path: String,
     dir: String,
@@ -143,41 +150,64 @@ fn spawn_window(app: &AppHandle, pending: Option<Value>, at: Option<(f64, f64)>)
     label
 }
 
-/// Topmost app window whose client area contains a physical screen point,
-/// ignoring `except` — the window the drag started from, so that releasing over
-/// your own document tears the tab off rather than dropping it back.
-///
-/// Returns the label plus the point in that window's CSS pixels. Overlapping
-/// windows resolve to the most recently focused, which is very nearly z-order.
-fn window_at(app: &AppHandle, x: f64, y: f64, except: &str) -> Option<(String, f64, f64)> {
-    let order = app.state::<AppState>().focus_order.lock().unwrap().clone();
-    let mut best: Option<(String, f64, f64, usize)> = None;
+/// The top-level window the compositor draws at a physical screen point, or 0.
+/// `WindowFromPoint` returns the deepest child — the WebView2 surface — so this
+/// walks back up to the frame Tauri owns.
+#[cfg(windows)]
+fn hwnd_at(x: f64, y: f64) -> isize {
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetAncestor, WindowFromPoint, GA_ROOT};
 
-    for (label, w) in app.webview_windows() {
-        if label == except
-            || w.is_minimized().unwrap_or(false)
-            || !w.is_visible().unwrap_or(true)
-        {
-            continue;
+    let point = POINT {
+        x: x.round() as i32,
+        y: y.round() as i32,
+    };
+    unsafe {
+        let hit = WindowFromPoint(point);
+        if hit.is_null() {
+            return 0;
         }
-        let (Ok(pos), Ok(size)) = (w.inner_position(), w.inner_size()) else {
-            continue;
-        };
-        let (left, top) = (pos.x as f64, pos.y as f64);
-        if x < left || y < top || x >= left + size.width as f64 || y >= top + size.height as f64 {
-            continue;
-        }
-        let scale = w.scale_factor().unwrap_or(1.0);
-        let rank = order.iter().position(|o| *o == label).unwrap_or(0);
-        let better = match &best {
-            None => true,
-            Some((_, _, _, top_rank)) => rank >= *top_rank,
-        };
-        if better {
-            best = Some((label, (x - left) / scale, (y - top) / scale, rank));
-        }
+        GetAncestor(hit, GA_ROOT) as isize
     }
-    best.map(|(label, lx, ly, _)| (label, lx, ly))
+}
+
+#[cfg(not(windows))]
+fn hwnd_at(_x: f64, _y: f64) -> isize {
+    0
+}
+
+/// The app window a physical screen point lands on, plus that point in the
+/// window's CSS pixels.
+///
+/// This is a true z-order test rather than a scan of window rectangles: the
+/// answer has to be the window the user can actually *see* at the cursor.
+/// Note it can return the dragging window itself — callers treat that as
+/// "dropped on my own window", which tears the tab off.
+#[cfg(windows)]
+fn window_at(app: &AppHandle, x: f64, y: f64) -> Option<(String, f64, f64)> {
+    let target = hwnd_at(x, y);
+    if target == 0 {
+        return None;
+    }
+    for (label, w) in app.webview_windows() {
+        let Ok(handle) = w.hwnd() else { continue };
+        if handle.0 as isize != target {
+            continue;
+        }
+        let Ok(pos) = w.inner_position() else { continue };
+        let scale = w.scale_factor().unwrap_or(1.0);
+        return Some((
+            label,
+            (x - pos.x as f64) / scale,
+            (y - pos.y as f64) / scale,
+        ));
+    }
+    None
+}
+
+#[cfg(not(windows))]
+fn window_at(_app: &AppHandle, _x: f64, _y: f64) -> Option<(String, f64, f64)> {
+    None
 }
 
 fn clear_drag(app: &AppHandle, state: &AppState) {
@@ -272,11 +302,26 @@ fn open_window(app: AppHandle, path: Option<String>) -> String {
     spawn_window(&app, pending, None)
 }
 
+/// The window's client-area origin and scale, both physical. The frontend turns
+/// pointer coordinates into screen coordinates with these instead of
+/// `screenX * devicePixelRatio`, which guesses wrong the moment two monitors
+/// run at different scaling.
+#[tauri::command]
+fn window_origin(window: Window) -> Result<Origin, String> {
+    let pos = window.inner_position().map_err(|e| e.to_string())?;
+    Ok(Origin {
+        x: pos.x as f64,
+        y: pos.y as f64,
+        scale: window.scale_factor().unwrap_or(1.0),
+    })
+}
+
 /// Track a detached tab drag. Returns the window under the cursor, if any, and
 /// tells that window where to draw its drop caret.
 #[tauri::command]
 fn drag_over(app: AppHandle, state: State<AppState>, window: Window, x: f64, y: f64) -> Option<String> {
-    let hit = window_at(&app, x, y, window.label());
+    // Hovering your own window is not a drop target: releasing there tears off.
+    let hit = window_at(&app, x, y).filter(|(label, _, _)| label != window.label());
     let next = hit.as_ref().map(|(label, _, _)| label.clone());
 
     {
@@ -314,7 +359,7 @@ fn drop_tab(
 ) -> Result<String, String> {
     clear_drag(&app, &state);
 
-    match window_at(&app, x, y, window.label()) {
+    match window_at(&app, x, y).filter(|(label, _, _)| label != window.label()) {
         Some((label, lx, _)) => {
             app.emit_to(&label, "tab-adopt", json!({ "tab": tab, "x": lx }))
                 .map_err(|e| e.to_string())?;
@@ -395,6 +440,7 @@ fn main() {
             load_file,
             watch_files,
             open_window,
+            window_origin,
             drag_over,
             drag_cancel,
             drop_tab,
