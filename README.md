@@ -248,6 +248,12 @@ src-tauri/
 examples/             kitchen-sink fixture
 ```
 
-## Licenses
+## License
 
-See [`src-tauri/THIRD-PARTY-LICENSES.md`](src-tauri/THIRD-PARTY-LICENSES.md).
+MIT — see [`LICENSE`](LICENSE).
+
+Every dependency is permissively licensed and compatible with that; nothing in
+the tree is GPL, LGPL, AGPL or SSPL. Five transitive crates are MPL-2.0, whose
+file-level copyleft expressly allows combining them into an MIT-licensed larger
+work. Per-license breakdown and attribution in
+[`src-tauri/THIRD-PARTY-LICENSES.md`](src-tauri/THIRD-PARTY-LICENSES.md).

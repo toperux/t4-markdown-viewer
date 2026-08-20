@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "A fast, themeable Markdown viewer for Windows"
 authors = ["Christopher Montevirgen"]
+license = "MIT"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
