@@ -72,12 +72,9 @@
           <legend>Theme</legend>
           <p class="hint">
             Applies the moment you pick it, so the document behind this dialog previews the choice.
-            <kbd>F8</kbd> cycles without opening Settings, and works while it is open.
+            <kbd>F8</kbd> cycles without opening Settings, and keeps working while it is open.
           </p>
-          <!-- Radios rather than a <select>: the popup list of a native select
-               is an OS-level widget that no theme can colour, which used to
-               force every theme file to restate two literal colours. -->
-          <div id="theme-list" role="radiogroup" aria-label="Theme"></div>
+          <select id="theme-picker" aria-label="Theme"></select>
         </fieldset>
 
         <fieldset>

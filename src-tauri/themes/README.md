@@ -30,7 +30,8 @@ A theme owns **everything visual**: colors, fonts, type sizes, border colors.
 Every selector is scoped under `.markdown-body`, which wraps the rendered
 document.
 
-Four variables control the app's own top bar, which sits outside the document:
+Four variables control the app's own chrome — top bar, tab strip and the
+Settings dialog — all of which sit outside the document:
 
 ```css
 :root {
@@ -46,17 +47,32 @@ Dark themes must also set `color-scheme: dark` on `:root` (not `body` —
 Chromium reads it from the root element), which fixes the scrollbars and
 checkboxes the browser draws itself.
 
-Those four, plus `color-scheme`, are the whole chrome contract. The toolbar, the
-tab strip and the Settings dialog are all drawn from them, so a theme never has
-to know those parts exist.
+### The theme dropdown needs literal colors
 
-> **Removed in favour of that:** themes used to need a `#bar select option` rule
-> with *literal* colors, because the theme picker was a `<select>` whose popup
-> is an OS-level widget — `var()` does not resolve inside it and `color-scheme`
-> is ignored, so a dark theme's near-white text landed on a near-white popup and
-> the list looked empty. The picker is now radio buttons inside the Settings
-> dialog, which is ordinary in-page DOM. If your theme still carries that rule
-> it is harmless, just dead.
+The theme picker — a `<select>` in the Settings dialog — has a popup list that
+is a separate OS-level widget rendered outside the page. Two things follow, and
+both bite dark themes:
+
+- **`var()` does not resolve there.** `background-color: var(--ui-bg)` silently
+  falls back to base.css's light defaults instead of your theme's.
+- **`color-scheme` is ignored there.** The popup stays light no matter what.
+
+Meanwhile options inherit `color` from the select — your theme's foreground. On
+a dark theme that is near-white text on a near-white popup, so the list looks
+empty apart from whichever row the mouse is over.
+
+So every theme restates the pair with literal values:
+
+```css
+select option {
+  background-color: #252526;             /* match --ui-bg */
+  color: rgba(255, 255, 255, 0.9);       /* match --ui-fg */
+}
+```
+
+Unscoped on purpose. Older themes wrote `#bar select option`, from when the
+picker lived in the top bar; that no longer matches. If you have one, drop the
+`#bar`.
 
 ### Elements to cover
 

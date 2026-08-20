@@ -285,15 +285,37 @@ body {
   accent-color: var(--ui-accent);
 }
 
-/* Two columns so eleven themes do not turn the dialog into a column of names.
-   Capped and scrollable, since a user themes folder has no upper bound. */
-#theme-list {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0 1rem;
-  max-height: 11rem;
-  overflow-y: auto;
-  scrollbar-width: thin;
+#settings-dialog select {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--ui-border);
+  border-radius: 3px;
+  padding: 0.25rem 0.5rem;
+  min-width: 14rem;
+  cursor: pointer;
+}
+
+#settings-dialog select:hover {
+  border-color: var(--ui-accent);
+}
+
+#settings-dialog select:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 1px;
+}
+
+/*
+ * Options inherit `color` from the select, so without an explicit rule a
+ * light-on-dark theme paints white text into the OS popup and the list becomes
+ * invisible. These are the pre-theme defaults; each theme restates them.
+ *
+ * Literal colors only — the popup is a separate OS-level widget where `var()`
+ * does not resolve. Keep these in sync with the :root defaults above.
+ */
+select option {
+  background-color: #f5f5f5;
+  color: #1f1f1f;
 }
 
 #settings-dialog kbd {

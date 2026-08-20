@@ -45,6 +45,22 @@ body {
   background: #ffffff;
 }
 
+/*
+ * The theme dropdown's popup is a separate OS-level widget drawn outside the
+ * page. Two consequences:
+ *
+ *   1. `var()` does not resolve there, so these must be LITERAL colors. Using
+ *      var(--ui-bg) silently falls back to base.css's light defaults.
+ *   2. `color-scheme` is ignored, so a dark theme must state both colors here
+ *      or the options inherit your pale text onto a light popup and vanish.
+ *
+ * Match these to --ui-bg and --ui-fg above.
+ */
+select option {
+  background-color: #f5f5f5;
+  color: #1f1f1f;
+}
+
 /* ---- document ---------------------------------------------------------- */
 /* Everything the renderer produces lives inside .markdown-body. */
 .markdown-body {

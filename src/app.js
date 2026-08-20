@@ -12,7 +12,7 @@ const els = {
   forward: document.getElementById("fwd-btn"),
   docName: document.getElementById("doc-name"),
   tabs: document.getElementById("tabs"),
-  themeList: document.getElementById("theme-list"),
+  picker: document.getElementById("theme-picker"),
   openBtn: document.getElementById("open-btn"),
   openMore: document.getElementById("open-more"),
   openMenu: document.getElementById("open-menu"),
@@ -660,17 +660,11 @@ function onTabClick(event) {
 
 /* ---------------- themes ---------------- */
 
-function checkTheme(name) {
-  for (const radio of els.themeList.querySelectorAll("input")) {
-    radio.checked = radio.value === name;
-  }
-}
-
 async function applyTheme(name) {
   try {
     els.themeStyle.textContent = await invoke("read_theme", { name });
     state.theme = name;
-    checkTheme(name);
+    els.picker.value = name;
   } catch (err) {
     console.error("theme load failed", name, err);
   }
@@ -683,23 +677,15 @@ async function selectTheme(name) {
 
 async function loadThemeList() {
   state.themes = await invoke("list_themes");
-  els.themeList.replaceChildren(
+  els.picker.replaceChildren(
     ...state.themes.map((t) => {
-      const radio = document.createElement("input");
-      radio.type = "radio";
-      radio.name = "theme";
-      radio.value = t.name;
-      // Arrow keys move between radios in a group and fire `change` on each
-      // one, so walking the list previews every theme as you pass it.
-      radio.addEventListener("change", () => {
-        if (radio.checked) selectTheme(t.name);
-      });
-      const label = document.createElement("label");
-      label.append(radio, t.label);
-      return label;
+      const opt = document.createElement("option");
+      opt.value = t.name;
+      opt.textContent = t.label;
+      return opt;
     }),
   );
-  if (state.theme) checkTheme(state.theme);
+  if (state.theme) els.picker.value = state.theme;
 }
 
 function cycleTheme(step) {
@@ -870,6 +856,7 @@ async function main() {
     });
   }
 
+  els.picker.addEventListener("change", (e) => selectTheme(e.target.value));
   els.content.addEventListener("click", onLinkClick);
   els.back.addEventListener("click", () => go(-1));
   els.forward.addEventListener("click", () => go(1));

@@ -177,16 +177,10 @@ It shows up in the Settings list immediately and re-applies every time you save
 it. A file there shadows a bundled theme with the same name. Full contract in
 [`src-tauri/themes/README.md`](src-tauri/themes/README.md).
 
-Themes are picked in **Settings** (the gear), and applied the moment you select
-one — the document behind the dialog is the preview, which is why that dialog's
-backdrop is barely tinted. `F8` cycles without opening Settings, and keeps
-working while it is open.
-
-The list is radio buttons rather than a dropdown for a specific reason: a native
-`<select>` popup is an OS-level widget where `var()` does not resolve and
-`color-scheme` is ignored, so every theme file used to carry two literal colours
-just to stop its own dropdown rendering white-on-white. Those twelve rules are
-now deleted.
+Themes are picked from the dropdown in **Settings** (the gear), and applied the
+moment you select one — the document behind the dialog is the preview, which is
+why that dialog's backdrop is barely tinted. `F8` cycles without opening
+Settings, and keeps working while it is open.
 
 ## Building
 
