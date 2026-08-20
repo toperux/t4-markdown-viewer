@@ -1,0 +1,349 @@
+/*
+ * base.css — structure only.
+ *
+ * Rule: no colors for anything inside `.markdown-body`. Themes own every
+ * document color; this file owns layout, spacing and metrics so that a
+ * half-finished theme still lays out correctly.
+ *
+ * The app chrome (top bar) is the one exception: it needs *some* color to be
+ * usable before a theme loads. It reads the `--ui-*` custom properties, which
+ * every theme sets; the values below are only fallbacks.
+ */
+
+:root {
+  --ui-bg: #f5f5f5;
+  --ui-fg: #1f1f1f;
+  --ui-border: rgba(0, 0, 0, 0.12);
+  --ui-accent: #0078d4;
+  --content-width: 56rem;
+  --content-pad: 2.5rem;
+
+  /* Themes override this. Must be on :root — see the note in _template.css. */
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: auto;
+}
+
+body {
+  margin: 0;
+  /* Themes set the real background; this keeps a flash of white from showing. */
+  background: var(--ui-bg);
+  min-height: 100vh;
+}
+
+/* ---------- app chrome ---------- */
+
+#bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  background: var(--ui-bg);
+  color: var(--ui-fg);
+  border-bottom: 1px solid var(--ui-border);
+  font: 400 0.8125rem/1.4 "Segoe UI", system-ui, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#bar-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.375rem 0.75rem;
+}
+
+#doc-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+
+#nav,
+#controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: none;
+}
+
+#nav {
+  gap: 0.25rem;
+}
+
+#bar select,
+#bar button {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--ui-border);
+  border-radius: 3px;
+  padding: 0.1875rem 0.5rem;
+  cursor: pointer;
+}
+
+#bar select:hover,
+#bar button:hover {
+  border-color: var(--ui-accent);
+}
+
+/*
+ * Options inherit `color` from the select, so without an explicit rule a
+ * light-on-dark theme paints white text into the OS popup and the list becomes
+ * invisible. These are the pre-theme defaults; each theme restates them.
+ *
+ * Literal colors only — the popup is a separate OS-level widget where `var()`
+ * does not resolve. Keep these in sync with the :root defaults above.
+ */
+#bar select option {
+  background-color: #f5f5f5;
+  color: #1f1f1f;
+}
+
+#bar select:focus-visible,
+#bar button:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 1px;
+}
+
+#bar button.nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.1875rem 0.375rem;
+}
+
+#bar button.nav svg {
+  display: block;
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Ends of the history stack: visibly inert rather than hidden. */
+#bar button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+#bar button:disabled:hover {
+  border-color: var(--ui-border);
+}
+
+/* ---------- tab strip ---------- */
+
+/*
+ * Themed entirely through the --ui-* variables, so adding a tab strip cost the
+ * theme files nothing. The active tab is picked out with a neutral grey wash
+ * rather than a themed color: at 22% it reads as "raised" against both a
+ * near-white and a near-black bar, which no single literal color manages.
+ */
+#tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 0.5rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+/* `display: flex` above would otherwise defeat the `hidden` attribute. */
+#tabs[hidden] {
+  display: none;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex: 0 1 auto;
+  min-width: 5rem;
+  max-width: 14rem;
+  padding: 0.25rem 0.25rem 0.25rem 0.625rem;
+  border-radius: 4px 4px 0 0;
+  border-bottom: 2px solid transparent;
+  cursor: default;
+  /* The strip is a drag surface; a text cursor here is a lie. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.tab:hover {
+  background: rgba(128, 128, 128, 0.14);
+}
+
+.tab.active {
+  background: rgba(128, 128, 128, 0.22);
+  border-bottom-color: var(--ui-accent);
+}
+
+.tab-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Overrides the generic `#bar button` chrome: a close affordance, not a button. */
+#tabs .tab-close {
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.55;
+  font-size: 0.9375rem;
+  line-height: 1;
+}
+
+#tabs .tab-close:hover {
+  opacity: 1;
+  background: rgba(128, 128, 128, 0.3);
+}
+
+/* The tab being dragged stays in place but recedes, so the gap reads as "this
+   is what you are moving" without a ghost element following the cursor. */
+.tab.dragging {
+  opacity: 0.4;
+}
+
+/* Where a tab released right now would land — drawn in this window even when
+   the drag started in a different one. */
+.tab-caret {
+  flex: none;
+  width: 2px;
+  margin: 0.25rem 0;
+  border-radius: 1px;
+  background: var(--ui-accent);
+}
+
+/* ---------- page states ---------- */
+
+#empty,
+#error {
+  max-width: var(--content-width);
+  margin: 0 auto;
+  padding: 4rem var(--content-pad);
+  color: var(--ui-fg);
+  font: 400 0.9375rem/1.6 "Segoe UI", system-ui, sans-serif;
+}
+
+#empty button {
+  font: inherit;
+  padding: 0.375rem 0.875rem;
+  border-radius: 3px;
+  border: 1px solid var(--ui-accent);
+  background: var(--ui-accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+#error-detail {
+  font-family: ui-monospace, Consolas, monospace;
+  word-break: break-all;
+}
+
+/* ---------- document metrics ---------- */
+
+.markdown-body {
+  max-width: var(--content-width);
+  margin: 0 auto;
+  padding: var(--content-pad);
+  padding-bottom: 6rem;
+  overflow-wrap: break-word;
+}
+
+.markdown-body > *:first-child {
+  margin-top: 0;
+}
+
+.markdown-body > *:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Wide content scrolls inside its own box; the page never scrolls sideways. */
+.markdown-body pre {
+  overflow-x: auto;
+}
+
+.markdown-body .table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.markdown-body table {
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+.markdown-body th,
+.markdown-body td {
+  border-width: 1px;
+  border-style: solid;
+}
+
+.markdown-body hr {
+  border: 0;
+  border-top-width: 1px;
+  border-top-style: solid;
+}
+
+.markdown-body blockquote {
+  margin-left: 0;
+  margin-right: 0;
+  border-left-width: 4px;
+  border-left-style: solid;
+}
+
+/* A nested list is part of its parent item, not a new block after it. */
+.markdown-body li > ul,
+.markdown-body li > ol {
+  margin-top: 0.25em;
+  margin-bottom: 0;
+}
+
+/*
+ * Task lists read as checkboxes, not as bulleted checkboxes. comrak emits a
+ * bare `<li><input type="checkbox">` with no class, so match on the input.
+ */
+.markdown-body li:has(> input[type="checkbox"]) {
+  list-style: none;
+}
+
+.markdown-body li > input[type="checkbox"] {
+  margin: 0 0.4em 0 0;
+  vertical-align: middle;
+}
+
+.markdown-body .footnotes {
+  font-size: 0.875em;
+}
+
+/* Anchor targets clear the sticky bar instead of hiding behind it. */
+.markdown-body :target {
+  scroll-margin-top: 3.5rem;
+}

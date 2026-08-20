@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Markdown Viewer</title>
+    <link rel="stylesheet" href="base.css" />
+    <!-- Active theme CSS is injected here at runtime. -->
+    <style id="theme"></style>
+  </head>
+  <body>
+    <header id="bar">
+      <div id="bar-row">
+        <div id="nav">
+          <button id="back-btn" class="nav" type="button" title="Back (Alt+Left)" aria-label="Back" disabled>
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 L5 8 L10 13" /></svg>
+          </button>
+          <button id="fwd-btn" class="nav" type="button" title="Forward (Alt+Right)" aria-label="Forward" disabled>
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3 L11 8 L6 13" /></svg>
+          </button>
+        </div>
+        <div id="doc-name" title=""></div>
+        <div id="controls">
+          <select id="mode-picker" title="Where a newly opened file goes" aria-label="Open files in">
+            <option value="tab">New tab</option>
+            <option value="window">New window</option>
+          </select>
+          <select id="theme-picker" title="Theme (F8 cycles)" aria-label="Theme"></select>
+          <button id="open-btn" title="Open a Markdown file (Ctrl+O)">Open…</button>
+        </div>
+      </div>
+
+      <!-- Hidden until a second document is open; see renderTabs(). -->
+      <div id="tabs" role="tablist" hidden></div>
+    </header>
+
+    <main>
+      <article class="markdown-body" id="content" hidden></article>
+
+      <section id="empty">
+        <h1>Markdown Viewer</h1>
+        <p>Open a Markdown file, or associate <code>.md</code> files with this app and double-click one.</p>
+        <button id="empty-open-btn">Open a file…</button>
+      </section>
+
+      <section id="error" hidden>
+        <h1>Couldn’t open that file</h1>
+        <p id="error-detail"></p>
+      </section>
+    </main>
+
+    <script src="vendor/highlight.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

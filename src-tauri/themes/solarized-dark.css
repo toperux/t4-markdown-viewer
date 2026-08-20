@@ -1,0 +1,284 @@
+/*
+ * Solarized Dark
+ *
+ * Ethan Schoonover's Solarized palette (MIT).
+ *
+ * Self-contained: document styles first, highlight.js token colors at the end.
+ * Edit freely — this file is read at runtime and reloads on save.
+ */
+
+/* ---- app chrome (read by base.css) ---- */
+:root {
+  --ui-bg: #073642;
+  --ui-fg: #839496;
+  --ui-border: #073642;
+  --ui-accent: #268bd2;
+  --content-width: 54rem;
+
+  /*
+   * Belongs on :root, not body — Chromium reads it from the root element for
+   * the scrollbars and checkboxes it draws itself. It does NOT reach the theme
+   * <select>'s popup list; that is handled separately below.
+   */
+  color-scheme: dark;
+}
+
+body {
+  background: #002b36;
+}
+
+/*
+ * The <select> popup is drawn as its own OS-level widget, outside the page.
+ * `var()` references do not resolve there and `color-scheme` is ignored, so
+ * these two must be literal colors — with `var()` the list silently falls back
+ * to base.css's light defaults, and on a dark theme the options render as
+ * near-white text on a near-white background.
+ */
+#bar select option {
+  background-color: #073642;
+  color: #839496;
+}
+
+/* ---- document ---- */
+.markdown-body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial,
+    sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #839496;
+  background: #002b36;
+}
+
+.markdown-body h1 {
+  font-size: 2em;
+  font-weight: 600;
+}
+
+.markdown-body h2 {
+  font-size: 1.5em;
+  font-weight: 600;
+}
+
+.markdown-body h3 {
+  font-size: 1.25em;
+  font-weight: 600;
+}
+
+.markdown-body h4 {
+  font-size: 1em;
+  font-weight: 600;
+}
+
+.markdown-body h5 {
+  font-size: 0.875em;
+  font-weight: 600;
+}
+
+.markdown-body h6 {
+  font-size: 0.85em;
+  font-weight: 600;
+  color: #586e75;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  margin: 1.6em 0 0.6em;
+  line-height: 1.25;
+  color: #93a1a1;
+}
+
+.markdown-body p {
+  margin: 0 0 1em;
+}
+
+.markdown-body a {
+  color: #268bd2;
+  text-decoration: none;
+}
+
+.markdown-body a:hover {
+  color: #cb4b16;
+  text-decoration: underline;
+}
+
+.markdown-body strong {
+  font-weight: 600;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  margin: 0 0 1em;
+  padding-left: 2em;
+}
+
+.markdown-body li + li {
+  margin-top: 0.25em;
+}
+
+.markdown-body li > p {
+  margin-bottom: 0.5em;
+}
+
+.markdown-body dt {
+  font-weight: 600;
+  margin-top: 0.8em;
+}
+
+.markdown-body dd {
+  margin: 0 0 0.5em 2em;
+}
+
+.markdown-body blockquote {
+  margin: 0 0 1em;
+  padding: 0.25em 0 0.25em 1em;
+  border-left-color: #586e75;
+  color: #586e75;
+}
+
+.markdown-body blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body hr {
+  margin: 2em 0;
+  border-top-color: #073642;
+}
+
+.markdown-body img {
+  background: #002b36;
+}
+
+/* ---- code ---- */
+.markdown-body code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 0.9em;
+  background: #073642;
+  color: #93a1a1;
+  padding: 0.15em 0.35em;
+  border-radius: 3px;
+}
+
+.markdown-body pre {
+  margin: 0 0 1em;
+  padding: 1em;
+  border-radius: 4px;
+  background: #073642;
+  line-height: 1.5;
+}
+
+.markdown-body pre code {
+  padding: 0;
+  background: none;
+  border-radius: 0;
+  font-size: 0.875em;
+}
+
+/* ---- tables ---- */
+.markdown-body table {
+  margin: 0 0 1em;
+  font-size: 0.95em;
+}
+
+.markdown-body th,
+.markdown-body td {
+  border-color: #073642;
+  padding: 0.4em 0.8em;
+  text-align: left;
+}
+
+.markdown-body th {
+  background: #073642;
+  font-weight: 600;
+}
+
+/* ---- task lists ---- */
+.markdown-body li > input[type="checkbox"] {
+  accent-color: #268bd2;
+}
+
+/* ---- footnotes ---- */
+.markdown-body .footnotes {
+  margin-top: 2.5em;
+  padding-top: 1em;
+  border-top: 1px solid #073642;
+  color: #586e75;
+}
+
+/* ---- highlight.js ---- */
+.markdown-body .hljs {
+  background: #073642;
+  color: #93a1a1;
+}
+
+.markdown-body .hljs-comment,
+.markdown-body .hljs-quote {
+  color: #586e75;
+  font-style: italic;
+}
+
+.markdown-body .hljs-keyword,
+.markdown-body .hljs-selector-tag,
+.markdown-body .hljs-literal,
+.markdown-body .hljs-section,
+.markdown-body .hljs-name {
+  color: #859900;
+}
+
+.markdown-body .hljs-string,
+.markdown-body .hljs-regexp,
+.markdown-body .hljs-addition,
+.markdown-body .hljs-attribute,
+.markdown-body .hljs-meta .hljs-string {
+  color: #2aa198;
+}
+
+.markdown-body .hljs-number,
+.markdown-body .hljs-symbol,
+.markdown-body .hljs-bullet,
+.markdown-body .hljs-variable,
+.markdown-body .hljs-template-variable {
+  color: #d33682;
+}
+
+.markdown-body .hljs-title,
+.markdown-body .hljs-title.function_,
+.markdown-body .hljs-built_in {
+  color: #268bd2;
+}
+
+.markdown-body .hljs-type,
+.markdown-body .hljs-title.class_,
+.markdown-body .hljs-params {
+  color: #b58900;
+}
+
+.markdown-body .hljs-attr,
+.markdown-body .hljs-property,
+.markdown-body .hljs-selector-attr,
+.markdown-body .hljs-selector-class,
+.markdown-body .hljs-selector-id {
+  color: #268bd2;
+}
+
+.markdown-body .hljs-meta,
+.markdown-body .hljs-doctag,
+.markdown-body .hljs-tag {
+  color: #cb4b16;
+}
+
+.markdown-body .hljs-deletion {
+  color: #859900;
+}
+
+.markdown-body .hljs-emphasis {
+  font-style: italic;
+}
+
+.markdown-body .hljs-strong {
+  font-weight: 600;
+}
