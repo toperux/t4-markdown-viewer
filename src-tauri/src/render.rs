@@ -280,6 +280,26 @@ fn main() {}
         assert!(!html.contains("javascript"), "{html}");
     }
 
+    /// The other half of leaving comrak's `unsafe` option off: a *Markdown*
+    /// link may not carry a scripting URL either. Pinned because the README
+    /// states it, and this app opens files it did not write.
+    #[test]
+    fn markdown_links_cannot_carry_a_scripting_url() {
+        for bad in [
+            "[click](javascript:alert(1))",
+            "[click](JaVaScRiPt:alert(1))",
+            "[click](vbscript:msgbox)",
+            "[click](data:text/html;base64,PHNjcmlwdD4=)",
+            "![img](javascript:alert(1))",
+        ] {
+            let html = render(&format!("{bad}\n"));
+            let lowered = html.to_ascii_lowercase();
+            assert!(!lowered.contains("javascript:"), "{bad}: {html}");
+            assert!(!lowered.contains("vbscript:"), "{bad}: {html}");
+            assert!(!lowered.contains("data:text/html"), "{bad}: {html}");
+        }
+    }
+
     #[test]
     fn ids_that_could_break_out_of_the_attribute_are_refused() {
         for bad in [
