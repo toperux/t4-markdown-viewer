@@ -142,7 +142,11 @@ fn spawn_window(app: &AppHandle, pending: Option<Value>, at: Option<(f64, f64)>)
             }
             Err(e) => {
                 eprintln!("window {target} failed to open: {e}");
-                app.state::<AppState>().pending.lock().unwrap().remove(&target);
+                app.state::<AppState>()
+                    .pending
+                    .lock()
+                    .unwrap()
+                    .remove(&target);
             }
         }
     });
@@ -194,7 +198,9 @@ fn window_at(app: &AppHandle, x: f64, y: f64) -> Option<(String, f64, f64)> {
         if handle.0 as isize != target {
             continue;
         }
-        let Ok(pos) = w.inner_position() else { continue };
+        let Ok(pos) = w.inner_position() else {
+            continue;
+        };
         let scale = w.scale_factor().unwrap_or(1.0);
         return Some((
             label,
@@ -319,7 +325,13 @@ fn window_origin(window: Window) -> Result<Origin, String> {
 /// Track a detached tab drag. Returns the window under the cursor, if any, and
 /// tells that window where to draw its drop caret.
 #[tauri::command]
-fn drag_over(app: AppHandle, state: State<AppState>, window: Window, x: f64, y: f64) -> Option<String> {
+fn drag_over(
+    app: AppHandle,
+    state: State<AppState>,
+    window: Window,
+    x: f64,
+    y: f64,
+) -> Option<String> {
     // Hovering your own window is not a drop target: releasing there tears off.
     let hit = window_at(&app, x, y).filter(|(label, _, _)| label != window.label());
     let next = hit.as_ref().map(|(label, _, _)| label.clone());
@@ -367,7 +379,11 @@ fn drop_tab(
             Ok("adopted".into())
         }
         None => {
-            spawn_window(&app, Some(json!({ "kind": "tab", "tab": tab })), Some((x, y)));
+            spawn_window(
+                &app,
+                Some(json!({ "kind": "tab", "tab": tab })),
+                Some((x, y)),
+            );
             Ok("detached".into())
         }
     }

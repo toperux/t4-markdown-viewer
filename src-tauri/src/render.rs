@@ -331,7 +331,10 @@ fn main() {}
         let anchor = html.find("id=\"here\"").expect("anchor missing");
         let target = html.find("target").expect("text missing");
         let bold = html.find("bold").expect("text missing");
-        assert!(bold < anchor, "anchor drifted above unrelated markup: {html}");
+        assert!(
+            bold < anchor,
+            "anchor drifted above unrelated markup: {html}"
+        );
         assert!(anchor < target, "anchor landed after its text: {html}");
     }
 
