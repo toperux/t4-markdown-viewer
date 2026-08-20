@@ -173,6 +173,18 @@ so `<script>`, `<iframe>`, inline event handlers and `style` attributes never
 reach the webview. This also means benign inline HTML — `<kbd>`, `<sub>`,
 `<br>` — does not render. That is a deliberate trade, not a bug.
 
+**With one exception: explicit anchor targets.** `<a id="f12"></a>`,
+`<a name="…">` and `<span id="…">` are extremely common in hand-written
+Markdown — they are how you point a `[F12](#f12)` link at something that is not
+a heading — and stripping them silently breaks every such link in a document.
+So the renderer walks comrak's AST for those tags, and substitutes the
+`<!-- raw HTML omitted -->` placeholders they leave behind with a generated
+`<span id="…"></span>`. Nothing but the identifier survives: no other
+attributes, no text, and ids outside `[A-Za-z0-9._:-]` are refused, so nothing
+in the source can break out of the attribute. Enabling comrak's `unsafe` option
+instead would have been one line, but it also switches raw URLs back on — the
+`javascript:` hole this app most needs closed.
+
 **Highlighting runs in the webview,** using a vendored highlight.js rather than
 Rust's `syntect`. `syntect` bakes colors into inline `style` attributes, which
 CSS themes cannot override — that would defeat the point of CSS theming. The

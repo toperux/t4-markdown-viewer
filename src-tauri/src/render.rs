@@ -1,10 +1,12 @@
-use comrak::{markdown_to_html, Options};
+use comrak::nodes::NodeValue;
+use comrak::{format_html, parse_document, Arena, Options};
 
-/// Render Markdown to an HTML fragment.
-///
-/// `render.unsafe_` is deliberately left off: this app opens arbitrary files
-/// from disk, so raw HTML in a document is escaped rather than passed through.
-pub fn render(md: &str) -> String {
+/// What comrak leaves behind for each raw-HTML node when `unsafe_` is off.
+/// One per dropped node, in document order — which is what lets `render` put
+/// anchor targets back in the right places.
+const OMITTED: &str = "<!-- raw HTML omitted -->";
+
+fn options() -> Options<'static> {
     let mut o = Options::default();
 
     o.extension.table = true;
@@ -21,7 +23,126 @@ pub fn render(md: &str) -> String {
     // `github_pre_lang` would emit `<pre lang="rust">` instead.
     o.render.github_pre_lang = false;
 
-    markdown_to_html(md, &o)
+    o
+}
+
+/// Ids we are willing to reproduce. Deliberately narrow — the value is pasted
+/// into an attribute we generate, so anything that could close the quote or the
+/// tag is rejected outright rather than escaped.
+fn is_safe_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'))
+}
+
+fn attribute<'a>(attrs: &'a str, key: &str) -> Option<&'a str> {
+    let lower = attrs.to_ascii_lowercase();
+    let mut from = 0;
+    while let Some(hit) = lower[from..].find(key) {
+        let start = from + hit;
+        // Must be a whole attribute name, not the tail of another one.
+        let boundary = start == 0
+            || lower[..start]
+                .chars()
+                .next_back()
+                .is_some_and(|c| c.is_whitespace());
+        let rest = attrs[start + key.len()..].trim_start();
+        if boundary {
+            if let Some(value) = rest.strip_prefix('=') {
+                let value = value.trim_start();
+                for quote in ['"', '\''] {
+                    if let Some(v) = value.strip_prefix(quote) {
+                        if let Some(end) = v.find(quote) {
+                            return Some(&v[..end]);
+                        }
+                    }
+                }
+            }
+        }
+        from = start + key.len();
+    }
+    None
+}
+
+/// The name a bare `<a id="x">` / `<a name="x">` / `<span id="x">` gives to a
+/// spot in the document, if that is all the tag is doing.
+///
+/// Documents in the wild mark link targets this way — GitHub and Azure DevOps
+/// both render it — and without this every `[F5](#f5)` in such a file points at
+/// nothing. Only the name is taken; the replacement tag is generated from
+/// scratch, so no attribute of the original survives.
+fn anchor_target(raw: &str) -> Option<String> {
+    let mut tag = raw.trim();
+    for close in ["</a>", "</span>"] {
+        if let Some(head) = tag.strip_suffix(close) {
+            tag = head.trim_end();
+            break;
+        }
+    }
+    let inner = tag.strip_prefix('<')?.strip_suffix('>')?;
+    let inner = inner.strip_suffix('/').unwrap_or(inner);
+
+    let (name, attrs) = match inner.find(char::is_whitespace) {
+        Some(i) => (&inner[..i], &inner[i..]),
+        None => (inner, ""),
+    };
+    if !name.eq_ignore_ascii_case("a") && !name.eq_ignore_ascii_case("span") {
+        return None;
+    }
+
+    let id = attribute(attrs, "id").or_else(|| attribute(attrs, "name"))?;
+    is_safe_id(id).then(|| id.to_string())
+}
+
+/// Render Markdown to an HTML fragment.
+///
+/// `render.unsafe_` is deliberately left off: this app opens arbitrary files
+/// from disk, so raw HTML in a document is dropped rather than passed through,
+/// and comrak's own filtering of dangerous link schemes stays in force.
+///
+/// The one thing recovered from that dropped HTML is anchor *targets* — see
+/// `anchor_target`. They are rebuilt from the parsed name alone, so this adds
+/// no path by which document HTML reaches the webview.
+pub fn render(md: &str) -> String {
+    let o = options();
+    let arena = Arena::new();
+    let root = parse_document(&arena, md, &o);
+
+    // Raw-HTML nodes in document order, which is the order comrak drops them.
+    let targets: Vec<Option<String>> = root
+        .descendants()
+        .filter_map(|node| match &node.data.borrow().value {
+            NodeValue::HtmlInline(raw) => Some(anchor_target(raw)),
+            NodeValue::HtmlBlock(block) => Some(anchor_target(&block.literal)),
+            _ => None,
+        })
+        .collect();
+
+    let mut html = String::new();
+    if format_html(root, &o, &mut html).is_err() {
+        return String::new();
+    }
+
+    if targets.iter().all(Option::is_none) {
+        return html;
+    }
+
+    let mut out = String::with_capacity(html.len());
+    let mut rest: &str = &html;
+    for target in &targets {
+        let Some(at) = rest.find(OMITTED) else { break };
+        out.push_str(&rest[..at]);
+        if let Some(id) = target {
+            out.push_str("<span id=\"");
+            out.push_str(id);
+            out.push_str("\"></span>");
+        }
+        rest = &rest[at + OMITTED.len()..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Best-effort plain-text decode: strips a UTF-8 BOM, replaces invalid sequences.
@@ -115,7 +236,83 @@ fn main() {}
             !html.contains("<script"),
             "raw script tag survived rendering: {html}"
         );
-        assert!(html.contains("raw HTML omitted"), "{html}");
+        assert!(html.contains("Hello"), "surrounding text lost: {html}");
+    }
+
+    /// `render` rebuilds anchor targets by substituting comrak's placeholders in
+    /// order, so it depends on there being exactly one per dropped node. If a
+    /// comrak upgrade changes the wording or the count, fail here rather than
+    /// silently scattering anchors through the document.
+    #[test]
+    fn dropped_html_leaves_one_ordered_placeholder_each() {
+        // options() leaves raw HTML disabled, which is what produces placeholders.
+        let raw = comrak::markdown_to_html("a <b>c</b> d <i>e</i>\n", &options());
+        assert_eq!(
+            raw.matches(OMITTED).count(),
+            4,
+            "expected one placeholder per raw tag: {raw}"
+        );
+    }
+
+    #[test]
+    fn explicit_html_anchors_become_link_targets() {
+        // The shape Azure DevOps and GitHub documents use to name a section.
+        let html = render("### <a id=\"f5\"></a>F5 — Something\n\nSee [F5](#f5).\n");
+        assert!(html.contains("id=\"f5\""), "anchor target missing: {html}");
+        assert!(html.contains("href=\"#f5\""), "link mangled: {html}");
+        // The heading keeps its own slug as well, so both spellings resolve.
+        assert!(html.contains("<h3"), "{html}");
+    }
+
+    #[test]
+    fn name_attribute_anchors_also_work() {
+        let html = render("<a name=\"old-style\"></a>text\n");
+        assert!(html.contains("id=\"old-style\""), "{html}");
+    }
+
+    /// Only the name is carried over; everything else about the original tag is
+    /// discarded, because the replacement is generated rather than passed through.
+    #[test]
+    fn anchor_recovery_carries_nothing_but_the_name() {
+        let html = render("<a id=\"ok\" onclick=\"alert(1)\" href=\"javascript:x\"></a>hi\n");
+        assert!(html.contains("id=\"ok\""), "{html}");
+        assert!(!html.contains("onclick"), "{html}");
+        assert!(!html.contains("javascript"), "{html}");
+    }
+
+    #[test]
+    fn ids_that_could_break_out_of_the_attribute_are_refused() {
+        for bad in [
+            "a\"><script>alert(1)</script>",
+            "a\" onload=\"x",
+            "a'><img src=x onerror=y>",
+            "has space",
+        ] {
+            let html = render(&format!("<a id=\"{bad}\"></a>text\n"));
+            assert!(!html.contains("<script"), "{bad}: {html}");
+            assert!(!html.contains("onload"), "{bad}: {html}");
+            assert!(!html.contains("onerror"), "{bad}: {html}");
+        }
+    }
+
+    /// A tag that does more than name a spot is still dropped whole.
+    #[test]
+    fn non_anchor_html_is_still_dropped() {
+        let html = render("<div id=\"x\">body</div>\n");
+        assert!(!html.contains("<div"), "{html}");
+        assert!(!html.contains("id=\"x\""), "{html}");
+    }
+
+    /// Substitution walks placeholders in order, so an anchor must not be able
+    /// to land on some unrelated tag's position.
+    #[test]
+    fn anchors_land_on_their_own_position() {
+        let html = render("<b>bold</b>\n\n<a id=\"here\"></a>target\n");
+        let anchor = html.find("id=\"here\"").expect("anchor missing");
+        let target = html.find("target").expect("text missing");
+        let bold = html.find("bold").expect("text missing");
+        assert!(bold < anchor, "anchor drifted above unrelated markup: {html}");
+        assert!(anchor < target, "anchor landed after its text: {html}");
     }
 
     #[test]
