@@ -1,0 +1,110 @@
+name: Release
+
+# Tag a commit `v0.1.0` and push the tag; this builds the NSIS installer and
+# publishes it. `workflow_dispatch` builds the same artifact without releasing,
+# for when you want to check the packaging without burning a version number.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # The tag and tauri.conf.json must agree, or the release is called
+      # v0.2.0 and ships an installer named 0.1.0. Cheap to check, confusing
+      # to discover later.
+      - name: Check the tag matches the app version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $conf = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $tag  = '${{ github.ref_name }}'.TrimStart('v')
+          if ($conf -ne $tag) {
+            throw "tag $tag does not match tauri.conf.json version $conf"
+          }
+          "version=$conf" >> $env:GITHUB_ENV
+
+      - name: Read the app version
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        shell: pwsh
+        run: |
+          $conf = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          "version=$conf" >> $env:GITHUB_ENV
+
+      - name: Test
+        working-directory: src-tauri
+        run: cargo test
+
+      - uses: cargo-bins/cargo-binstall@main
+
+      - name: Install the Tauri CLI
+        run: cargo binstall -y --no-confirm 'tauri-cli@^2'
+
+      - name: Build the installer
+        working-directory: src-tauri
+        run: cargo tauri build
+
+      # Tauri names the bundle with the product name, spaces and all, and
+      # GitHub rewrites spaces in asset names anyway. Pick the final name here
+      # instead of letting the upload mangle it.
+      - name: Stage the artifacts
+        shell: pwsh
+        run: |
+          $src = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*-setup.exe' |
+                 Select-Object -First 1
+          if (-not $src) { throw 'no installer was produced' }
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $name = "T4-Markdown-Viewer_${env:version}_x64-setup.exe"
+          Copy-Item $src "dist/$name"
+          $hash = (Get-FileHash "dist/$name" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $name" | Set-Content "dist/$name.sha256" -NoNewline
+          "sha256=$hash"   >> $env:GITHUB_ENV
+          "asset=$name"    >> $env:GITHUB_ENV
+          Write-Host "$name  $hash"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer
+          path: dist/*
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          draft: false
+          generate_release_notes: true
+          body: |
+            ### Install
+
+            Download **${{ env.asset }}** below and run it. Per-user install —
+            no admin prompt — into `%LOCALAPPDATA%\T4 Markdown Viewer`.
+
+            The installer is **not code-signed**, so SmartScreen will show
+            "Windows protected your PC" the first few times: click **More
+            info** → **Run anyway**. Verify you got what CI built:
+
+            ```powershell
+            Get-FileHash '.\${{ env.asset }}' -Algorithm SHA256
+            ```
+
+            ```
+            ${{ env.sha256 }}
+            ```

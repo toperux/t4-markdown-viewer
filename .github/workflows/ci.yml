@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    # Windows-only by design: the app calls WindowFromPoint for tab-drag
+    # hit-testing, so main.rs does not compile anywhere else.
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: src-tauri
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Format
+        run: cargo fmt --check
+
+      # `-D warnings` goes after `--`, not in RUSTFLAGS: as an env var it also
+      # applies to every dependency, so one warning in a crate we do not own
+      # turns the build red.
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test
