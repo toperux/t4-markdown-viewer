@@ -21,8 +21,6 @@
         </div>
         <div id="doc-name" title=""></div>
         <div id="controls">
-          <select id="theme-picker" title="Theme (F8 cycles)" aria-label="Theme"></select>
-
           <!-- Split button: the face does whatever Settings says, the arrow
                offers the other one for this open only. -->
           <div id="open-split">
@@ -69,6 +67,18 @@
     <dialog id="settings-dialog" aria-labelledby="settings-title">
       <form method="dialog">
         <h2 id="settings-title">Settings</h2>
+
+        <fieldset>
+          <legend>Theme</legend>
+          <p class="hint">
+            Applies the moment you pick it, so the document behind this dialog previews the choice.
+            <kbd>F8</kbd> cycles without opening Settings, and works while it is open.
+          </p>
+          <!-- Radios rather than a <select>: the popup list of a native select
+               is an OS-level widget that no theme can colour, which used to
+               force every theme file to restate two literal colours. -->
+          <div id="theme-list" role="radiogroup" aria-label="Theme"></div>
+        </fieldset>
 
         <fieldset>
           <legend>Opening a file</legend>

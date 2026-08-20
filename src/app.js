@@ -12,7 +12,7 @@ const els = {
   forward: document.getElementById("fwd-btn"),
   docName: document.getElementById("doc-name"),
   tabs: document.getElementById("tabs"),
-  picker: document.getElementById("theme-picker"),
+  themeList: document.getElementById("theme-list"),
   openBtn: document.getElementById("open-btn"),
   openMore: document.getElementById("open-more"),
   openMenu: document.getElementById("open-menu"),
@@ -660,11 +660,17 @@ function onTabClick(event) {
 
 /* ---------------- themes ---------------- */
 
+function checkTheme(name) {
+  for (const radio of els.themeList.querySelectorAll("input")) {
+    radio.checked = radio.value === name;
+  }
+}
+
 async function applyTheme(name) {
   try {
     els.themeStyle.textContent = await invoke("read_theme", { name });
     state.theme = name;
-    els.picker.value = name;
+    checkTheme(name);
   } catch (err) {
     console.error("theme load failed", name, err);
   }
@@ -677,15 +683,23 @@ async function selectTheme(name) {
 
 async function loadThemeList() {
   state.themes = await invoke("list_themes");
-  els.picker.replaceChildren(
+  els.themeList.replaceChildren(
     ...state.themes.map((t) => {
-      const opt = document.createElement("option");
-      opt.value = t.name;
-      opt.textContent = t.label;
-      return opt;
+      const radio = document.createElement("input");
+      radio.type = "radio";
+      radio.name = "theme";
+      radio.value = t.name;
+      // Arrow keys move between radios in a group and fire `change` on each
+      // one, so walking the list previews every theme as you pass it.
+      radio.addEventListener("change", () => {
+        if (radio.checked) selectTheme(t.name);
+      });
+      const label = document.createElement("label");
+      label.append(radio, t.label);
+      return label;
     }),
   );
-  if (state.theme) els.picker.value = state.theme;
+  if (state.theme) checkTheme(state.theme);
 }
 
 function cycleTheme(step) {
@@ -738,7 +752,13 @@ function onLinkClick(event) {
 }
 
 async function onKeydown(event) {
-  // The dialog is modal; let it own the keyboard, including Escape to close.
+  if (event.key === "F8") {
+    event.preventDefault();
+    cycleTheme(event.shiftKey ? -1 : 1);
+    return;
+  }
+
+  // Otherwise the dialog is modal: let it own the keyboard, Escape included.
   if (els.settings.open) return;
 
   if (event.key === "Escape" && !els.openMenu.hidden) {
@@ -758,12 +778,6 @@ async function onKeydown(event) {
       go(1);
       return;
     }
-  }
-
-  if (event.key === "F8") {
-    event.preventDefault();
-    cycleTheme(event.shiftKey ? -1 : 1);
-    return;
   }
 
   const ctrl = event.ctrlKey || event.metaKey;
@@ -856,7 +870,6 @@ async function main() {
     });
   }
 
-  els.picker.addEventListener("change", (e) => selectTheme(e.target.value));
   els.content.addEventListener("click", onLinkClick);
   els.back.addEventListener("click", () => go(-1));
   els.forward.addEventListener("click", () => go(1));

@@ -81,7 +81,6 @@ body {
   gap: 0.25rem;
 }
 
-#bar select,
 #bar button {
   font: inherit;
   color: inherit;
@@ -92,25 +91,10 @@ body {
   cursor: pointer;
 }
 
-#bar select:hover,
 #bar button:hover {
   border-color: var(--ui-accent);
 }
 
-/*
- * Options inherit `color` from the select, so without an explicit rule a
- * light-on-dark theme paints white text into the OS popup and the list becomes
- * invisible. These are the pre-theme defaults; each theme restates them.
- *
- * Literal colors only — the popup is a separate OS-level widget where `var()`
- * does not resolve. Keep these in sync with the :root defaults above.
- */
-#bar select option {
-  background-color: #f5f5f5;
-  color: #1f1f1f;
-}
-
-#bar select:focus-visible,
 #bar button:focus-visible {
   outline: 2px solid var(--ui-accent);
   outline-offset: 1px;
@@ -244,8 +228,13 @@ body {
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
 }
 
+/*
+ * Deliberately faint. A modal scrim normally wants to be emphatic, but picking
+ * a theme here previews it on the document behind — and a heavy dim would be
+ * lying about the colors you are choosing between.
+ */
 #settings-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.35);
+  background: rgba(0, 0, 0, 0.12);
 }
 
 #settings-dialog form {
@@ -262,6 +251,10 @@ body {
   margin: 0;
   padding: 0;
   border: 0;
+}
+
+#settings-dialog fieldset + fieldset {
+  margin-top: 1.5rem;
 }
 
 #settings-dialog legend {
@@ -290,6 +283,17 @@ body {
 #settings-dialog input[type="radio"] {
   margin: 0;
   accent-color: var(--ui-accent);
+}
+
+/* Two columns so eleven themes do not turn the dialog into a column of names.
+   Capped and scrollable, since a user themes folder has no upper bound. */
+#theme-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 1rem;
+  max-height: 11rem;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 
 #settings-dialog kbd {

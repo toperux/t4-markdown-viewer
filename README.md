@@ -173,9 +173,20 @@ To write your own, copy `themes/_template.css` into
 %APPDATA%\t4-markdown-viewer\themes\
 ```
 
-It shows up in the picker immediately and re-applies every time you save it.
-A file there shadows a bundled theme with the same name. Full contract in
+It shows up in the Settings list immediately and re-applies every time you save
+it. A file there shadows a bundled theme with the same name. Full contract in
 [`src-tauri/themes/README.md`](src-tauri/themes/README.md).
+
+Themes are picked in **Settings** (the gear), and applied the moment you select
+one — the document behind the dialog is the preview, which is why that dialog's
+backdrop is barely tinted. `F8` cycles without opening Settings, and keeps
+working while it is open.
+
+The list is radio buttons rather than a dropdown for a specific reason: a native
+`<select>` popup is an OS-level widget where `var()` does not resolve and
+`color-scheme` is ignored, so every theme file used to carry two literal colours
+just to stop its own dropdown rendering white-on-white. Those twelve rules are
+now deleted.
 
 ## Building
 
@@ -266,7 +277,7 @@ Three things about that were only discoverable by hitting them:
 ```
 src/                  frontend — no bundler, no npm
   index.html
-  app.js              tabs, per-tab history, dragging, theme picker
+  app.js              tabs, per-tab history, dragging, settings dialog
   base.css            structure only; declares no document colors
   vendor/             highlight.js
 src-tauri/

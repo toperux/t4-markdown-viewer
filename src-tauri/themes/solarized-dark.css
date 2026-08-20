@@ -27,18 +27,6 @@ body {
   background: #002b36;
 }
 
-/*
- * The <select> popup is drawn as its own OS-level widget, outside the page.
- * `var()` references do not resolve there and `color-scheme` is ignored, so
- * these two must be literal colors — with `var()` the list silently falls back
- * to base.css's light defaults, and on a dark theme the options render as
- * near-white text on a near-white background.
- */
-#bar select option {
-  background-color: #073642;
-  color: #839496;
-}
-
 /* ---- document ---- */
 .markdown-body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial,
