@@ -55,7 +55,9 @@ jobs:
       - uses: cargo-bins/cargo-binstall@main
 
       - name: Install the Tauri CLI
-        run: cargo binstall -y --no-confirm 'tauri-cli@^2'
+        # `--no-confirm` only. `-y` is its short form, and binstall rejects
+        # being given the same argument twice.
+        run: cargo binstall --no-confirm 'tauri-cli@^2'
 
       - name: Build the installer
         working-directory: src-tauri
