@@ -1,8 +1,9 @@
 name: Release
 
-# Tag a commit `v<version>` and push the tag; this builds the NSIS installer and
-# publishes it. `workflow_dispatch` builds the same artifact without releasing,
-# for when you want to check the packaging without burning a version number.
+# Tag a commit `v<version>` and push the tag; this builds the packages for all
+# three platforms and publishes them. `workflow_dispatch` builds the same
+# artifacts without releasing, for when you want to check the packaging without
+# burning a version number.
 on:
   push:
     tags: ['v*']
@@ -15,38 +16,70 @@ permissions:
   contents: write
 
 jobs:
+  # Resolved once and shared. The tag and tauri.conf.json must agree, or the
+  # release is called v0.2.0 and ships an installer named 0.1.0. Cheap to check,
+  # confusing to discover later.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: read
+        shell: bash
+        run: |
+          set -euo pipefail
+          conf=$(python3 -c 'import json;print(json.load(open("src-tauri/tauri.conf.json"))["version"])')
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            tag="${GITHUB_REF_NAME#v}"
+            if [[ "$tag" != "$conf" ]]; then
+              echo "tag $tag does not match tauri.conf.json version $conf" >&2
+              exit 1
+            fi
+          fi
+          echo "version=$conf" >> "$GITHUB_OUTPUT"
+
   build:
-    runs-on: windows-latest
+    needs: version
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            bundles: nsis
+            bundle_dir: target/release/bundle
+          - os: macos-latest
+            bundles: app,dmg
+            # One .dmg for both Apple Silicon and Intel.
+            target: universal-apple-darwin
+            bundle_dir: target/universal-apple-darwin/release/bundle
+          # 22.04 rather than latest: the .deb links against the builder's
+          # glibc, so the oldest supported runner reaches the most distros.
+          - os: ubuntu-22.04
+            bundles: deb,rpm,appimage
+            bundle_dir: target/release/bundle
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
       - uses: dtolnay/rust-toolchain@stable
+
+      - name: Add the Apple targets
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-
-      # The tag and tauri.conf.json must agree, or the release is called
-      # v0.2.0 and ships an installer named 0.1.0. Cheap to check, confusing
-      # to discover later.
-      - name: Check the tag matches the app version
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: pwsh
-        run: |
-          $conf = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
-          $tag  = '${{ github.ref_name }}'.TrimStart('v')
-          if ($conf -ne $tag) {
-            throw "tag $tag does not match tauri.conf.json version $conf"
-          }
-          "version=$conf" >> $env:GITHUB_ENV
-
-      - name: Read the app version
-        if: "!startsWith(github.ref, 'refs/tags/')"
-        shell: pwsh
-        run: |
-          $conf = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
-          "version=$conf" >> $env:GITHUB_ENV
 
       - name: Test
         working-directory: src-tauri
@@ -59,54 +92,113 @@ jobs:
         # being given the same argument twice.
         run: cargo binstall --no-confirm 'tauri-cli@^2'
 
-      - name: Build the installer
+      - name: Build the packages
         working-directory: src-tauri
-        run: cargo tauri build
+        run: >
+          cargo tauri build --bundles ${{ matrix.bundles }}
+          ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
 
-      # Tauri names the bundle with the product name, spaces and all, and
-      # GitHub rewrites spaces in asset names anyway. Pick the final name here
-      # instead of letting the upload mangle it.
+      # Tauri names bundles with the product name, spaces and all, and GitHub
+      # rewrites spaces in asset names anyway. Pick the final names here instead
+      # of letting the upload mangle them.
       - name: Stage the artifacts
-        shell: pwsh
+        shell: bash
         run: |
-          $src = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*-setup.exe' |
-                 Select-Object -First 1
-          if (-not $src) { throw 'no installer was produced' }
-          New-Item -ItemType Directory -Force dist | Out-Null
-          $name = "T4-Markdown-Viewer_${env:version}_x64-setup.exe"
-          Copy-Item $src "dist/$name"
-          $hash = (Get-FileHash "dist/$name" -Algorithm SHA256).Hash.ToLower()
-          "$hash  $name" | Set-Content "dist/$name.sha256" -NoNewline
-          "sha256=$hash"   >> $env:GITHUB_ENV
-          "asset=$name"    >> $env:GITHUB_ENV
-          Write-Host "$name  $hash"
+          set -euo pipefail
+          ver='${{ needs.version.outputs.version }}'
+          out="$GITHUB_WORKSPACE/dist"
+          mkdir -p "$out"
+          cd "src-tauri/${{ matrix.bundle_dir }}"
+
+          stage() {
+            local src
+            src=$(find . -path "./$1" | head -1)
+            if [ -z "$src" ]; then
+              echo "no bundle matched $1" >&2
+              exit 1
+            fi
+            cp "$src" "$out/$2"
+          }
+
+          case '${{ runner.os }}' in
+            Windows) stage 'nsis/*-setup.exe' "T4-Markdown-Viewer_${ver}_x64-setup.exe" ;;
+            macOS)   stage 'dmg/*.dmg'        "T4-Markdown-Viewer_${ver}_universal.dmg" ;;
+            Linux)
+              stage 'deb/*.deb'            "T4-Markdown-Viewer_${ver}_amd64.deb"
+              stage 'rpm/*.rpm'            "T4-Markdown-Viewer_${ver}_x86_64.rpm"
+              stage 'appimage/*.AppImage'  "T4-Markdown-Viewer_${ver}_x86_64.AppImage"
+              ;;
+          esac
+
+          cd "$out"
+          for f in *; do
+            case "$f" in *.sha256) continue ;; esac
+            if command -v sha256sum >/dev/null 2>&1; then
+              hash=$(sha256sum "$f" | cut -d' ' -f1)
+            else
+              hash=$(shasum -a 256 "$f" | cut -d' ' -f1)
+            fi
+            printf '%s  %s' "$hash" "$f" > "$f.sha256"
+            echo "$f  $hash"
+          done
 
       - uses: actions/upload-artifact@v4
         with:
-          name: installer
+          name: packages-${{ runner.os }}
           path: dist/*
 
-      - name: Publish the release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+  publish:
+    needs: [version, build]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
           draft: false
           generate_release_notes: true
           body: |
-            ### Install
+            ### Windows
 
-            Download **${{ env.asset }}** below and run it. Per-user install —
-            no admin prompt — into `%LOCALAPPDATA%\T4 Markdown Viewer`.
+            `T4-Markdown-Viewer_${{ needs.version.outputs.version }}_x64-setup.exe` —
+            per-user install, no admin prompt, into `%LOCALAPPDATA%\T4 Markdown Viewer`.
 
-            The installer is **not code-signed**, so SmartScreen will show
-            "Windows protected your PC" the first few times: click **More
-            info** → **Run anyway**. Verify you got what CI built:
+            Not code-signed, so SmartScreen shows "Windows protected your PC" the
+            first few times: **More info** → **Run anyway**.
+
+            ### macOS
+
+            `T4-Markdown-Viewer_${{ needs.version.outputs.version }}_universal.dmg` —
+            Apple Silicon and Intel in one image. Drag to Applications, then:
+
+            ```sh
+            xattr -dr com.apple.quarantine "/Applications/T4 Markdown Viewer.app"
+            ```
+
+            Not signed or notarized, so without that Gatekeeper reports the app as
+            damaged. Right-click → **Open** works too.
+
+            ### Linux
+
+            `.deb`, `.rpm`, and `.AppImage`. The deb and rpm register the file
+            association; an AppImage is not installed into the system MIME
+            database, so double-click association needs AppImageLauncher or a
+            hand-installed `.desktop` file.
+
+            ```sh
+            sudo apt install ./T4-Markdown-Viewer_${{ needs.version.outputs.version }}_amd64.deb
+            ```
+
+            ### Verifying a download
+
+            Every asset ships a `.sha256` sidecar. Check one with `sha256sum -c`
+            on Linux, `shasum -a 256 -c` on macOS, or on Windows:
 
             ```powershell
-            Get-FileHash '.\${{ env.asset }}' -Algorithm SHA256
-            ```
-
-            ```
-            ${{ env.sha256 }}
+            Get-FileHash '.\<file>' -Algorithm SHA256
             ```

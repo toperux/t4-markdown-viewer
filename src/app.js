@@ -31,6 +31,13 @@ const state = {
   theme: null,
   themes: [],
   openMode: "tab",
+  /**
+   * Platform facts, filled in from `get_settings` at boot. The defaults are the
+   * conservative reading — no cross-window drag, case-sensitive paths — so the
+   * app behaves correctly for the brief moment before the answer arrives.
+   */
+  crossWindowDrag: false,
+  caseInsensitivePaths: false,
 };
 
 const MD_LINK = /\.(md|markdown|mdown|mkd|mdtext|mdtxt|mdwn|mkdn)$/i;
@@ -71,9 +78,17 @@ function baseName(p) {
   return p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 }
 
-/** Windows paths differ in slash and case without being different files. */
+/**
+ * Windows paths differ in slash without being different files, and on Windows
+ * and macOS in case too. On Linux `Notes.md` and `notes.md` are two documents,
+ * so folding case there would quietly merge them into one tab.
+ */
 function samePath(a, b) {
-  return a.replace(/\\/g, "/").toLowerCase() === b.replace(/\\/g, "/").toLowerCase();
+  const norm = (p) => {
+    const slashed = p.replace(/\\/g, "/");
+    return state.caseInsensitivePaths ? slashed.toLowerCase() : slashed;
+  };
+  return norm(a) === norm(b);
 }
 
 /* ---------------- tabs ---------------- */
@@ -520,8 +535,18 @@ let ghostEl = null;
  * scale. Deliberately not `screenX * devicePixelRatio`: that assumes one scale
  * factor for the whole desktop and lands in the wrong place as soon as two
  * monitors are set to different scaling.
+ *
+ * Wayland will not say where a window is, so `origin.exact` is false there and
+ * the guess is all there is. It only decides where a torn-off window appears,
+ * and being a little off beats the drag doing nothing.
  */
 function screenPoint(event, origin) {
+  if (!origin.exact) {
+    return {
+      x: event.screenX * window.devicePixelRatio,
+      y: event.screenY * window.devicePixelRatio,
+    };
+  }
   return {
     x: origin.x + event.clientX * origin.scale,
     y: origin.y + event.clientY * origin.scale,
@@ -659,6 +684,11 @@ function onDragMove(event) {
   paintDrag();
   moveGhost(event);
 
+  // Off Windows nothing can tell which window is under the cursor, so probing
+  // would only ever answer "none". Skipping it means no other window lights up
+  // a drop caret, which is the honest signal: releasing here tears the tab off.
+  if (!state.crossWindowDrag) return;
+
   if (!drag.origin) return; // origin still in flight; nothing to map with yet
   const now = performance.now();
   if (now - drag.lastProbe < PROBE_MS) return;
@@ -690,8 +720,13 @@ async function onDragEnd(event) {
 
   const tab = tabs.find((t) => t.id === d.id);
   if (!tab) return;
-  const origin = d.origin ?? (await invoke("window_origin").catch(() => null));
-  if (!origin) return;
+  // Never bail for want of an origin: the tab has already been lifted out of the
+  // strip, so giving up here would strand it. An inexact origin sends
+  // `screenPoint` down its fallback, which is good enough to place a new window.
+  const origin =
+    d.origin ??
+    (await invoke("window_origin").catch(() => null)) ??
+    { x: 0, y: 0, scale: window.devicePixelRatio, exact: false };
   const { x, y } = screenPoint(event, origin);
   try {
     const outcome = await invoke("drop_tab", {
@@ -854,6 +889,19 @@ async function onKeydown(event) {
   const ctrl = event.ctrlKey || event.metaKey;
   if (!ctrl) return;
 
+  // Alt+Arrow above is the Windows idiom; Cmd+[ and Cmd+] are the Mac one.
+  // Both are accepted everywhere rather than branching on the platform.
+  if (event.key === "[") {
+    event.preventDefault();
+    go(-1);
+    return;
+  }
+  if (event.key === "]") {
+    event.preventDefault();
+    go(1);
+    return;
+  }
+
   if (event.key === "Tab") {
     event.preventDefault();
     cycleTab(event.shiftKey ? -1 : 1);
@@ -963,6 +1011,8 @@ async function main() {
   });
 
   const settings = await invoke("get_settings");
+  state.crossWindowDrag = settings.cross_window_drag === true;
+  state.caseInsensitivePaths = settings.case_insensitive_paths === true;
   showOpenMode(settings.open_mode ?? "tab");
   await loadThemeList();
   await applyTheme(settings.theme);

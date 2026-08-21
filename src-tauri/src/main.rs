@@ -7,7 +7,7 @@ mod watch;
 
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
@@ -28,6 +28,10 @@ struct AppState {
     /// `{kind:"path"}` from a file-association open or `{kind:"tab"}` from a
     /// torn-off tab. Keyed by window label.
     pending: Mutex<HashMap<String, Value>>,
+    /// Windows whose webview has asked for its pending payload, and so is live
+    /// enough to receive events. A window not in here is still booting, which is
+    /// the normal state when the OS hands us a file during startup.
+    ready: Mutex<HashSet<String>>,
     /// One watcher per window, covering every directory that window has a tab in.
     watches: Mutex<HashMap<String, watch::Handle>>,
     /// App-wide, unlike `watches`: a theme edit restyles every window.
@@ -46,6 +50,23 @@ struct Origin {
     x: f64,
     y: f64,
     scale: f64,
+    /// False when the compositor would not say where the window is, so the
+    /// frontend must fall back to the pointer's own screen coordinates.
+    exact: bool,
+}
+
+/// What the frontend needs at boot: the saved settings, plus the facts about
+/// this platform that it cannot work out for itself from inside a webview.
+#[derive(Serialize)]
+struct Settings {
+    #[serde(flatten)]
+    config: config::Config,
+    /// Whether releasing a dragged tab over another window can be detected here.
+    /// See `window_at` — only Windows can answer that reliably.
+    cross_window_drag: bool,
+    /// Whether two paths differing only in case name the same file. False on
+    /// Linux, where `Notes.md` and `notes.md` are two documents.
+    case_insensitive_paths: bool,
 }
 
 #[derive(Serialize)]
@@ -175,11 +196,6 @@ fn hwnd_at(x: f64, y: f64) -> isize {
     }
 }
 
-#[cfg(not(windows))]
-fn hwnd_at(_x: f64, _y: f64) -> isize {
-    0
-}
-
 /// The app window a physical screen point lands on, plus that point in the
 /// window's CSS pixels.
 ///
@@ -187,6 +203,12 @@ fn hwnd_at(_x: f64, _y: f64) -> isize {
 /// answer has to be the window the user can actually *see* at the cursor.
 /// Note it can return the dragging window itself — callers treat that as
 /// "dropped on my own window", which tears the tab off.
+///
+/// Windows-only. macOS and X11 could answer this with native calls, but Wayland
+/// deliberately hides the global pointer position, so there is no answer that
+/// holds everywhere. Off Windows this returns `None` and every drop tears the
+/// tab off into its own window; the frontend is told not to offer the
+/// drop-onto-another-window affordance at all, through `Settings`.
 #[cfg(windows)]
 fn window_at(app: &AppHandle, x: f64, y: f64) -> Option<(String, f64, f64)> {
     let target = hwnd_at(x, y);
@@ -224,10 +246,13 @@ fn clear_drag(app: &AppHandle, state: &AppState) {
 
 /* ---------------- commands ---------------- */
 
-/// Hand this window whatever it was created to show. Consumed on first call.
+/// Hand this window whatever it was created to show. Consumed on first call,
+/// which is also what marks the window as ready to receive events.
 #[tauri::command]
 fn take_pending(state: State<AppState>, window: Window) -> Option<Value> {
-    state.pending.lock().unwrap().remove(window.label())
+    let label = window.label().to_string();
+    state.ready.lock().unwrap().insert(label.clone());
+    state.pending.lock().unwrap().remove(&label)
 }
 
 #[tauri::command]
@@ -312,14 +337,28 @@ fn open_window(app: AppHandle, path: Option<String>) -> String {
 /// pointer coordinates into screen coordinates with these instead of
 /// `screenX * devicePixelRatio`, which guesses wrong the moment two monitors
 /// run at different scaling.
+///
+/// Wayland refuses to tell a window where it is, so `inner_position` fails
+/// there. Reporting a `(0, 0)` origin rather than an error keeps a tear-off
+/// working — it lands in roughly the right place instead of not happening at
+/// all — and `exact` lets the frontend know which it got.
 #[tauri::command]
-fn window_origin(window: Window) -> Result<Origin, String> {
-    let pos = window.inner_position().map_err(|e| e.to_string())?;
-    Ok(Origin {
-        x: pos.x as f64,
-        y: pos.y as f64,
-        scale: window.scale_factor().unwrap_or(1.0),
-    })
+fn window_origin(window: Window) -> Origin {
+    let scale = window.scale_factor().unwrap_or(1.0);
+    match window.inner_position() {
+        Ok(pos) => Origin {
+            x: pos.x as f64,
+            y: pos.y as f64,
+            scale,
+            exact: true,
+        },
+        Err(_) => Origin {
+            x: 0.0,
+            y: 0.0,
+            scale,
+            exact: false,
+        },
+    }
 }
 
 /// Track a detached tab drag. Returns the window under the cursor, if any, and
@@ -400,8 +439,12 @@ fn read_theme(app: AppHandle, name: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn get_settings() -> config::Config {
-    config::load()
+fn get_settings() -> Settings {
+    Settings {
+        config: config::load(),
+        cross_window_drag: cfg!(windows),
+        case_insensitive_paths: cfg!(any(windows, target_os = "macos")),
+    }
 }
 
 #[tauri::command]
@@ -423,26 +466,152 @@ fn set_open_mode(app: AppHandle, mode: String) {
 
 /* ---------------- app ---------------- */
 
-fn handle_second_instance(app: &AppHandle, argv: Vec<String>) {
-    let Some(path) = file_from_args(&argv) else {
-        if let Some(label) = last_focused(app) {
-            focus_window(app, &label);
-        }
-        return;
-    };
-    let path = path.to_string_lossy().into_owned();
+/// Show a file. Every way a document can arrive — argv at startup, a second
+/// process handing over its arguments, macOS delivering an Apple Event — ends up
+/// here, so the open-mode setting is honoured identically by all of them.
+///
+/// A window that has not yet drained its pending slot is still booting and has
+/// nothing in it, so it takes the file whatever the open mode says; emitting
+/// `file-opened` at a window with no listener yet would drop it on the floor.
+/// A booting window that *does* have something pending is a torn-off tab on its
+/// way in, and must not be overwritten.
+fn open_path(app: &AppHandle, path: &Path) {
+    let path = strip_unc(path);
+    let state = app.state::<AppState>();
 
-    let tabbed = config::load().open_mode != "window";
-    if let (true, Some(label)) = (tabbed, last_focused(app)) {
-        let _ = app.emit_to(&label, "file-opened", path);
-        focus_window(app, &label);
-        return;
+    // macOS delivers a double-clicked file as an Apple Event, and it arrives
+    // before the window the config declares exists — there is nothing to reuse
+    // yet. Spawning here would leave that window standing empty beside the
+    // document, so the file is stashed for it instead, which is the same thing
+    // a cold argv open does everywhere else. Only the first file can claim it;
+    // Finder can open several at once, and the rest still get windows of their
+    // own.
+    if app.webview_windows().is_empty() {
+        let claimed = {
+            let mut pending = state.pending.lock().unwrap();
+            let vacant = !pending.contains_key("main");
+            if vacant {
+                pending.insert(
+                    "main".to_string(),
+                    json!({ "kind": "path", "path": path.clone() }),
+                );
+            }
+            vacant
+        };
+        if claimed {
+            return;
+        }
     }
+
+    if let Some(label) = last_focused(app) {
+        // `ready` is read before `pending` is taken rather than nested inside
+        // it: every other holder of these locks takes one at a time, and this
+        // keeps it that way, so there is no lock order to get wrong later.
+        let ready = state.ready.lock().unwrap().contains(&label);
+        let booting = {
+            let mut pending = state.pending.lock().unwrap();
+            let booting = !ready && !pending.contains_key(&label);
+            if booting {
+                pending.insert(label.clone(), json!({ "kind": "path", "path": path }));
+            }
+            booting
+        };
+
+        if booting {
+            focus_window(app, &label);
+            return;
+        }
+
+        if config::load().open_mode != "window" {
+            let _ = app.emit_to(&label, "file-opened", path);
+            focus_window(app, &label);
+            return;
+        }
+    }
+
     spawn_window(app, Some(json!({ "kind": "path", "path": path })), None);
 }
 
+/// Menu id for the one item that is not predefined.
+#[cfg(target_os = "macos")]
+const CLOSE_WINDOW: &str = "close-window";
+
+/// macOS routes clipboard commands through the menu bar: with no Edit menu,
+/// Cmd+C does nothing at all inside the webview. Tauri's default menu supplies
+/// those, but it also binds Cmd+W to Close Window, which would shadow this app's
+/// close-tab. So this is the default menu minus that collision — closing a
+/// window moves to Shift+Cmd+W, leaving plain Cmd+W to the frontend.
+#[cfg(target_os = "macos")]
+fn macos_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem as Item, Submenu};
+
+    let about = Submenu::with_items(
+        app,
+        "T4 Markdown Viewer",
+        true,
+        &[
+            &Item::about(app, None, None)?,
+            &Item::separator(app)?,
+            &Item::services(app, None)?,
+            &Item::separator(app)?,
+            &Item::hide(app, None)?,
+            &Item::hide_others(app, None)?,
+            &Item::show_all(app, None)?,
+            &Item::separator(app)?,
+            &Item::quit(app, None)?,
+        ],
+    )?;
+
+    let edit = Submenu::with_items(
+        app,
+        "Edit",
+        true,
+        &[
+            &Item::undo(app, None)?,
+            &Item::redo(app, None)?,
+            &Item::separator(app)?,
+            &Item::cut(app, None)?,
+            &Item::copy(app, None)?,
+            &Item::paste(app, None)?,
+            &Item::select_all(app, None)?,
+        ],
+    )?;
+
+    let window = Submenu::with_items(
+        app,
+        "Window",
+        true,
+        &[
+            &Item::minimize(app, None)?,
+            &Item::maximize(app, None)?,
+            &Item::fullscreen(app, None)?,
+            &Item::separator(app)?,
+            &MenuItem::with_id(
+                app,
+                CLOSE_WINDOW,
+                "Close Window",
+                true,
+                Some("Shift+CmdOrCtrl+W"),
+            )?,
+        ],
+    )?;
+
+    Menu::with_items(app, &[&about, &edit, &window])
+}
+
+fn handle_second_instance(app: &AppHandle, argv: Vec<String>) {
+    match file_from_args(&argv) {
+        Some(path) => open_path(app, &path),
+        None => {
+            if let Some(label) = last_focused(app) {
+                focus_window(app, &label);
+            }
+        }
+    }
+}
+
 fn main() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         // Must be registered first: plugins run in registration order, and this
         // one has to intercept the second process before anything else starts.
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
@@ -474,6 +643,7 @@ fn main() {
                     let label = window.label();
                     state.watches.lock().unwrap().remove(label);
                     state.pending.lock().unwrap().remove(label);
+                    state.ready.lock().unwrap().remove(label);
                     state.focus_order.lock().unwrap().retain(|l| l != label);
                 }
                 _ => {}
@@ -484,13 +654,11 @@ fn main() {
             let state = app.state::<AppState>();
             touch_focus(&state, "main");
 
-            // Windows never fires RunEvent::Opened; a cold file-association open
-            // arrives as argv. Stash it until the webview is ready to ask.
+            // Windows and Linux never fire RunEvent::Opened; a cold
+            // file-association open arrives as argv. `main` exists by now but
+            // its webview does not, so this stashes rather than emits.
             if let Some(path) = file_from_args(&args) {
-                state.pending.lock().unwrap().insert(
-                    "main".into(),
-                    json!({ "kind": "path", "path": path.to_string_lossy() }),
-                );
+                open_path(app.handle(), &path);
             }
 
             // Broadcast: a theme edit restyles every open window at once.
@@ -503,9 +671,36 @@ fn main() {
             );
 
             Ok(())
-        })
-        .run(tauri::generate_context!())
-        .expect("failed to start Markdown Viewer");
+        });
+
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(macos_menu).on_menu_event(|app, event| {
+        if event.id().as_ref() == CLOSE_WINDOW {
+            if let Some(label) = last_focused(app) {
+                if let Some(w) = app.get_webview_window(&label) {
+                    let _ = w.close();
+                }
+            }
+        }
+    });
+
+    builder
+        .build(tauri::generate_context!())
+        .expect("failed to start Markdown Viewer")
+        .run(|_app, _event| {
+            // macOS is the one platform that hands over a double-clicked file as
+            // an event rather than as argv, and it does so for warm opens too —
+            // Launch Services reuses the running app instead of starting a
+            // second process, so the single-instance hook never sees these.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = &_event {
+                for path in urls.iter().filter_map(|u| u.to_file_path().ok()) {
+                    if path.is_file() && is_markdown(&path) {
+                        open_path(_app, &path);
+                    }
+                }
+            }
+        });
 }
 
 #[cfg(test)]

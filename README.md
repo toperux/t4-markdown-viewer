@@ -2,12 +2,13 @@
 
 [![CI](https://github.com/toperux/t4-markdown-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/toperux/t4-markdown-viewer/actions/workflows/ci.yml)
 
-A small, themeable Markdown viewer for Windows. Double-click a `.md` file and
-read it. No editing, no bundled browser.
+A small, themeable Markdown viewer for Windows, macOS and Linux. Double-click a
+`.md` file and read it. No editing, no bundled browser.
 
-Built on [Tauri v2](https://v2.tauri.app) — a Rust shell around the WebView2
-runtime that already ships with Windows 11. The whole app is a single ~6 MB
-executable; a comparable Electron build starts around 150 MB.
+Built on [Tauri v2](https://v2.tauri.app) — a Rust shell around the webview the
+operating system already ships (WebView2 on Windows, WKWebView on macOS,
+WebKitGTK on Linux). The whole app is a single ~6 MB executable; a comparable
+Electron build starts around 150 MB.
 
 ![Azure DevOps theme](docs/screenshots/azure-devops.png)
 
@@ -17,7 +18,8 @@ executable; a comparable Electron build starts around 150 MB.
   are registered by the installer.
 - **Tabs or windows.** Read several documents at once, and choose per taste
   whether an opened file lands in a new tab or its own window. Tabs drag to
-  reorder, into another window, or out onto the desktop to become one.
+  reorder, and out onto the desktop to become their own window. Dragging one
+  *into* another window is Windows-only — see [Platforms](#platforms).
 - **Themes are CSS files.** Eleven bundled, and you can drop your own into a
   folder. The default rebuilds the Azure DevOps wiki look.
 - **Live reload.** Edit in another editor; the view updates on save and keeps
@@ -26,12 +28,40 @@ executable; a comparable Electron build starts around 150 MB.
 - **GFM**: tables, task lists, footnotes, strikethrough, autolinks,
   definition lists.
 
+## Platforms
+
+| | Windows | macOS | Linux |
+| --- | --- | --- | --- |
+| Open by double-click | ✅ | ✅ | ✅ deb / rpm |
+| Tabs, tear-off, live reload, themes | ✅ | ✅ | ✅ |
+| Drag a tab **into another window** | ✅ | — | — |
+| Signed installer | — | — | n/a |
+
+Nothing is code-signed. On Windows that means a SmartScreen prompt; on macOS it
+means a quarantine flag to clear. Both are one-time, and both are described
+below.
+
+The one real feature gap is dragging a tab from one window into another. It
+needs to know which window the compositor is drawing under the cursor, which on
+Windows is a `WindowFromPoint` call and elsewhere is either awkward (macOS, X11)
+or deliberately impossible — **Wayland hides the global pointer position by
+design**. Rather than work on two platforms out of three, the app doesn't offer
+it off Windows: no drop caret appears, and releasing a dragged tab tears it off
+into its own window, which you can then read side by side. Reordering tabs
+within a window works everywhere.
+
 ## Installing
 
-Download `T4-Markdown-Viewer_1.0.2_x64-setup.exe` from
+Every release ships a `.sha256` sidecar next to each file, so you can check you
+got what CI built: `sha256sum -c <file>.sha256` on Linux, `shasum -a 256 -c` on
+macOS, `Get-FileHash '.\<file>' -Algorithm SHA256` on Windows.
+
+### Windows
+
+Download `T4-Markdown-Viewer_<version>_x64-setup.exe` from
 [Releases](https://github.com/toperux/t4-markdown-viewer/releases) — or build it
 yourself, in which case it lands in `src-tauri/target/release/bundle/nsis/`
-under Tauri's own name, `T4 Markdown Viewer_1.0.2_x64-setup.exe`.
+under Tauri's own name, `T4 Markdown Viewer_<version>_x64-setup.exe`.
 
 It is a **per-user** install — no admin prompt — landing in
 `%LOCALAPPDATA%\T4 Markdown Viewer`. Uninstall from Add/Remove Programs.
@@ -39,14 +69,53 @@ It is a **per-user** install — no admin prompt — landing in
 **The installer is not code-signed**, so Windows SmartScreen will show
 "Windows protected your PC" the first few times anyone runs it: click **More
 info** → **Run anyway**. A certificate is the only thing that removes that
-prompt, and it is not worth several hundred dollars a year for this. Each
-release lists the installer's SHA-256 so you can check you got what was built:
+prompt, and it is not worth several hundred dollars a year for this.
 
-```powershell
-Get-FileHash '.\T4-Markdown-Viewer_1.0.2_x64-setup.exe' -Algorithm SHA256
+### macOS
+
+Download `T4-Markdown-Viewer_<version>_universal.dmg` — one image for both
+Apple Silicon and Intel — and drag the app to Applications. Then clear the
+quarantine flag:
+
+```sh
+xattr -dr com.apple.quarantine "/Applications/T4 Markdown Viewer.app"
 ```
 
-### Making it the default for `.md`
+Without that, Gatekeeper reports the app as *damaged* rather than merely
+unsigned, which is its usual response to an unsigned download. Right-click →
+**Open** works too, if you prefer the prompt to the command.
+
+Finder offers the app under **Open With** straight away. To make it the default,
+select a `.md` file → **Get Info** → *Open with* → pick it → **Change All…**.
+
+### Linux
+
+Pick the packaging you prefer:
+
+```sh
+sudo apt install ./T4-Markdown-Viewer_<version>_amd64.deb    # Debian, Ubuntu
+sudo dnf install ./T4-Markdown-Viewer_<version>_x86_64.rpm   # Fedora, RHEL
+chmod +x T4-Markdown-Viewer_<version>_x86_64.AppImage        # anywhere else
+```
+
+The deb and rpm register the file association and rebuild the MIME and desktop
+caches, so `.md` opens on double-click and the app appears under *Open With*.
+Set it as the default with:
+
+```sh
+xdg-mime default t4-markdown-viewer.desktop text/markdown
+```
+
+**An AppImage is not installed into the system MIME database**, so it will not
+pick up file associations on its own — that needs
+[AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) or a
+hand-installed `.desktop` file. Passing a path on the command line always works:
+
+```sh
+./T4-Markdown-Viewer_<version>_x86_64.AppImage notes.md
+```
+
+### Making it the default for `.md` on Windows
 
 **The installer cannot do this, and neither can any other installer.** Windows
 10/11 protect the current default in
@@ -81,9 +150,11 @@ Windows tracks each one separately.
 
 ## Keyboard
 
+On macOS, read `Cmd` for every `Ctrl` below.
+
 | Key | Action |
 | --- | --- |
-| `Alt+←` / `Alt+→` | Back / forward through visited documents |
+| `Alt+←` / `Alt+→`, or `Ctrl+[` / `Ctrl+]` | Back / forward through visited documents |
 | `Ctrl+O` | Open a file, wherever Settings says |
 | `Ctrl+T` | Open a file in a new **tab** |
 | `Ctrl+N` | Open a file in a new **window** |
@@ -94,6 +165,11 @@ Windows tracks each one separately.
 | `F8` | Next theme (`Shift+F8` for previous) |
 
 Mouse thumb buttons work for back/forward, and middle-click closes a tab.
+
+macOS keeps `Cmd+W` for closing a **tab**, as browsers do, and moves closing the
+window to `Shift+Cmd+W`. That is the one departure from the menu Tauri would
+build by default, which binds `Cmd+W` to the window and would leave no way to
+close a tab from the keyboard.
 
 Theme cycling used to be `Ctrl+T`; it moved to `F8` so the tab shortcuts could
 follow the conventions every browser and editor already uses.
@@ -117,8 +193,8 @@ link pointing at an id that does not exist scrolls nowhere and costs no entry.
 
 The **gear** opens Settings, where a pair of radio buttons decides where a file
 opens: in a new tab, or in a new window. That covers every way a document
-arrives without you saying otherwise — double-clicking it in Explorer, `Ctrl+O`,
-or the **Open…** button. It is shared by every open window, because an Explorer
+arrives without you saying otherwise — double-clicking it in your file manager,
+`Ctrl+O`, or the **Open…** button. It is shared by every open window, because a
 double-click has to land *somewhere* and per-window disagreement about that is
 unguessable.
 
@@ -136,7 +212,7 @@ The tab strip appears once a window holds two documents. From there a tab can be
 
 - dragged left and right to reorder,
 - dropped onto another viewer window to move it there — that window shows a
-  caret where it would land, and takes focus once you let go,
+  caret where it would land, and takes focus once you let go (**Windows only**),
 - or dropped anywhere else, including this window's own text, to tear it out
   into a new window at the cursor.
 
@@ -148,10 +224,14 @@ real z-order rather than a guess. Releasing over your own window tears the tab
 off even if another window happens to be buried underneath — you could not have
 aimed at something invisible, so it does not count as a target.
 
+On macOS and Linux there is no drop target: no caret appears on any window, and
+every release tears the tab off into its own window. See
+[Platforms](#platforms) for why.
+
 With a single document the strip is hidden, so the **file path in the toolbar
 becomes the drag handle**. Tearing off there would just recreate the window you
-already have, but dropping it onto another window merges the two, leaving this
-one empty.
+already have, but on Windows dropping it onto another window merges the two,
+leaving this one empty.
 
 Closing the last tab leaves the window empty rather than destroying it; a window
 disappearing from under you is a worse surprise than an empty one.
@@ -175,7 +255,9 @@ the code chrome, so they are not recolourings of one look:
 To write your own, copy `themes/_template.css` into
 
 ```
-%APPDATA%\t4-markdown-viewer\themes\
+%APPDATA%\t4-markdown-viewer\themes\                        Windows
+~/Library/Application Support/t4-markdown-viewer/themes/    macOS
+~/.config/t4-markdown-viewer/themes/                        Linux
 ```
 
 It shows up in the Settings list immediately and re-applies every time you save
@@ -192,18 +274,37 @@ Settings, and keeps working while it is open.
 Requires only a Rust toolchain — there is no Node.js build step. The frontend
 is plain HTML/CSS/JS served straight out of `src/`.
 
+On Linux, the webview and its dependencies are needed first:
+
+```sh
+sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
+  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+```
+
+macOS needs `xcode-select --install`, and nothing else.
+
 ```sh
 cargo install tauri-cli          # once
 cd src-tauri
 cargo test                       # renderer + path handling
 cargo tauri dev                  # run
-cargo tauri build                # NSIS installer in target/release/bundle
+cargo tauri build                # packages in target/release/bundle
+```
+
+`cargo tauri build` produces whatever the host can make: an NSIS installer on
+Windows, `.app` and `.dmg` on macOS, `.deb`/`.rpm`/`.AppImage` on Linux. The
+target list in `tauri.conf.json` names all of them, and the bundler skips the
+ones that do not apply. For a universal macOS binary:
+
+```sh
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
+cargo tauri build --target universal-apple-darwin
 ```
 
 To open a file during development, pass it to the built binary directly:
 
 ```sh
-./target/debug/t4-markdown-viewer.exe ../examples/kitchen-sink.md
+./target/debug/t4-markdown-viewer ../examples/kitchen-sink.md   # .exe on Windows
 ```
 
 `examples/kitchen-sink.md` exercises every construct the renderer supports —
@@ -236,11 +337,29 @@ cost is that a very large, code-heavy document highlights on the UI thread.
 Blocks with no declared language are *not* auto-detected. Detection is often
 wrong and costs real time; they get the theme's plain code background instead.
 
-**Windows never fires `RunEvent::Opened`.** A file-association open arrives as
-a command-line argument in a brand-new process. `tauri-plugin-single-instance`
-forwards that `argv` to the running instance, which routes it to a tab in the
-most recently focused window or to a new window, per the setting; cold starts
-read it in `setup()`.
+**Every platform delivers a double-clicked file differently.** All three routes
+converge on one function, `open_path`, so the tab-or-window setting is obeyed
+identically however the file arrived:
+
+- **Windows and Linux** hand it over as a command-line argument in a brand-new
+  process. `tauri-plugin-single-instance` forwards that `argv` to the running
+  instance; cold starts read it in `setup()`.
+- **macOS** never uses `argv` for this. Launch Services reuses the running app
+  and sends an Apple Event, surfacing as `RunEvent::Opened` — for warm opens
+  too, so the single-instance hook never sees them.
+
+A window whose webview has not yet asked for its startup payload has no event
+listener either, so `open_path` stashes the path for it to collect rather than
+emitting into the void. That is the normal case on a cold start, where the OS
+hands over the file before the webview exists.
+
+**Tauri's Linux `.desktop` template omits the `%F` field code**, so the desktop
+environment would launch the app with no path at all and land it on the empty
+state. `src-tauri/linux/main.desktop` is a copy of that template with `%F`
+added, wired up through `bundle.linux.deb.desktopTemplate`; the AppImage
+bundler reuses the deb's data directory, so one file covers both. The `MimeType`
+key is likewise only written when `fileAssociations[].mimeType` is set
+explicitly — it is never inferred from the extensions.
 
 **Dragging is pointer capture, not HTML5 drag-and-drop.** DnD cannot cross a
 webview boundary and every window here is its own webview. Instead the bar
@@ -249,6 +368,13 @@ point" with `WindowFromPoint` — the compositor's own answer, since Tauri expos
 no z-order and window rectangles alone cannot tell which one is on top. A tab is
 plain JSON — path plus history — so moving one between windows is a hand-off
 through Rust rather than any kind of webview state migration.
+
+That question has no portable answer, so off Windows `window_at` returns
+`None` and the frontend is told, through `get_settings`, not to offer the
+affordance at all. Wayland goes further and will not say where a window *is*
+either, so `window_origin` reports an inexact origin there and the frontend
+falls back to the pointer's own screen coordinates — a torn-off window lands
+approximately rather than exactly, which beats the drag doing nothing.
 
 **Screen coordinates come from the window, not the pointer event.**
 `screenX * devicePixelRatio` assumes a single scale factor for the whole
@@ -281,13 +407,15 @@ src/                  frontend — no bundler, no npm
   vendor/             highlight.js
 src-tauri/
   src/
-    main.rs           windows, argv routing, drag hit-testing, commands
+    main.rs           windows, file-open routing, drag hit-testing, commands
     render.rs         comrak: Markdown -> HTML
     themes.rs         theme discovery
     watch.rs          debounced per-window file + theme watching
     config.rs         persisted settings
   capabilities/       permission scope — must cover runtime windows
   themes/             bundled theme catalog
+  windows/            NSIS installer hooks
+  linux/              .desktop template, MIME package, post-install script
 examples/             kitchen-sink fixture
 ```
 

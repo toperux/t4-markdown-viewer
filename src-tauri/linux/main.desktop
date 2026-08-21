@@ -1,0 +1,20 @@
+# Tauri's own template writes `Exec={{exec}}` with no field code, so a desktop
+# environment launching us for a double-clicked file passes no path at all and
+# the app opens on its empty state. `%F` is the only reason this file exists —
+# everything else is a copy of the upstream template, and should be diffed
+# against it when upgrading Tauri:
+# crates/tauri-bundler/src/bundle/linux/freedesktop/main.desktop
+[Desktop Entry]
+Categories={{categories}}
+{{#if comment}}
+Comment={{comment}}
+{{/if}}
+Exec={{exec}} %F
+StartupWMClass={{exec}}
+Icon={{icon}}
+Name={{name}}
+Terminal=false
+Type=Application
+{{#if mime_type}}
+MimeType={{mime_type}}
+{{/if}}

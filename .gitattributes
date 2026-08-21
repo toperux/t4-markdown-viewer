@@ -1,0 +1,6 @@
+# The Linux packaging files are read by dpkg/rpm and by the desktop
+# environment, none of which tolerate CRLF — a postinst starting `#!/bin/sh\r`
+# fails with an error that names neither the file nor the reason. Pin them so a
+# checkout on a Windows machine with core.autocrlf=true cannot break the build.
+src-tauri/linux/* text eol=lf
+*.sh text eol=lf

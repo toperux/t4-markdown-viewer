@@ -11,15 +11,28 @@ env:
 
 jobs:
   check:
-    # Windows-only by design: the app calls WindowFromPoint for tab-drag
-    # hit-testing, so main.rs does not compile anywhere else.
-    runs-on: windows-latest
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22.04 rather than latest: the .deb links against whatever glibc the
+        # builder has, so building on the oldest supported runner is what makes
+        # the package installable on more than just the newest distros.
+        os: [windows-latest, macos-latest, ubuntu-22.04]
     defaults:
       run:
         working-directory: src-tauri
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -29,7 +42,9 @@ jobs:
         with:
           workspaces: src-tauri
 
+      # Formatting is platform-independent, so checking it once is enough.
       - name: Format
+        if: runner.os == 'Windows'
         run: cargo fmt --check
 
       # `-D warnings` goes after `--`, not in RUSTFLAGS: as an env var it also

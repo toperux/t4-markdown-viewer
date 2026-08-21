@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Distro shared-mime-info already maps .md and .markdown to text/markdown, but
+  not the older spellings. Without these the file manager has no MIME type to
+  match against our MimeType= line, so "Open With" never offers the viewer.
+
+  text/markdown only. The app also accepts .txt from the command line, but
+  claiming text/plain here would put it forward as a handler for every text
+  file on the system, which is not what a Markdown viewer is for.
+-->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="text/markdown">
+    <comment>Markdown document</comment>
+    <glob pattern="*.mkd"/>
+    <glob pattern="*.mkdn"/>
+    <glob pattern="*.mdown"/>
+    <glob pattern="*.mdwn"/>
+    <glob pattern="*.mdtext"/>
+    <glob pattern="*.mdtxt"/>
+  </mime-type>
+</mime-info>

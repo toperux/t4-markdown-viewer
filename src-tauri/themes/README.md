@@ -6,8 +6,14 @@ A theme is one plain CSS file. There is no build step and no restart.
 
 | Location | Purpose |
 | --- | --- |
-| `<install dir>\themes\` | Bundled themes shipped with the app |
-| `%APPDATA%\t4-markdown-viewer\themes\` | Your own themes |
+| the app's own `themes/` directory | Bundled themes shipped with the app |
+| your config directory (below) | Your own themes |
+
+```
+%APPDATA%\t4-markdown-viewer\themes\                        Windows
+~/Library/Application Support/t4-markdown-viewer/themes/    macOS
+~/.config/t4-markdown-viewer/themes/                        Linux
+```
 
 Both are scanned at startup and re-scanned whenever a `.css` file in either one
 changes. A user theme **shadows** a bundled theme with the same filename, so you
