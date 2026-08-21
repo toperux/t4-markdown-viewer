@@ -187,6 +187,12 @@ clicked the link from rather than skipping the whole document. Stepping between
 two anchors in one file is a scroll, not a reload — no flash, no re-highlight. A
 link pointing at an id that does not exist scrolls nowhere and costs no entry.
 
+A link carrying both — `notes.md#fc-29` — does both: the file loads and the view
+lands on that section rather than at the top, and Back comes back to the link.
+Cross-referencing documents lean on this heavily, and they tend to spell the
+name even when the target is the file already open; that case is treated as the
+in-page jump it really is, not a reload of the page you are on.
+
 ## Tabs and windows
 
 ![Settings](docs/screenshots/settings.png)

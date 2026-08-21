@@ -183,7 +183,7 @@ function show(which) {
   els.error.hidden = which !== "error";
 }
 
-function renderDocument(doc, scrollY) {
+function renderDocument(doc, scrollY, hash) {
   /*
    * Drop any fragment left over from the previous document. Without this, a
    * `#f5` still sitting in the URL means clicking `#f5` in the *next* file is
@@ -202,7 +202,22 @@ function renderDocument(doc, scrollY) {
   show("content");
 
   // Restore after layout, so the offset being scrolled to actually exists yet.
-  requestAnimationFrame(() => window.scrollTo(0, scrollY));
+  requestAnimationFrame(() => {
+    /*
+     * Arriving through a cross-file link: land on the section it named. Only
+     * on arrival — `scrollY` is zero exactly when nothing has been recorded
+     * yet, and once this entry has a position of its own, Back and Forward
+     * must return to that rather than jumping to the anchor a second time.
+     */
+    if (hash && scrollY === 0 && jumpToAnchor(hash)) {
+      requestAnimationFrame(() => {
+        const entry = currentEntry(activeTab());
+        if (entry?.hash === hash) entry.scrollY = window.scrollY;
+      });
+      return;
+    }
+    window.scrollTo(0, scrollY);
+  });
 }
 
 /** Render whatever the active tab points at. `scrollY` overrides the saved spot. */
@@ -224,7 +239,7 @@ async function showActive(scrollY) {
     tab.dir = doc.dir;
     tab.label = baseName(doc.path);
     tab.heading = doc.title ?? "";
-    renderDocument(doc, scrollY ?? entry.scrollY ?? 0);
+    renderDocument(doc, scrollY ?? entry.scrollY ?? 0, entry.hash);
   } catch (err) {
     if (token !== renderToken) return;
     els.errorDetail.textContent = String(err);
@@ -391,16 +406,32 @@ async function adoptTab(data, at) {
 
 /* ---------------- navigation ---------------- */
 
-/** Follow a link in the active tab, discarding any forward history. */
-async function loadPath(path) {
+/**
+ * Follow a link in the active tab, discarding any forward history. `hash` is
+ * the fragment the link carried, if any, and is stored decoded so it can be
+ * matched against ids straight out of the DOM.
+ */
+async function loadPath(path, hash) {
   const tab = activeTab();
   if (!tab) return openTab(path);
 
+  const id = hash ? decodeId(hash) : "";
   const entry = currentEntry(tab);
+
+  // A cross-file link can name the file it is written in — documents that link
+  // to their own sections by full name do it constantly. Loading it again would
+  // throw away the rendered page to arrive at the same one, so treat it as the
+  // in-page jump it really is.
+  if (id && entry && samePath(entry.path, path)) {
+    pushAnchorEntry(id);
+    jumpToAnchor(id);
+    return;
+  }
+
   if (!entry || !samePath(entry.path, path)) {
     rememberScroll();
     tab.entries.length = tab.index + 1; // drop the forward branch
-    tab.entries.push({ path, scrollY: 0 });
+    tab.entries.push({ path, scrollY: 0, hash: id });
     tab.index = tab.entries.length - 1;
     syncWatch();
   }
@@ -433,6 +464,27 @@ async function go(delta) {
   await showActive();
 }
 
+/** Fragments arrive percent-encoded; the ids they name do not. */
+function decodeId(raw) {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw; // malformed escapes: use the raw text
+  }
+}
+
+/**
+ * Jump the way a click on a same-page link would, rather than scrolling by
+ * hand: that is what makes `:target` match, and `:target` is what keeps the
+ * heading clear of the sticky bar. False when this document has no such id,
+ * which is all a link into a section that has since been renamed deserves.
+ */
+function jumpToAnchor(id) {
+  if (!document.getElementById(id)) return false;
+  location.hash = id;
+  return true;
+}
+
 /**
  * Record an in-page jump as a history entry, so Back returns to where the link
  * was clicked from rather than skipping the whole document.
@@ -442,12 +494,7 @@ async function go(delta) {
  * scroll by hand would mean reimplementing that offset.
  */
 function pushAnchorEntry(raw) {
-  let id = raw;
-  try {
-    id = decodeURIComponent(raw);
-  } catch {
-    /* malformed escapes: use the raw text */
-  }
+  const id = decodeId(raw);
   // A link to nothing scrolls nowhere, so it should not cost a Back press.
   if (!document.getElementById(id)) return;
 
@@ -828,10 +875,13 @@ function onLinkClick(event) {
   event.preventDefault();
 
   if (isRelative(href)) {
-    const [pathPart] = href.split("#");
+    const [pathPart, ...rest] = href.split("#");
     const target = resolvePath(activeTab()?.dir ?? "", pathPart);
     if (MD_LINK.test(pathPart)) {
-      loadPath(target);
+      // `notes.md#fc-29` is one link, not two: the file to load and the place
+      // in it to land. Dropping the fragment would open every cross-file
+      // reference at the top of its document.
+      loadPath(target, rest.join("#"));
     } else {
       openUrl(convertFileSrc(target)).catch(console.error);
     }
