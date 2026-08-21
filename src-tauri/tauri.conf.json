@@ -39,7 +39,7 @@
     ],
     "resources": ["themes/*"],
     "shortDescription": "Markdown Viewer",
-    "longDescription": "A fast, themeable Markdown viewer for Windows.",
+    "longDescription": "A fast, themeable Markdown viewer.",
     "fileAssociations": [
       {
         "ext": ["md", "markdown", "mdown", "mkd", "mdtext"],

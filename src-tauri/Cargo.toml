@@ -2,7 +2,7 @@
 name = "t4-markdown-viewer"
 version = "1.1.0"
 edition = "2021"
-description = "A fast, themeable Markdown viewer for Windows"
+description = "A fast, themeable Markdown viewer"
 authors = ["Christopher Montevirgen"]
 license = "MIT"
 repository = "https://github.com/toperux/t4-markdown-viewer"
