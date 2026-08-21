@@ -1014,6 +1014,9 @@ async function main() {
 
   // Window starts hidden so the first frame is already themed and painted.
   await appWindow.show();
+  // Showing does not raise a window whose process is in the background, and a
+  // window created for a file the user just opened has to land in front.
+  await appWindow.setFocus().catch(() => {});
 }
 
 main().catch((err) => {
