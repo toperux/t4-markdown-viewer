@@ -15,7 +15,6 @@
   --ui-fg: #1f1f1f;
   --ui-border: rgba(0, 0, 0, 0.12);
   --ui-accent: #0078d4;
-  --content-width: 56rem;
   --content-pad: 2.5rem;
 
   /* Themes override this. Must be on :root — see the note in _template.css. */
@@ -497,8 +496,6 @@ html.dragging-tab * {
 
 #empty,
 #error {
-  max-width: var(--content-width);
-  margin: 0 auto;
   padding: 4rem var(--content-pad);
   color: var(--ui-fg);
   font: 400 0.9375rem/1.6 "Segoe UI", system-ui, sans-serif;
@@ -522,8 +519,6 @@ html.dragging-tab * {
 /* ---------- document metrics ---------- */
 
 .markdown-body {
-  max-width: var(--content-width);
-  margin: 0 auto;
   padding: var(--content-pad);
   padding-bottom: 6rem;
   overflow-wrap: break-word;
