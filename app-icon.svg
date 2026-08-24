@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!--
+    Source for every generated icon. Regenerate with:
+        cargo tauri icon app-icon.svg -o src-tauri/icons
+
+    A sheet of paper carrying the Markdown mark. Deliberately flat and
+    axis-aligned: these are rasterised down to 30px for the Windows taskbar,
+    where gradients turn to mud and a shadow is a smudge.
+
+    The page is white with a solid blue edge rather than a blue fill — white on
+    white would vanish in Explorer without it, and the edge is what still reads
+    as paper once the mark inside is too small to make out.
+  -->
+
+  <!-- Page, top-right corner cut away for the fold. -->
+  <path d="M 180 110 L 644 110 L 844 310 L 844 914 L 180 914 Z"
+        fill="#ffffff" stroke="#0078d4" stroke-width="40" stroke-linejoin="round" />
+
+  <!-- The folded-back corner sitting in that cut. -->
+  <path d="M 644 110 L 844 310 L 644 310 Z"
+        fill="#bcdcf5" stroke="#0078d4" stroke-width="40" stroke-linejoin="round" />
+
+  <!-- The mark, scaled about the page centre to keep a margin of paper around
+       it. Scaling the group takes the stroke weights with it.
+
+       Then nudged down off that centre: the arrow is the tall element on the
+       right, which is exactly where the fold comes down, and dead centre left
+       the two almost touching. -->
+  <g transform="translate(0 45) translate(512 512) scale(0.9) translate(-512 -512)">
+    <!-- M: flat feet, rounded shoulders, as in the Markdown mark. -->
+    <path d="M 280 662 L 280 362 L 410 492 L 540 362 L 540 662"
+          fill="none" stroke="#0078d4" stroke-width="68"
+          stroke-linecap="butt" stroke-linejoin="round" />
+
+    <!-- Down arrow. -->
+    <path d="M 650 362 L 718 362 L 718 522 L 778 522 L 684 662 L 590 522 L 650 522 Z"
+          fill="#0078d4" />
+  </g>
+</svg>
