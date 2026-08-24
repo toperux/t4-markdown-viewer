@@ -35,6 +35,7 @@ Electron build starts around 150 MB.
 | Open by double-click | ✅ | ✅ | ✅ deb / rpm |
 | Tabs, tear-off, live reload, themes | ✅ | ✅ | ✅ |
 | Drag a tab **into another window** | ✅ | — | — |
+| Updates itself | ✅ | ✅ | ✅ AppImage |
 | Signed installer | — | — | n/a |
 
 Nothing is code-signed. On Windows that means a SmartScreen prompt; on macOS it
@@ -55,6 +56,30 @@ within a window works everywhere.
 Every release ships a `.sha256` sidecar next to each file, so you can check you
 got what CI built: `sha256sum -c <file>.sha256` on Linux, `shasum -a 256 -c` on
 macOS, `Get-FileHash '.\<file>' -Algorithm SHA256` on Windows.
+
+## Updating
+
+From 1.2.0 the app looks after this itself. On launch it asks GitHub once
+whether there is a newer release; if there is, an **Update** button appears in
+the toolbar. Clicking through it downloads the new version, installs it, and
+restarts — **open tabs are not restored**, so it waits until you say so.
+Nothing is downloaded before that.
+
+Turn the check off in **Settings → Updates**; **Check now** there works either
+way, and shows the version you are on.
+
+Two things it deliberately does not do. It never installs silently — an unsigned
+app that swaps itself out behind your back has earned every bit of suspicion
+that follows. And it does not touch a `.deb` or `.rpm` install: those belong to
+your package manager, so the app points you at the download page instead. An
+AppImage updates in place like Windows and macOS.
+
+Downloads are verified against a signing key held outside this repository —
+separate from code signing, which the project still does not do (see below).
+A release built without that key ships no signatures, and the app refuses it.
+
+Anything installed before 1.2.0 predates all of this and has to be replaced by
+hand once; updates run themselves from there.
 
 ### Windows
 

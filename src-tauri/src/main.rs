@@ -3,6 +3,7 @@
 mod config;
 mod render;
 mod themes;
+mod update;
 mod watch;
 
 use serde::Serialize;
@@ -42,6 +43,9 @@ struct AppState {
     focus_order: Mutex<Vec<String>>,
     /// Window currently showing a drop caret, so it can be told to clear it.
     drag_target: Mutex<Option<String>>,
+    /// The release found by the first update check, reused by every window that
+    /// asks afterwards. One launch, one request.
+    update: Mutex<Option<update::UpdateInfo>>,
     next_window: AtomicUsize,
 }
 
@@ -67,6 +71,9 @@ struct Settings {
     /// Whether two paths differing only in case name the same file. False on
     /// Linux, where `Notes.md` and `notes.md` are two documents.
     case_insensitive_paths: bool,
+    /// This build's version. The webview has no other way to know it, and
+    /// Settings shows it beside the update controls.
+    version: String,
 }
 
 #[derive(Serialize)]
@@ -439,11 +446,12 @@ fn read_theme(app: AppHandle, name: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn get_settings() -> Settings {
+fn get_settings(app: AppHandle) -> Settings {
     Settings {
         config: config::load(),
         cross_window_drag: cfg!(windows),
         case_insensitive_paths: cfg!(any(windows, target_os = "macos")),
+        version: app.package_info().version.to_string(),
     }
 }
 
@@ -619,6 +627,7 @@ fn main() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             take_pending,
@@ -634,6 +643,9 @@ fn main() {
             get_settings,
             set_theme,
             set_open_mode,
+            update::check_for_update,
+            update::install_update,
+            update::set_auto_update_check,
         ])
         .on_window_event(|window, event| {
             let state = window.app_handle().state::<AppState>();

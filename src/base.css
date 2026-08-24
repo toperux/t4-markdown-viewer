@@ -355,6 +355,134 @@ select option {
   cursor: pointer;
 }
 
+/* ---------- updates ---------- */
+
+/*
+ * Accented rather than plain chrome: it appears out of nowhere beside the
+ * gear, and a button nobody notices is the same as no button at all.
+ */
+#bar #update-btn {
+  border-color: var(--ui-accent);
+  color: var(--ui-accent);
+  font-weight: 600;
+}
+
+#bar #update-btn:hover {
+  background: var(--ui-accent);
+  color: #fff;
+}
+
+#settings-dialog input[type="checkbox"] {
+  margin: 0;
+  accent-color: var(--ui-accent);
+}
+
+/* Secondary actions: readable, but not competing with the accented ones. */
+#settings-dialog .minor,
+#update-dialog .minor {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--ui-border);
+  border-radius: 3px;
+  padding: 0.1875rem 0.625rem;
+  cursor: pointer;
+}
+
+#settings-dialog .minor:hover,
+#update-dialog .minor:hover {
+  border-color: var(--ui-accent);
+}
+
+/* Not a .hint: a row with a live control in it should not be dimmed. */
+#update-check-row {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  margin: 0.75rem 0 0;
+}
+
+#update-status {
+  opacity: 0.75;
+}
+
+/*
+ * Restated rather than shared with #settings-dialog: the two dialogs only
+ * happen to look alike, and grouping every selector would make one impossible
+ * to restyle without disturbing the other.
+ */
+#update-dialog {
+  max-width: 30rem;
+  padding: 0;
+  border: 1px solid var(--ui-border);
+  border-radius: 6px;
+  background: var(--ui-bg);
+  color: var(--ui-fg);
+  font: 400 0.875rem/1.5 "Segoe UI", system-ui, sans-serif;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+}
+
+/* Emphatic, unlike Settings: nothing behind this dialog is being previewed. */
+#update-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+#update-dialog form {
+  padding: 1.25rem 1.5rem 1rem;
+}
+
+#update-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+#update-dialog p {
+  margin: 0 0 0.75rem;
+}
+
+#update-dialog .hint {
+  opacity: 0.75;
+}
+
+#update-error {
+  color: #d13438;
+  opacity: 1;
+}
+
+#update-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+}
+
+/* The release-notes button is an aside, not part of the decision. */
+#update-notes-btn {
+  margin-right: auto;
+}
+
+#update-actions button:not(.minor) {
+  font: inherit;
+  padding: 0.3125rem 1.125rem;
+  border-radius: 3px;
+  border: 1px solid var(--ui-accent);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+#update-actions #update-now {
+  background: var(--ui-accent);
+  color: #fff;
+}
+
+#update-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* ---------- tab strip ---------- */
 
 /*

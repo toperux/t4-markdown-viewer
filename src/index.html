@@ -34,6 +34,9 @@
             </div>
           </div>
 
+          <!-- Unhidden only once a check has found a newer release. -->
+          <button id="update-btn" type="button" hidden title="A new version is available">Update</button>
+
           <button id="settings-btn" class="nav" type="button" title="Settings" aria-label="Settings">
             <svg viewBox="0 0 16 16" aria-hidden="true">
               <path d="M 6.55 3.32 L 6.98 1.48 L 9.02 1.48 L 9.45 3.32 L 10.29 3.67 L 11.89 2.67 L 13.33 4.11 L 12.33 5.71 L 12.68 6.55 L 14.52 6.98 L 14.52 9.02 L 12.68 9.45 L 12.33 10.29 L 13.33 11.89 L 11.89 13.33 L 10.29 12.33 L 9.45 12.68 L 9.02 14.52 L 6.98 14.52 L 6.55 12.68 L 5.71 12.33 L 4.11 13.33 L 2.67 11.89 L 3.67 10.29 L 3.32 9.45 L 1.48 9.02 L 1.48 6.98 L 3.32 6.55 L 3.67 5.71 L 2.67 4.11 L 4.11 2.67 L 5.71 3.67 Z" />
@@ -91,7 +94,45 @@
           </p>
         </fieldset>
 
+        <fieldset>
+          <legend>Updates</legend>
+          <p class="hint">
+            Asks GitHub once per launch whether there is a newer version. Nothing is downloaded or
+            installed until you ask for it.
+          </p>
+          <label><input type="checkbox" id="auto-update" /> Check for updates automatically</label>
+          <p id="update-check-row">
+            <button id="check-now" class="minor" type="button">Check now</button>
+            <span id="update-status" role="status"></span>
+          </p>
+          <p class="hint">Version <span id="app-version"></span></p>
+        </fieldset>
+
         <div id="settings-actions"><button value="close">Done</button></div>
+      </form>
+    </dialog>
+
+    <!-- Sibling of Settings rather than a section inside it: this one is opened
+         from the toolbar, and it has an action rather than a preference. -->
+    <dialog id="update-dialog" aria-labelledby="update-title">
+      <form method="dialog">
+        <h2 id="update-title">Update available</h2>
+
+        <p id="update-summary"></p>
+        <p class="hint" id="update-notes"></p>
+        <p class="hint" id="update-warning">
+          Installing restarts the viewer. Open tabs are not restored, so finish what you are
+          reading first.
+        </p>
+
+        <p id="update-progress" hidden></p>
+        <p id="update-error" hidden></p>
+
+        <div id="update-actions">
+          <button id="update-notes-btn" class="minor" type="button">Release notes</button>
+          <button id="update-later" value="close">Later</button>
+          <button id="update-now" type="button">Update now</button>
+        </div>
       </form>
     </dialog>
 

@@ -19,6 +19,19 @@ const els = {
   settingsBtn: document.getElementById("settings-btn"),
   settings: document.getElementById("settings-dialog"),
   modeRadios: document.querySelectorAll('#settings-dialog input[name="open-mode"]'),
+  autoUpdate: document.getElementById("auto-update"),
+  checkNow: document.getElementById("check-now"),
+  updateStatus: document.getElementById("update-status"),
+  appVersion: document.getElementById("app-version"),
+  updateBtn: document.getElementById("update-btn"),
+  updateDialog: document.getElementById("update-dialog"),
+  updateSummary: document.getElementById("update-summary"),
+  updateNotes: document.getElementById("update-notes"),
+  updateWarning: document.getElementById("update-warning"),
+  updateProgress: document.getElementById("update-progress"),
+  updateError: document.getElementById("update-error"),
+  updateNotesBtn: document.getElementById("update-notes-btn"),
+  updateNow: document.getElementById("update-now"),
   emptyOpenBtn: document.getElementById("empty-open-btn"),
   content: document.getElementById("content"),
   empty: document.getElementById("empty"),
@@ -38,6 +51,8 @@ const state = {
    */
   crossWindowDrag: false,
   caseInsensitivePaths: false,
+  /** The release `check_for_update` found, or null while there is none. */
+  update: null,
 };
 
 const MD_LINK = /\.(md|markdown|mdown|mkd|mdtext|mdtxt|mdwn|mkdn)$/i;
@@ -554,6 +569,79 @@ function setOpenMode(mode) {
   invoke("set_open_mode", { mode }).catch(console.error);
 }
 
+/* ---------------- updates ---------------- */
+
+/**
+ * Ask Rust whether a newer release exists. Rust caches the answer, so the
+ * second and third window cost nothing.
+ *
+ * The boot call passes `force: false`: it obeys the Settings switch, and a
+ * failure — offline, GitHub down — is swallowed, because an update check the
+ * user never asked for has no business interrupting them. `force: true` comes
+ * from the Check now button, which does want to hear about failures.
+ */
+async function checkUpdate(force) {
+  const info = await invoke("check_for_update", { force });
+  state.update = info ?? null;
+  els.updateBtn.hidden = !info;
+  if (info) els.updateBtn.title = `Version ${info.version} is available`;
+  return info;
+}
+
+function showUpdateDialog() {
+  const info = state.update;
+  if (!info) return;
+
+  els.updateSummary.textContent = `Version ${info.version} is available.`;
+  els.updateNotes.textContent = info.notes;
+  els.updateNotes.hidden = !info.notes;
+  els.updateProgress.hidden = true;
+  els.updateError.hidden = true;
+  els.updateNow.disabled = false;
+
+  // A deb or rpm install cannot replace itself; that is the package manager's
+  // job. Offering an Update button that could only ever fail would be worse
+  // than sending them to the download page.
+  els.updateNow.textContent = info.installable ? "Update now" : "Download…";
+  els.updateWarning.hidden = !info.installable;
+
+  els.updateDialog.showModal();
+}
+
+async function runUpdate() {
+  const info = state.update;
+  if (!info) return;
+
+  if (!info.installable) {
+    openUrl(info.release_url).catch(console.error);
+    return;
+  }
+
+  els.updateNow.disabled = true;
+  els.updateError.hidden = true;
+  els.updateProgress.hidden = false;
+  els.updateProgress.textContent = "Downloading…";
+
+  try {
+    // Does not return when it succeeds: the app is restarted into the new
+    // version, or on Windows killed outright by the installer.
+    await invoke("install_update");
+  } catch (err) {
+    console.error(err);
+    els.updateProgress.hidden = true;
+    els.updateError.textContent = `Update failed: ${err}`;
+    els.updateError.hidden = false;
+    els.updateNow.disabled = false;
+  }
+}
+
+/** `null` percent means the manifest gave no size to measure against. */
+function showUpdateProgress(percent) {
+  if (els.updateProgress.hidden) return;
+  els.updateProgress.textContent =
+    percent == null ? "Downloading…" : `Downloading… ${percent}%`;
+}
+
 /** `undefined` toggles. */
 function showOpenMenu(open) {
   const next = open ?? els.openMenu.hidden;
@@ -914,8 +1002,8 @@ async function onKeydown(event) {
     return;
   }
 
-  // Otherwise the dialog is modal: let it own the keyboard, Escape included.
-  if (els.settings.open) return;
+  // Otherwise a dialog is modal: let it own the keyboard, Escape included.
+  if (els.settings.open || els.updateDialog.open) return;
 
   if (event.key === "Escape" && !els.openMenu.hidden) {
     showOpenMenu(false);
@@ -1039,6 +1127,34 @@ async function main() {
     });
   }
 
+  els.autoUpdate.addEventListener("change", () => {
+    invoke("set_auto_update_check", { enabled: els.autoUpdate.checked }).catch(console.error);
+  });
+  els.checkNow.addEventListener("click", async () => {
+    els.checkNow.disabled = true;
+    els.updateStatus.textContent = "Checking…";
+    try {
+      const info = await checkUpdate(true);
+      els.updateStatus.textContent = info
+        ? `Version ${info.version} is available.`
+        : "You are up to date.";
+    } catch (err) {
+      console.error(err);
+      els.updateStatus.textContent = `Check failed: ${err}`;
+    } finally {
+      els.checkNow.disabled = false;
+    }
+  });
+
+  els.updateBtn.addEventListener("click", () => {
+    showOpenMenu(false);
+    showUpdateDialog();
+  });
+  els.updateNow.addEventListener("click", runUpdate);
+  els.updateNotesBtn.addEventListener("click", () => {
+    if (state.update) openUrl(state.update.release_url).catch(console.error);
+  });
+
   els.picker.addEventListener("change", (e) => selectTheme(e.target.value));
   els.content.addEventListener("click", onLinkClick);
   els.back.addEventListener("click", () => go(-1));
@@ -1063,6 +1179,8 @@ async function main() {
   const settings = await invoke("get_settings");
   state.crossWindowDrag = settings.cross_window_drag === true;
   state.caseInsensitivePaths = settings.case_insensitive_paths === true;
+  els.autoUpdate.checked = settings.auto_update_check !== false;
+  els.appVersion.textContent = settings.version ?? "";
   showOpenMode(settings.open_mode ?? "tab");
   await loadThemeList();
   await applyTheme(settings.theme);
@@ -1088,6 +1206,9 @@ async function main() {
     if (state.theme) await applyTheme(state.theme);
   });
   await listen("open-mode-changed", (e) => showOpenMode(e.payload));
+  // Broadcast on purpose: one install is happening to the whole app, so every
+  // window's dialog should count along with it.
+  await listen("update-progress", (e) => showUpdateProgress(e.payload));
 
   // Another window's tab is hovering over this one.
   await listenHere("tab-drag-over", (e) => {
@@ -1117,6 +1238,10 @@ async function main() {
   // Showing does not raise a window whose process is in the background, and a
   // window created for a file the user just opened has to land in front.
   await appWindow.setFocus().catch(() => {});
+
+  // Last, and not awaited: the document is already on screen, and a slow or
+  // unreachable GitHub must cost the reader nothing.
+  checkUpdate(false).catch(console.error);
 }
 
 main().catch((err) => {

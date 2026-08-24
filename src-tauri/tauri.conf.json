@@ -27,9 +27,21 @@
       }
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYwN0U2NjU3NzE4NDc1NTcKUldSWGRZUnhWMlorWUdOTmMzZzZQakQ4VHREZ0hyZ2FtOUcrcDJEa0tYRXNtOWY4NlNaS3VwbkoK",
+      "endpoints": [
+        "https://github.com/toperux/t4-markdown-viewer/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis", "app", "dmg", "deb", "rpm", "appimage"],
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

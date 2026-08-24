@@ -12,6 +12,10 @@ pub const DEFAULT_OPEN_MODE: &str = "tab";
 pub struct Config {
     pub theme: String,
     pub open_mode: String,
+    /// Whether to ask GitHub for a newer release once per launch. On by
+    /// default: an unsigned app that never mentions its own updates is how
+    /// people end up running a year-old build.
+    pub auto_update_check: bool,
 }
 
 impl Default for Config {
@@ -19,6 +23,7 @@ impl Default for Config {
         Self {
             theme: DEFAULT_THEME.to_string(),
             open_mode: DEFAULT_OPEN_MODE.to_string(),
+            auto_update_check: true,
         }
     }
 }
@@ -59,6 +64,18 @@ mod tests {
         let c: Config = serde_json::from_str(r#"{"theme":"dracula-blue"}"#).unwrap();
         assert_eq!(c.theme, "dracula-blue");
         assert_eq!(c.open_mode, DEFAULT_OPEN_MODE);
+    }
+
+    /// Same contract one version later: a config written by 1.1.2 predates
+    /// auto-update entirely, and must arrive opted in rather than parsed to
+    /// nothing.
+    #[test]
+    fn config_without_auto_update_check_still_loads() {
+        let c: Config =
+            serde_json::from_str(r#"{"theme":"dracula","open_mode":"window"}"#).unwrap();
+        assert_eq!(c.theme, "dracula");
+        assert_eq!(c.open_mode, "window");
+        assert!(c.auto_update_check);
     }
 
     #[test]
