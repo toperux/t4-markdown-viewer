@@ -24,6 +24,9 @@ Electron build starts around 150 MB.
   folder. The default rebuilds the Azure DevOps wiki look.
 - **Live reload.** Edit in another editor; the view updates on save and keeps
   your scroll position.
+- **Diagrams you can actually read.** A link to an SVG or an image opens it in a
+  tab of its own, with zoom and pan — a wide ERD is unreadable at column width.
+  Clicking a picture embedded in a document opens the same view.
 - **Syntax highlighting** for fenced code blocks.
 - **GFM**: tables, task lists, footnotes, strikethrough, autolinks,
   definition lists.
@@ -188,8 +191,14 @@ On macOS, read `Cmd` for every `Ctrl` below.
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab |
 | `F5` / `Ctrl+R` | Re-read the current file, keeping your scroll position |
 | `F8` | Next theme (`Shift+F8` for previous) |
+| `Ctrl++` / `Ctrl+-` / `Ctrl+0` | Zoom in / out / fit — while a picture is open |
 
 Mouse thumb buttons work for back/forward, and middle-click closes a tab.
+
+In a picture tab, `Ctrl`+wheel zooms about the cursor, dragging pans, and
+double-clicking zooms in on what you pointed at and then back out. Plain and
+`Shift`+wheel scroll, as anywhere else. Zoom and position are kept per tab, so
+switching away and back returns to the same place.
 
 macOS keeps `Cmd+W` for closing a **tab**, as browsers do, and moves closing the
 window to `Shift+Cmd+W`. That is the one departure from the menu Tauri would

@@ -84,6 +84,14 @@ struct Document {
     html: String,
 }
 
+/// An image the webview will fetch for itself over the asset protocol. There is
+/// no content here because there is nothing for us to render.
+#[derive(Serialize)]
+struct Asset {
+    path: String,
+    dir: String,
+}
+
 fn is_markdown(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
@@ -262,22 +270,30 @@ fn take_pending(state: State<AppState>, window: Window) -> Option<Value> {
     state.pending.lock().unwrap().remove(&label)
 }
 
-#[tauri::command]
-fn load_file(app: AppHandle, path: String) -> Result<Document, String> {
+/// Resolve a path the frontend handed over and split off its parent, or say why
+/// it cannot be opened. Shared by `load_file` and `load_asset` so that the two
+/// resolve — and refuse — identically.
+fn locate(path: String) -> Result<(PathBuf, PathBuf), String> {
     let path = PathBuf::from(&path);
     let path = std::fs::canonicalize(&path).unwrap_or(path);
     if !path.is_file() {
         return Err(format!("Not a file: {}", path.display()));
     }
 
-    let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let text = render::decode(&bytes);
-    let html = render::render(&text);
-
     let dir = path
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."));
+    Ok((path, dir))
+}
+
+#[tauri::command]
+fn load_file(app: AppHandle, path: String) -> Result<Document, String> {
+    let (path, dir) = locate(path)?;
+
+    let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let text = render::decode(&bytes);
+    let html = render::render(&text);
 
     // Let the webview load images and other assets sitting next to the document.
     app.asset_protocol_scope().allow_directory(&dir, true).ok();
@@ -293,6 +309,20 @@ fn load_file(app: AppHandle, path: String) -> Result<Document, String> {
         dir: strip_unc(&dir),
         title,
         html,
+    })
+}
+
+/// Whitelist an image's own directory for the asset protocol and hand back the
+/// canonical path. `load_file` does this for the documents it opens, which is
+/// why an image sitting beside one already loads; an image opened as a tab in
+/// its own right has had no such grant, and the webview would refuse it.
+#[tauri::command]
+fn load_asset(app: AppHandle, path: String) -> Result<Asset, String> {
+    let (path, dir) = locate(path)?;
+    app.asset_protocol_scope().allow_directory(&dir, true).ok();
+    Ok(Asset {
+        path: strip_unc(&path),
+        dir: strip_unc(&dir),
     })
 }
 
@@ -632,6 +662,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             take_pending,
             load_file,
+            load_asset,
             watch_files,
             open_window,
             window_origin,
@@ -749,6 +780,24 @@ mod tests {
     fn unc_prefix_stripped() {
         assert_eq!(strip_unc(Path::new(r"\\?\C:\docs\a.md")), r"C:\docs\a.md");
         assert_eq!(strip_unc(Path::new(r"C:\docs\a.md")), r"C:\docs\a.md");
+    }
+
+    #[test]
+    fn locate_rejects_what_is_not_a_file() {
+        // A directory is the case that matters: it survives canonicalize, so
+        // only the is_file guard stops it reaching a reader.
+        let err = locate("does-not-exist-here.svg".to_string()).unwrap_err();
+        assert!(err.starts_with("Not a file:"), "{err}");
+        let dir = std::env::temp_dir().to_string_lossy().into_owned();
+        assert!(locate(dir).is_err());
+    }
+
+    #[test]
+    fn locate_splits_off_the_parent_directory() {
+        let exe = std::env::current_exe().unwrap();
+        let (path, dir) = locate(exe.to_string_lossy().into_owned()).unwrap();
+        assert!(path.is_file());
+        assert_eq!(dir, path.parent().unwrap());
     }
 
     #[test]

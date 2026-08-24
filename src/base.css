@@ -644,6 +644,100 @@ html.dragging-tab * {
   word-break: break-all;
 }
 
+/* ---------- image viewer ---------- */
+
+/*
+ * The one inner scroll container in the app. A document flows under the sticky
+ * bar and scrolls the body; a picture cannot, because it has to pan sideways as
+ * well and to keep growing under zoom. So the panel takes exactly the height
+ * the bar leaves — `--bar-h`, published by measureBar() because the bar gains a
+ * row as soon as a second tab opens — and scrolls inside itself.
+ */
+
+html.image-mode {
+  overflow: hidden; /* one scrollbar for one thing to scroll, not two */
+}
+
+#image {
+  position: relative; /* anchors the zoom controls */
+  height: calc(100dvh - var(--bar-h, 0px));
+}
+
+#image-view {
+  height: 100%;
+  overflow: auto;
+  display: flex;
+  cursor: grab;
+}
+
+#image-view.panning {
+  cursor: grabbing;
+}
+
+#image-el {
+  display: block;
+  /* Auto margins rather than `justify-content: center`: both centre the picture
+     while it is smaller than the box, but centring clips the near edge of one
+     that overflows, where auto margins collapse to zero and let it scroll. */
+  margin: auto;
+  /* The width is set in px by the zoom; without this the flex box would shrink
+     it straight back down to fit and there would be nothing to zoom into. */
+  flex: none;
+  width: auto;
+  height: auto;
+  max-width: none;
+  -webkit-user-drag: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#image-tools {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border: 1px solid var(--ui-border);
+  border-radius: 4px;
+  background: var(--ui-bg);
+  color: var(--ui-fg);
+  font: 400 0.8125rem/1.4 "Segoe UI", system-ui, sans-serif;
+  opacity: 0.85;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#image-tools:hover {
+  opacity: 1;
+}
+
+#image-tools button {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 0.125rem 0.4375rem;
+  cursor: pointer;
+}
+
+#image-tools button:hover {
+  border-color: var(--ui-accent);
+}
+
+#image-tools button:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 1px;
+}
+
+#zoom-level {
+  min-width: 3.25rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---------- document metrics ---------- */
 
 .markdown-body {
@@ -663,6 +757,11 @@ html.dragging-tab * {
 .markdown-body img {
   max-width: 100%;
   height: auto;
+}
+
+/* Held to the column width here, but there is a full-size view a click away. */
+.markdown-body img[data-file] {
+  cursor: zoom-in;
 }
 
 /* Wide content scrolls inside its own box; the page never scrolls sideways. */

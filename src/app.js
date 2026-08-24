@@ -35,6 +35,11 @@ const els = {
   emptyOpenBtn: document.getElementById("empty-open-btn"),
   content: document.getElementById("content"),
   empty: document.getElementById("empty"),
+  image: document.getElementById("image"),
+  imageView: document.getElementById("image-view"),
+  imageEl: document.getElementById("image-el"),
+  imageTools: document.getElementById("image-tools"),
+  zoomLevel: document.getElementById("zoom-level"),
   error: document.getElementById("error"),
   errorDetail: document.getElementById("error-detail"),
   themeStyle: document.getElementById("theme"),
@@ -56,7 +61,17 @@ const state = {
 };
 
 const MD_LINK = /\.(md|markdown|mdown|mkd|mdtext|mdtxt|mdwn|mkdn)$/i;
+const IMG_LINK = /\.(svg|png|jpe?g|gif|webp|avif|bmp|ico)$/i;
 const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
+
+/**
+ * What a tab holds is read back off its path rather than stored beside it. That
+ * keeps `makeTab`, `adoptTab` and the cross-window drag payload untouched: a
+ * tab handed to another window arrives knowing what it is.
+ */
+function isImage(p) {
+  return IMG_LINK.test(p);
+}
 
 /* ---------------- paths ---------------- */
 
@@ -148,7 +163,14 @@ function makeTab(path) {
 /** Snapshot the reading position so Back and tab switches return to the spot. */
 function rememberScroll() {
   const entry = currentEntry(activeTab());
-  if (entry) entry.scrollY = window.scrollY;
+  if (!entry) return;
+  // A picture scrolls inside its own box, and in two directions; it also has a
+  // zoom to keep. `picture` is null until one is actually on screen.
+  if (picture && isImage(entry.path)) {
+    rememberImage();
+    return;
+  }
+  entry.scrollY = window.scrollY;
 }
 
 /* ---------------- rendering ---------------- */
@@ -158,7 +180,12 @@ function resolveMedia(root, dir) {
   root.querySelectorAll("img[src], video[src], audio[src], source[src]").forEach((el) => {
     const raw = el.getAttribute("src");
     if (!isRelative(raw)) return;
-    el.setAttribute("src", convertFileSrc(resolvePath(dir, raw)));
+    const file = resolvePath(dir, raw);
+    el.setAttribute("src", convertFileSrc(file));
+    // Remember the file behind the picture so a click can open it full size —
+    // a diagram at column width is often too small to read. Images only: the
+    // same loop also rewrites video and audio, which have their own controls.
+    if (el.tagName === "IMG" && isImage(file)) el.dataset.file = file;
   });
 }
 
@@ -195,20 +222,31 @@ function highlight(root) {
 function show(which) {
   els.content.hidden = which !== "content";
   els.empty.hidden = which !== "empty";
+  els.image.hidden = which !== "image";
   els.error.hidden = which !== "error";
+  // The image panel brings its own scroll box. Left to itself the body would
+  // scroll too, giving two scrollbars for one thing to scroll.
+  document.documentElement.classList.toggle("image-mode", which === "image");
+  // Anything else on screen means there is no picture to zoom, and every
+  // handler that reads `picture` checks it first.
+  if (which !== "image") picture = null;
 }
 
-function renderDocument(doc, scrollY, hash) {
-  /*
-   * Drop any fragment left over from the previous document. Without this, a
-   * `#f5` still sitting in the URL means clicking `#f5` in the *next* file is
-   * not a change of fragment, so the browser performs no jump at all.
-   * replaceState rather than assigning location.hash: no extra entry, no
-   * hashchange, no trailing "#".
-   */
+/*
+ * Drop any fragment left over from the previous document. Without this, a `#f5`
+ * still sitting in the URL means clicking `#f5` in the *next* file is not a
+ * change of fragment, so the browser performs no jump at all. replaceState
+ * rather than assigning location.hash: no extra entry, no hashchange, no
+ * trailing "#".
+ */
+function clearHash() {
   if (location.hash) {
     history.replaceState(null, "", location.href.split("#")[0]);
   }
+}
+
+function renderDocument(doc, scrollY, hash) {
+  clearHash();
 
   els.content.innerHTML = doc.html;
   resolveMedia(els.content, doc.dir);
@@ -235,6 +273,170 @@ function renderDocument(doc, scrollY, hash) {
   });
 }
 
+/* ---------------- image viewer ---------------- */
+
+/*
+ * A diagram is often far wider than the window — the ERDs this was written for
+ * are 10:1 — so it gets a scroll box of its own rather than the body scroll a
+ * document uses, and a zoom that can go well past the window's width.
+ *
+ * Zoom is an explicit pixel width on the image, never a CSS transform. A
+ * transform paints outside the layout, so the scroll box would not know the
+ * picture had grown and there would be nothing to scroll; a width is real
+ * layout, and the scrollbars follow from it for free.
+ */
+
+const ZOOM_STEP = 1.25;
+const ZOOM_MIN = 0.05;
+const ZOOM_MAX = 32;
+const PAN_THRESHOLD = 3; // px before a click on the picture becomes a pan
+
+/**
+ * The picture on screen, or null whenever another panel is up. `base` is the
+ * width 100% refers to, `fit` records that the size is the window's to choose
+ * rather than one the reader picked.
+ */
+let picture = null;
+
+/** Bumped only by a refresh: the same asset URL would otherwise come from cache. */
+let assetVersion = 0;
+
+/**
+ * Width that shows the whole picture, whichever way round it is. Measured
+ * against the panel rather than the scroll box inside it: a picture that fits
+ * needs no scrollbars, so the space they are taking up right now is space the
+ * fitted picture will have back, and measuring around them fits it too small.
+ */
+function fitWidth() {
+  const w = els.image.clientWidth;
+  const h = els.image.clientHeight;
+  return Math.max(1, Math.min(w, h * picture.ratio));
+}
+
+/**
+ * The width 100% means. A raster image has a true pixel size to be honest
+ * about; an SVG with only a viewBox has none, so there "100%" is what fits —
+ * which also makes Fit read as 100%, the more useful reading of the two.
+ */
+function baseWidth() {
+  return picture.isRaster ? picture.naturalW : fitWidth();
+}
+
+/** Where an untouched picture starts: filling the window, but never blown up. */
+function defaultWidth() {
+  return picture.isRaster ? Math.min(picture.naturalW, fitWidth()) : fitWidth();
+}
+
+function applyWidth(w) {
+  const base = baseWidth();
+  const width = Math.min(base * ZOOM_MAX, Math.max(base * ZOOM_MIN, w));
+  picture.base = base;
+  picture.width = width;
+  els.imageEl.style.width = `${width}px`;
+  els.zoomLevel.textContent = `${Math.round((width / base) * 100)}%`;
+}
+
+/**
+ * Resize about a point, so whatever was under the cursor stays under it. Done
+ * by measuring the picture before and after rather than by arithmetic on
+ * offsets: the image is centred while it is smaller than the box and hard
+ * against the edge once it is bigger, and measuring is right either way.
+ */
+function zoomTo(w, clientX, clientY) {
+  if (!picture) return;
+  const box = els.imageView.getBoundingClientRect();
+  const before = els.imageEl.getBoundingClientRect();
+  const ax = clientX ?? box.left + box.width / 2;
+  const ay = clientY ?? box.top + box.height / 2;
+  const fx = before.width ? (ax - before.left) / before.width : 0.5;
+  const fy = before.height ? (ay - before.top) / before.height : 0.5;
+
+  applyWidth(w);
+
+  const after = els.imageEl.getBoundingClientRect();
+  els.imageView.scrollLeft += after.left + fx * after.width - ax;
+  els.imageView.scrollTop += after.top + fy * after.height - ay;
+  rememberImage();
+}
+
+function zoomBy(factor, clientX, clientY) {
+  if (!picture) return;
+  picture.fit = false;
+  zoomTo(picture.width * factor, clientX, clientY);
+}
+
+function fitImage() {
+  if (!picture) return;
+  picture.fit = true;
+  zoomTo(defaultWidth());
+  els.imageView.scrollLeft = 0;
+  els.imageView.scrollTop = 0;
+  rememberImage();
+}
+
+function actualSize() {
+  if (!picture) return;
+  picture.fit = false;
+  zoomTo(picture.naturalW);
+}
+
+/** Bank zoom and pan on the history entry, so a tab switch returns to them. */
+function rememberImage() {
+  const entry = currentEntry(activeTab());
+  if (!entry || !picture) return;
+  entry.scale = picture.fit ? null : picture.width / picture.base;
+  entry.scrollLeft = els.imageView.scrollLeft;
+  entry.scrollTop = els.imageView.scrollTop;
+}
+
+async function showImage(asset, entry, token) {
+  // The strip may have just appeared or gone; the panel is sized against the
+  // bar, so settle its height before anything is measured against it.
+  renderTabs();
+
+  els.imageEl.style.width = "";
+  els.zoomLevel.textContent = "";
+  els.imageEl.alt = baseName(asset.path);
+  els.imageEl.src = `${convertFileSrc(asset.path)}?v=${assetVersion}`;
+  clearHash();
+  show("image");
+
+  // Nothing can be measured until it has decoded, and a rejection here is a
+  // file that has gone or will not parse — which the error panel exists for.
+  await els.imageEl.decode();
+  if (token !== renderToken) return; // a newer switch already won
+
+  const { naturalWidth: nw, naturalHeight: nh } = els.imageEl;
+  picture = {
+    // The ratio is trustworthy even when the size is not: an SVG sized only by
+    // a viewBox reports some arbitrary box scaled to the right shape.
+    ratio: nh ? nw / nh : 1,
+    isRaster: !/\.svg$/i.test(asset.path),
+    naturalW: nw || 1,
+    width: 0,
+    base: 1,
+    fit: entry.scale == null,
+  };
+  // Meaningless for a picture that has no true size of its own.
+  els.imageTools.querySelector('[data-zoom="actual"]').hidden = !picture.isRaster;
+
+  applyWidth(picture.fit ? defaultWidth() : entry.scale * baseWidth());
+  els.imageView.scrollLeft = entry.scrollLeft ?? 0;
+  els.imageView.scrollTop = entry.scrollTop ?? 0;
+}
+
+/**
+ * A resize changes the panel, and with it what "fits". A picture the reader
+ * sized keeps its zoom — which for an SVG, whose 100% is the fit, means it
+ * grows and shrinks with the window rather than sitting at a stale width.
+ */
+function onResize() {
+  measureBar();
+  if (!picture) return;
+  const scale = picture.base ? picture.width / picture.base : 1;
+  zoomTo(picture.fit ? defaultWidth() : scale * baseWidth());
+}
+
 /** Render whatever the active tab points at. `scrollY` overrides the saved spot. */
 async function showActive(scrollY) {
   const tab = activeTab();
@@ -247,14 +449,30 @@ async function showActive(scrollY) {
   const entry = currentEntry(tab);
   const token = ++renderToken;
   try {
-    const doc = await invoke("load_file", { path: entry.path });
-    if (token !== renderToken) return; // a newer switch already won
-    entry.path = doc.path;
-    tab.path = doc.path;
-    tab.dir = doc.dir;
-    tab.label = baseName(doc.path);
-    tab.heading = doc.title ?? "";
-    renderDocument(doc, scrollY ?? entry.scrollY ?? 0, entry.hash);
+    if (isImage(entry.path)) {
+      // No content to fetch: the webview loads the bytes itself over the asset
+      // protocol. What this call is for is the permission to do so.
+      const asset = await invoke("load_asset", { path: entry.path });
+      if (token !== renderToken) return; // a newer switch already won
+      entry.path = asset.path;
+      tab.path = asset.path;
+      tab.dir = asset.dir;
+      tab.label = baseName(asset.path);
+      tab.heading = "";
+      // `scrollY` is a document position and means nothing here; the picture
+      // restores its own zoom and pan from the entry.
+      await showImage(asset, entry, token);
+      if (token !== renderToken) return;
+    } else {
+      const doc = await invoke("load_file", { path: entry.path });
+      if (token !== renderToken) return; // a newer switch already won
+      entry.path = doc.path;
+      tab.path = doc.path;
+      tab.dir = doc.dir;
+      tab.label = baseName(doc.path);
+      tab.heading = doc.title ?? "";
+      renderDocument(doc, scrollY ?? entry.scrollY ?? 0, entry.hash);
+    }
   } catch (err) {
     if (token !== renderToken) return;
     els.errorDetail.textContent = String(err);
@@ -277,6 +495,17 @@ function updateChrome() {
   renderTabs();
 }
 
+/**
+ * Publish the bar's height. A document scrolls the body and simply flows under
+ * the sticky bar, but the image panel has to be exactly the leftover height or
+ * its scroll box is the wrong size — and the bar grows a row the moment a
+ * second tab opens, so no constant will do.
+ */
+function measureBar() {
+  const h = els.bar.getBoundingClientRect().height;
+  document.documentElement.style.setProperty("--bar-h", `${h}px`);
+}
+
 /* ---------------- tab strip ---------------- */
 
 /** Slot the drop caret sits in, or -1 when no drag is hovering this window. */
@@ -287,6 +516,7 @@ function renderTabs() {
   els.tabs.hidden = !visible;
   if (!visible) {
     els.tabs.replaceChildren();
+    measureBar();
     return;
   }
 
@@ -316,6 +546,7 @@ function renderTabs() {
 
   els.tabs.replaceChildren(...nodes);
   paintDrag();
+  measureBar();
 }
 
 function caretElement() {
@@ -533,10 +764,14 @@ function pushAnchorEntry(raw) {
 
 /** Re-render the open document in place: no history entry, no scroll jump. */
 async function refresh() {
-  if (!activeTab()) return;
+  const entry = currentEntry(activeTab());
+  if (!entry) return;
   // Bank the position as well as restoring it, so a later tab switch or Back
   // returns here rather than to wherever the entry was last left.
   rememberScroll();
+  // A re-saved picture keeps its path, and the webview would serve the copy it
+  // already has. Documents are re-read by Rust, so only this side needs it.
+  if (isImage(entry.path)) assetVersion++;
   await showActive(window.scrollY);
 }
 
@@ -937,6 +1172,7 @@ async function pickFile() {
     multiple: false,
     filters: [
       { name: "Markdown", extensions: ["md", "markdown", "mdown", "mkd", "mdtext", "mdwn"] },
+      { name: "Images", extensions: ["svg", "png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico"] },
       { name: "All files", extensions: ["*"] },
     ],
   });
@@ -950,7 +1186,17 @@ async function pickFile() {
  */
 function onLinkClick(event) {
   const a = event.target.closest("a[href]");
-  if (!a) return;
+  if (!a) {
+    // A picture in a document is held to the column width, which is no width at
+    // all for a wide diagram. Clicking one opens it where it can be read.
+    // Only outside a link: a linked image still means the link.
+    const img = event.target.closest("img[data-file]");
+    if (img) {
+      event.preventDefault();
+      openTab(img.dataset.file).catch(console.error);
+    }
+    return;
+  }
   const href = a.getAttribute("href");
   if (!href) return;
 
@@ -970,6 +1216,10 @@ function onLinkClick(event) {
       // in it to land. Dropping the fragment would open every cross-file
       // reference at the top of its document.
       loadPath(target, rest.join("#"));
+    } else if (isImage(pathPart)) {
+      // A new tab, not this one: the document that linked the diagram is the
+      // thing you were reading, and closing the tab is how you get back to it.
+      openTab(target).catch(console.error);
     } else {
       openUrl(convertFileSrc(target)).catch(console.error);
     }
@@ -977,6 +1227,78 @@ function onLinkClick(event) {
   }
 
   openUrl(href).catch(console.error);
+}
+
+/*
+ * Panning the picture. Pointer capture rather than a document-level listener so
+ * a drag that leaves the window still steers the scroll, and so releasing
+ * outside it still ends cleanly.
+ */
+let pan = null;
+
+function onImagePointerDown(event) {
+  if (!picture || event.button !== 0) return;
+  // Also what stops the browser starting its own image drag instead.
+  event.preventDefault();
+  pan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
+  els.imageView.setPointerCapture(event.pointerId);
+}
+
+function onImagePointerMove(event) {
+  if (!pan || event.pointerId !== pan.pointerId) return;
+  const dx = event.clientX - pan.x;
+  const dy = event.clientY - pan.y;
+  if (!pan.moved && Math.hypot(dx, dy) < PAN_THRESHOLD) return;
+
+  pan.moved = true;
+  pan.x = event.clientX;
+  pan.y = event.clientY;
+  els.imageView.classList.add("panning");
+  // Dragging the picture left means looking further right.
+  els.imageView.scrollLeft -= dx;
+  els.imageView.scrollTop -= dy;
+}
+
+function onImagePointerUp(event) {
+  if (!pan || event.pointerId !== pan.pointerId) return;
+  const moved = pan.moved;
+  pan = null;
+  try {
+    els.imageView.releasePointerCapture(event.pointerId);
+  } catch {
+    /* capture already gone */
+  }
+  els.imageView.classList.remove("panning");
+  if (moved) rememberImage();
+}
+
+/**
+ * Plain and Shift wheel are left alone: the scroll box already handles them,
+ * vertically and horizontally. Ctrl is the zoom, as everywhere else.
+ */
+function onImageWheel(event) {
+  if (!picture || !event.ctrlKey) return;
+  event.preventDefault();
+  // Some wheels report lines rather than pixels; scale them to the same feel.
+  const dy = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+  zoomBy(Math.exp(-dy * 0.002), event.clientX, event.clientY);
+}
+
+/** The usual image-viewer double-click: in on what you pointed at, then back. */
+function onImageDblClick(event) {
+  if (!picture) return;
+  if (picture.fit) zoomBy(2.5, event.clientX, event.clientY);
+  else fitImage();
+}
+
+function onZoomClick(event) {
+  const button = event.target.closest("button[data-zoom]");
+  if (!button) return;
+  const what = button.dataset.zoom;
+  if (what === "in") zoomBy(ZOOM_STEP);
+  else if (what === "out") zoomBy(1 / ZOOM_STEP);
+  else if (what === "fit") fitImage();
+  else if (what === "actual") actualSize();
 }
 
 async function onKeydown(event) {
@@ -1043,6 +1365,24 @@ async function onKeydown(event) {
   if (event.key === "Tab") {
     event.preventDefault();
     cycleTab(event.shiftKey ? -1 : 1);
+    return;
+  }
+
+  // The browser spellings of zoom, pointed at the picture rather than the page.
+  // `=` is the unshifted key `+` lives on, which is how it is usually pressed.
+  if (picture && (event.key === "+" || event.key === "=")) {
+    event.preventDefault();
+    zoomBy(ZOOM_STEP);
+    return;
+  }
+  if (picture && event.key === "-") {
+    event.preventDefault();
+    zoomBy(1 / ZOOM_STEP);
+    return;
+  }
+  if (picture && event.key === "0") {
+    event.preventDefault();
+    fitImage();
     return;
   }
 
@@ -1159,6 +1499,17 @@ async function main() {
   els.content.addEventListener("click", onLinkClick);
   els.back.addEventListener("click", () => go(-1));
   els.forward.addEventListener("click", () => go(1));
+
+  // Not passive: preventDefault is what keeps a Ctrl+wheel zoom from scrolling
+  // the box at the same time, and a passive listener is not allowed to.
+  els.imageView.addEventListener("wheel", onImageWheel, { passive: false });
+  els.imageView.addEventListener("pointerdown", onImagePointerDown);
+  els.imageView.addEventListener("pointermove", onImagePointerMove);
+  els.imageView.addEventListener("pointerup", onImagePointerUp);
+  els.imageView.addEventListener("pointercancel", onImagePointerUp);
+  els.imageView.addEventListener("dblclick", onImageDblClick);
+  els.imageTools.addEventListener("click", onZoomClick);
+  window.addEventListener("resize", onResize);
 
   els.tabs.addEventListener("pointerdown", onTabPointerDown);
   els.docName.addEventListener("pointerdown", onDocNamePointerDown);

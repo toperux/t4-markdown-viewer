@@ -53,6 +53,22 @@
     <main>
       <article class="markdown-body" id="content" hidden></article>
 
+      <!-- Images get their own scroll box rather than the body scroll the
+           document uses: a diagram wider than the window has to pan in two
+           directions, and zoom needs somewhere to overflow into. -->
+      <section id="image" hidden>
+        <div id="image-view">
+          <img id="image-el" alt="" draggable="false" />
+        </div>
+        <div id="image-tools">
+          <button type="button" data-zoom="out" title="Zoom out (Ctrl+-)" aria-label="Zoom out">−</button>
+          <span id="zoom-level" role="status"></span>
+          <button type="button" data-zoom="in" title="Zoom in (Ctrl++)" aria-label="Zoom in">+</button>
+          <button type="button" data-zoom="fit" title="Fit to window (Ctrl+0)">Fit</button>
+          <button type="button" data-zoom="actual" title="Actual size">1:1</button>
+        </div>
+      </section>
+
       <section id="empty">
         <h1>Markdown Viewer</h1>
         <p>Open a Markdown file, or associate <code>.md</code> files with this app and double-click one.</p>
