@@ -18,13 +18,18 @@
           <button id="fwd-btn" class="nav" type="button" title="Forward (Alt+Right)" aria-label="Forward" disabled>
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3 L11 8 L6 13" /></svg>
           </button>
+          <button id="folder-btn" class="nav" type="button" title="Show or hide this file's folder (Ctrl+Shift+O)" aria-label="Show or hide folder">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 3.5h4.5l1.5 1.5h7v8.5h-13z" /></svg>
+          </button>
         </div>
         <div id="doc-name" title=""></div>
         <div id="controls">
           <!-- Split button: the face does whatever Settings says, the arrow
                offers the other one for this open only. -->
           <div id="open-split">
-            <button id="open-btn" type="button" title="Open a Markdown file (Ctrl+O)">Open…</button>
+            <button id="open-btn" class="nav" type="button" title="Open a file (Ctrl+O)" aria-label="Open a file">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 1.5h6L13 5v9.5h-9.5z M9.5 1.5V5H13" /></svg>
+            </button>
             <button id="open-more" class="split-arrow" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Open in…" title="Open in…">
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.5 L8 10.5 L12 6.5" /></svg>
             </button>
@@ -50,6 +55,19 @@
       <div id="tabs" role="tablist" hidden></div>
     </header>
 
+    <div id="body-row">
+      <!-- The folder tree. Sticks below the bar and scrolls on its own, so a long
+           document scrolling the body leaves it in place. -->
+      <aside id="sidebar" hidden>
+        <div id="sidebar-head">
+          <button id="sidebar-name" type="button" title=""></button>
+          <button id="sidebar-close" class="nav" type="button" title="Close folder" aria-label="Close folder">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4 L12 12 M12 4 L4 12" /></svg>
+          </button>
+        </div>
+        <ul id="tree" role="tree"></ul>
+      </aside>
+
     <main>
       <article class="markdown-body" id="content" hidden></article>
 
@@ -71,7 +89,7 @@
 
       <section id="empty">
         <h1>Markdown Viewer</h1>
-        <p>Open a Markdown file, or associate <code>.md</code> files with this app and double-click one.</p>
+        <p>Open a Markdown file or a folder, or associate <code>.md</code> files with this app and double-click one.</p>
         <button id="empty-open-btn">Open a file…</button>
       </section>
 
@@ -80,6 +98,7 @@
         <p id="error-detail"></p>
       </section>
     </main>
+    </div>
 
     <!-- A dialog rather than a page: settings should not cost you the document
          you were reading, and every window shares these values anyway. -->
@@ -100,13 +119,13 @@
           <legend>Opening a file</legend>
           <p class="hint">
             Where a document goes when you double-click a <code>.md</code> file in Explorer, press
-            <kbd>Ctrl</kbd>+<kbd>O</kbd>, or click the <b>Open…</b> button. Shared by every window.
+            <kbd>Ctrl</kbd>+<kbd>O</kbd>, or click the <b>Open</b> button. Shared by every window.
           </p>
           <label><input type="radio" name="open-mode" value="tab" /> In a new tab</label>
           <label><input type="radio" name="open-mode" value="window" /> In a new window</label>
           <p class="hint">
             <kbd>Ctrl</kbd>+<kbd>T</kbd>, <kbd>Ctrl</kbd>+<kbd>N</kbd> and the arrow beside
-            <b>Open…</b> override this for a single file.
+            <b>Open</b> override this for a single file.
           </p>
         </fieldset>
 

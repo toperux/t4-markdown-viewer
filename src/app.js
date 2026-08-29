@@ -16,6 +16,11 @@ const els = {
   openBtn: document.getElementById("open-btn"),
   openMore: document.getElementById("open-more"),
   openMenu: document.getElementById("open-menu"),
+  folderBtn: document.getElementById("folder-btn"),
+  sidebar: document.getElementById("sidebar"),
+  sidebarName: document.getElementById("sidebar-name"),
+  sidebarClose: document.getElementById("sidebar-close"),
+  tree: document.getElementById("tree"),
   settingsBtn: document.getElementById("settings-btn"),
   settings: document.getElementById("settings-dialog"),
   modeRadios: document.querySelectorAll('#settings-dialog input[name="open-mode"]'),
@@ -58,6 +63,8 @@ const state = {
   caseInsensitivePaths: false,
   /** The release `check_for_update` found, or null while there is none. */
   update: null,
+  /** Root of the folder in the sidebar, or null while it is closed. */
+  folder: null,
 };
 
 const MD_LINK = /\.(md|markdown|mdown|mkd|mdtext|mdtxt|mdwn|mkdn)$/i;
@@ -106,6 +113,14 @@ function isRelative(href) {
 
 function baseName(p) {
   return p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
+}
+
+/** Parent of `p`, or "" when it has none. A drive root keeps its slash: `C:\` not `C:`. */
+function dirName(p) {
+  const m = p.match(/^(.*)[\\/][^\\/]+$/);
+  if (!m) return "";
+  if (/^[a-z]:$/i.test(m[1])) return `${m[1]}\\`;
+  return m[1] || "/";
 }
 
 /**
@@ -489,6 +504,7 @@ function updateChrome() {
   els.docName.title = tab ? tab.path : "";
   // Only a drag handle while it stands in for a hidden strip.
   els.docName.classList.toggle("handle", tabs.length === 1);
+  markTreeSelection();
   appWindow
     .setTitle(tab ? `${tab.label} — Markdown Viewer` : "Markdown Viewer")
     .catch(() => {});
@@ -650,6 +666,198 @@ async function adoptTab(data, at) {
   appWindow.setFocus().catch(() => {});
 }
 
+/* ---------------- folder sidebar ---------------- */
+
+/** Per-list render tokens: a watcher burst and a click can re-list the same folder. */
+const treeTokens = new WeakMap();
+/** What each list last showed, so a save that changes nothing does not rebuild it. */
+const treeListings = new WeakMap();
+
+/**
+ * One level at a time. A list is rebuilt whenever its folder is expanded or
+ * the watcher reports a change in it, and whatever was expanded inside it is
+ * expanded again afterwards, so a re-list never costs the user their place.
+ */
+async function renderTree(ul, dir) {
+  const token = (treeTokens.get(ul) ?? 0) + 1;
+  treeTokens.set(ul, token);
+  ul.dataset.dir = dir;
+
+  let listing;
+  try {
+    listing = await invoke("list_dir", { path: dir });
+  } catch (err) {
+    if (token !== treeTokens.get(ul)) return;
+    treeListings.delete(ul);
+    const li = document.createElement("li");
+    li.className = "tree-row error";
+    li.textContent = String(err);
+    ul.replaceChildren(li);
+    return;
+  }
+  if (token !== treeTokens.get(ul)) return; // a newer listing already won
+  ul.dataset.dir = listing.dir;
+  const { entries } = listing;
+
+  // The watcher reports every save in the folder, and a save changes nothing
+  // the tree shows. Rebuilding anyway would collapse-and-reopen the subtree.
+  const signature = JSON.stringify(entries);
+  if (signature === treeListings.get(ul)) return;
+  treeListings.set(ul, signature);
+
+  const expanded = new Set(
+    [...ul.querySelectorAll(':scope > li > .tree-row[aria-expanded="true"]')].map((r) => r.dataset.path),
+  );
+
+  const nodes = entries.map((e) => {
+    const li = document.createElement("li");
+    li.setAttribute("role", "treeitem");
+
+    const row = document.createElement("div");
+    row.className = "tree-row";
+    row.dataset.path = e.path;
+    row.title = e.path;
+
+    const twist = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    twist.setAttribute("class", "tree-twist");
+    twist.setAttribute("viewBox", "0 0 16 16");
+    twist.setAttribute("aria-hidden", "true");
+    if (e.is_dir) {
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", "M6 3.5 L10.5 8 L6 12.5");
+      twist.append(path);
+      row.dataset.dir = "1";
+      row.setAttribute("aria-expanded", "false");
+    }
+
+    const name = document.createElement("span");
+    name.className = "tree-name";
+    name.textContent = e.name;
+
+    row.append(twist, name);
+    li.append(row);
+    if (e.is_dir) {
+      const children = document.createElement("ul");
+      children.setAttribute("role", "group");
+      children.hidden = true;
+      li.append(children);
+    }
+    return li;
+  });
+  ul.replaceChildren(...nodes);
+  markTreeSelection();
+
+  const reopen = [...ul.querySelectorAll(":scope > li > .tree-row[data-dir]")].filter((r) =>
+    expanded.has(r.dataset.path),
+  );
+  await Promise.all(reopen.map((r) => expandRow(r, true)));
+}
+
+/** Open or close a folder row. Leaves the watcher alone — see syncFolderWatch. */
+async function expandRow(row, open) {
+  row.setAttribute("aria-expanded", String(open));
+  const children = row.nextElementSibling;
+  children.hidden = !open;
+  if (open) await renderTree(children, row.dataset.path);
+}
+
+let watchingFolders = null;
+
+/**
+ * Keep the Rust watcher on exactly the folders on show: the root and every
+ * expanded row that is not itself inside a collapsed one. Called once a change
+ * to the tree has settled, never from the middle of a rebuild — a half-built
+ * list would look emptier than it is, and dropping a watch to re-add it a
+ * moment later loses whatever happened in between.
+ */
+function syncFolderWatch() {
+  const dirs = [];
+  if (state.folder !== null) {
+    dirs.push(state.folder);
+    for (const row of els.tree.querySelectorAll('.tree-row[aria-expanded="true"]')) {
+      if (!row.closest("ul[hidden]")) dirs.push(row.dataset.path);
+    }
+  }
+  const key = dirs.join("\0");
+  if (key === watchingFolders) return;
+  watchingFolders = key;
+  invoke("watch_folders", { dirs }).catch(console.error);
+}
+
+async function openFolder(path) {
+  state.folder = path;
+  els.sidebar.hidden = false;
+  treeListings.delete(els.tree); // a different folder must rebuild even if it lists the same
+  await renderTree(els.tree, path);
+  // Canonical from here on, so it compares with what the watcher reports.
+  if (state.folder === path) state.folder = els.tree.dataset.dir;
+  els.sidebarName.textContent = baseName(state.folder);
+  els.sidebarName.title = state.folder;
+  syncFolderWatch();
+}
+
+function closeFolder() {
+  state.folder = null;
+  els.sidebar.hidden = true;
+  els.tree.replaceChildren();
+  syncFolderWatch();
+}
+
+/** `samePath` for folders: the picker may hand back a trailing separator. */
+function sameDir(a, b) {
+  const trim = (p) => p.replace(/[\\/]+$/, "");
+  return samePath(trim(a), trim(b));
+}
+
+/** The watcher saw something move; re-list each affected folder that is on show. */
+async function onFolderChanged(paths) {
+  if (state.folder === null) return;
+  const dirs = [...new Set(paths.map(dirName))];
+  const lists = [els.tree, ...els.tree.querySelectorAll("ul")];
+  await Promise.all(
+    dirs.map((dir) => {
+      const ul = lists.find((l) => l.dataset.dir && !l.closest("ul[hidden]") && sameDir(l.dataset.dir, dir));
+      return ul ? renderTree(ul, ul.dataset.dir) : null;
+    }),
+  );
+  syncFolderWatch();
+}
+
+/** Light up the row for the document on screen, if the tree shows it. */
+function markTreeSelection() {
+  if (state.folder === null) return;
+  const path = currentEntry(activeTab())?.path;
+  for (const row of els.tree.querySelectorAll(".tree-row[data-path]")) {
+    row.classList.toggle("active", !!path && !row.dataset.dir && samePath(row.dataset.path, path));
+  }
+}
+
+async function onTreeClick(event) {
+  const row = event.target.closest(".tree-row[data-path]");
+  if (!row) return;
+  const path = row.dataset.path;
+
+  if (row.dataset.dir) {
+    await expandRow(row, row.getAttribute("aria-expanded") !== "true");
+    syncFolderWatch();
+    return;
+  }
+
+  // Ctrl+click opens beside the current document rather than in its place, as
+  // in a browser. Plain click walks the active tab's history like a link.
+  if (event.ctrlKey || event.metaKey) await openTab(path);
+  else await loadPath(path);
+}
+
+/** Middle click never fires `click`; it means "new tab" here as in a browser. */
+async function onTreeAuxClick(event) {
+  if (event.button !== 1) return;
+  const row = event.target.closest(".tree-row[data-path]");
+  if (!row || row.dataset.dir) return;
+  event.preventDefault();
+  await openTab(row.dataset.path);
+}
+
 /* ---------------- navigation ---------------- */
 
 /**
@@ -794,9 +1002,7 @@ function showOpenMode(mode) {
   state.openMode = mode;
   for (const radio of els.modeRadios) radio.checked = radio.value === mode;
   els.openBtn.title =
-    mode === "window"
-      ? "Open a Markdown file in a new window (Ctrl+O)"
-      : "Open a Markdown file in a new tab (Ctrl+O)";
+    mode === "window" ? "Open a file in a new window (Ctrl+O)" : "Open a file in a new tab (Ctrl+O)";
 }
 
 function setOpenMode(mode) {
@@ -1179,6 +1385,32 @@ async function pickFile() {
   return typeof picked === "string" ? picked : null;
 }
 
+async function pickFolder() {
+  const picked = await openDialog({ directory: true, multiple: false });
+  return typeof picked === "string" ? picked : null;
+}
+
+/** The active document's folder, or "" when there is none to name. */
+function activeDir() {
+  const tab = activeTab();
+  if (!tab) return "";
+  // Before the first load finishes (or after a failed one) `dir` is empty.
+  return tab.dir || dirName(tab.path);
+}
+
+/**
+ * Toggle the sidebar. Opening shows the folder of what is on screen — almost
+ * always the one wanted — and asks only when nothing is open.
+ */
+async function showFolder() {
+  if (state.folder !== null) {
+    closeFolder();
+    return;
+  }
+  const path = activeDir() || (await pickFolder());
+  if (path) await openFolder(path);
+}
+
 /**
  * The webview is the whole app: letting it navigate away would leave a dead
  * window. Intercept every link — follow anchors, open sibling documents in
@@ -1387,7 +1619,10 @@ async function onKeydown(event) {
   }
 
   const key = event.key.toLowerCase();
-  if (key === "o") {
+  if (key === "o" && event.shiftKey) {
+    event.preventDefault();
+    await showFolder();
+  } else if (key === "o") {
     event.preventDefault();
     const p = await pickFile();
     if (p) await openDocument(p);
@@ -1434,6 +1669,20 @@ async function main() {
     const p = await pickFile();
     if (p) await openDocument(p);
   });
+
+  els.folderBtn.addEventListener("click", async () => {
+    showOpenMenu(false);
+    await showFolder();
+  });
+  els.sidebarClose.addEventListener("click", closeFolder);
+  els.sidebarName.addEventListener("click", () => {
+    if (state.folder !== null) {
+      treeListings.delete(els.tree); // an explicit refresh always rebuilds
+      renderTree(els.tree, state.folder).then(syncFolderWatch).catch(console.error);
+    }
+  });
+  els.tree.addEventListener("click", (e) => onTreeClick(e).catch(console.error));
+  els.tree.addEventListener("auxclick", (e) => onTreeAuxClick(e).catch(console.error));
 
   els.openMore.addEventListener("click", () => showOpenMenu());
   els.openMenu.addEventListener("click", async (e) => {
@@ -1547,6 +1796,7 @@ async function main() {
     listen(event, handler, { target: { kind: "AnyLabel", label: appWindow.label } });
 
   await listenHere("file-opened", (e) => openTab(e.payload));
+  await listenHere("folder-changed", (e) => onFolderChanged(e.payload ?? []).catch(console.error));
   await listenHere("file-changed", (e) => {
     const changed = e.payload ?? [];
     const open = currentEntry(activeTab())?.path;

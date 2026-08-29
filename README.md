@@ -16,6 +16,13 @@ Electron build starts around 150 MB.
 
 - **Open by double-click.** `.md`, `.markdown`, `.mdown`, `.mkd`, `.mdtext`
   are registered by the installer.
+- **Open a folder.** The folder icon beside Back/Forward shows the current
+  file's folder as a tree in a sidebar (or asks for one when nothing is open),
+  and hides it again on a second press;
+  clicking a file there opens it in the current tab, so Back walks through
+  what you have read. `Ctrl`+click or middle-click opens it in a new tab. The
+  tree follows the folder — files added, renamed or removed show up on their
+  own.
 - **Tabs or windows.** Read several documents at once, and choose per taste
   whether an opened file lands in a new tab or its own window. Tabs drag to
   reorder, and out onto the desktop to become their own window. Dragging one
@@ -184,6 +191,7 @@ On macOS, read `Cmd` for every `Ctrl` below.
 | --- | --- |
 | `Alt+←` / `Alt+→`, or `Ctrl+[` / `Ctrl+]` | Back / forward through visited documents |
 | `Ctrl+O` | Open a file, wherever Settings says |
+| `Ctrl+Shift+O` | Show or hide the sidebar with the current file's folder (a picker when nothing is open) |
 | `Ctrl+T` | Open a file in a new **tab** |
 | `Ctrl+N` | Open a file in a new **window** |
 | `Ctrl+W` | Close the current tab |
@@ -234,11 +242,11 @@ in-page jump it really is, not a reload of the page you are on.
 The **gear** opens Settings, where a pair of radio buttons decides where a file
 opens: in a new tab, or in a new window. That covers every way a document
 arrives without you saying otherwise — double-clicking it in your file manager,
-`Ctrl+O`, or the **Open…** button. It is shared by every open window, because a
+`Ctrl+O`, or the **Open** button. It is shared by every open window, because a
 double-click has to land *somewhere* and per-window disagreement about that is
 unguessable.
 
-To go against the default just this once, use the **arrow beside Open…** — it
+To go against the default just this once, use the **arrow beside Open** — it
 offers *Open in new tab* and *Open in new window* directly, and changes nothing
 about the saved setting. `Ctrl+T` and `Ctrl+N` are the same two overrides from
 the keyboard.

@@ -22,6 +22,9 @@ use tauri::{
 const MD_EXTS: &[&str] = &[
     "md", "markdown", "mdown", "mkd", "mdtext", "mdtxt", "mdwn", "mkdn", "text", "txt",
 ];
+const IMG_EXTS: &[&str] = &[
+    "svg", "png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico",
+];
 
 #[derive(Default)]
 struct AppState {
@@ -37,6 +40,8 @@ struct AppState {
     watches: Mutex<HashMap<String, watch::Handle>>,
     /// App-wide, unlike `watches`: a theme edit restyles every window.
     theme_watch: Mutex<Option<watch::Handle>>,
+    /// One per window: the folders its sidebar currently shows.
+    folder_watches: Mutex<HashMap<String, watch::Handle>>,
     /// Window labels, least-recently-focused first. Decides which window a warm
     /// file-association open goes to, and breaks ties between overlapping
     /// windows during a tab drag.
@@ -92,10 +97,46 @@ struct Asset {
     dir: String,
 }
 
-fn is_markdown(path: &Path) -> bool {
+/// One row of the folder sidebar. A single level only: the tree asks for a
+/// folder's children when it is expanded, so a huge tree costs nothing until
+/// it is looked at.
+#[derive(Serialize, Debug, PartialEq)]
+struct DirEntry {
+    name: String,
+    path: String,
+    is_dir: bool,
+}
+
+/// `dir` is the canonical form of what was asked for, so the tree can match it
+/// against the canonical paths the watcher reports.
+#[derive(Serialize)]
+struct Listing {
+    dir: String,
+    entries: Vec<DirEntry>,
+}
+
+fn has_ext(path: &Path, exts: &[&str]) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
-        .map(|e| MD_EXTS.iter().any(|m| m.eq_ignore_ascii_case(e)))
+        .map(|e| exts.iter().any(|m| m.eq_ignore_ascii_case(e)))
+        .unwrap_or(false)
+}
+
+fn is_markdown(path: &Path) -> bool {
+    has_ext(path, MD_EXTS)
+}
+
+/// Mirrors `IMG_LINK` in app.js: what the viewer can show in a tab of its own.
+fn is_image(path: &Path) -> bool {
+    has_ext(path, IMG_EXTS)
+}
+
+/// The sidebar's one hiding rule: dot-prefixed names are noise — `.git` in a
+/// notes folder — so neither the listing nor the watcher mentions them.
+fn is_visible_entry(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| !n.starts_with('.'))
         .unwrap_or(false)
 }
 
@@ -112,6 +153,9 @@ fn file_from_args<S: AsRef<str>>(args: &[S]) -> Option<PathBuf> {
 /// UI both want the plain form.
 pub(crate) fn strip_unc(p: &Path) -> String {
     let s = p.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{rest}");
+    }
     s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
 }
 
@@ -312,6 +356,47 @@ fn load_file(app: AppHandle, path: String) -> Result<Document, String> {
     })
 }
 
+/// Point this window's sidebar watcher at exactly the folders on show — the
+/// root and whatever is expanded. Collapsed folders are re-listed on expand, so
+/// watching them would only cost handles. Empty `dirs` drops the watcher.
+#[tauri::command]
+fn watch_folders(app: AppHandle, state: State<AppState>, window: Window, dirs: Vec<String>) {
+    let mut dirs: Vec<PathBuf> = dirs
+        .into_iter()
+        .map(PathBuf::from)
+        .map(|p| std::fs::canonicalize(&p).unwrap_or(p))
+        .collect();
+    dirs.sort();
+    dirs.dedup();
+
+    let label = window.label().to_string();
+    let handle = watch::watch(
+        app,
+        dirs,
+        is_visible_entry,
+        "folder-changed",
+        Some(label.clone()),
+    );
+    set_watch(&state.folder_watches, label, handle);
+}
+
+/// Install a window's watcher, dropping the previous one; `None` just drops.
+fn set_watch(
+    watches: &Mutex<HashMap<String, watch::Handle>>,
+    label: String,
+    handle: Option<watch::Handle>,
+) {
+    let mut watches = watches.lock().unwrap();
+    match handle {
+        Some(h) => {
+            watches.insert(label, h);
+        }
+        None => {
+            watches.remove(&label);
+        }
+    }
+}
+
 /// Whitelist an image's own directory for the asset protocol and hand back the
 /// canonical path. `load_file` does this for the documents it opens, which is
 /// why an image sitting beside one already loads; an image opened as a tab in
@@ -323,6 +408,45 @@ fn load_asset(app: AppHandle, path: String) -> Result<Asset, String> {
     Ok(Asset {
         path: strip_unc(&path),
         dir: strip_unc(&dir),
+    })
+}
+
+/// The openable contents of one folder for the sidebar: subfolders first, then
+/// the files this viewer can show, each group sorted by name without regard to
+/// case. Dot-prefixed entries are skipped — `.git` in a notes folder is noise.
+#[tauri::command]
+fn list_dir(path: String) -> Result<Listing, String> {
+    let dir = PathBuf::from(&path);
+    let dir = std::fs::canonicalize(&dir).unwrap_or(dir);
+    if !dir.is_dir() {
+        return Err(format!("Not a folder: {}", dir.display()));
+    }
+    let read = std::fs::read_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+
+    let mut entries: Vec<DirEntry> = read
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            if !is_visible_entry(&path) {
+                return None;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            // `is_dir` follows symlinks, so a linked folder shows as a folder.
+            let is_dir = path.is_dir();
+            if !is_dir && !is_markdown(&path) && !is_image(&path) {
+                return None;
+            }
+            Some(DirEntry {
+                name,
+                path: strip_unc(&path),
+                is_dir,
+            })
+        })
+        .collect();
+    entries.sort_by_cached_key(|e| (!e.is_dir, e.name.to_lowercase()));
+    Ok(Listing {
+        dir: strip_unc(&dir),
+        entries,
     })
 }
 
@@ -352,16 +476,7 @@ fn watch_files(app: AppHandle, state: State<AppState>, window: Window, paths: Ve
         Some(label.clone()),
     );
 
-    // Assigning drops the previous watcher for this window.
-    let mut watches = state.watches.lock().unwrap();
-    match handle {
-        Some(h) => {
-            watches.insert(label, h);
-        }
-        None => {
-            watches.remove(&label);
-        }
-    }
+    set_watch(&state.watches, label, handle);
 }
 
 #[tauri::command]
@@ -663,7 +778,9 @@ fn main() {
             take_pending,
             load_file,
             load_asset,
+            list_dir,
             watch_files,
+            watch_folders,
             open_window,
             window_origin,
             drag_over,
@@ -685,6 +802,7 @@ fn main() {
                 WindowEvent::Destroyed => {
                     let label = window.label();
                     state.watches.lock().unwrap().remove(label);
+                    state.folder_watches.lock().unwrap().remove(label);
                     state.pending.lock().unwrap().remove(label);
                     state.ready.lock().unwrap().remove(label);
                     state.focus_order.lock().unwrap().retain(|l| l != label);
@@ -760,6 +878,52 @@ mod tests {
     }
 
     #[test]
+    fn list_dir_keeps_folders_and_openable_files_in_order() {
+        let root = std::env::temp_dir().join(format!("t4-list-dir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::create_dir_all(root.join(".hidden")).unwrap();
+        for f in ["a.md", "B.png", "notes.txt", "x.exe", ".dotfile.md"] {
+            std::fs::write(root.join(f), b"").unwrap();
+        }
+
+        let names: Vec<(String, bool)> = list_dir(root.to_string_lossy().into_owned())
+            .unwrap()
+            .entries
+            .into_iter()
+            .map(|e| (e.name, e.is_dir))
+            .collect();
+        std::fs::remove_dir_all(&root).unwrap();
+
+        assert_eq!(
+            names,
+            vec![
+                ("sub".to_string(), true),
+                ("a.md".to_string(), false),
+                ("B.png".to_string(), false),
+                ("notes.txt".to_string(), false),
+            ]
+        );
+    }
+
+    #[test]
+    fn dot_entries_are_invisible() {
+        assert!(is_visible_entry(Path::new("notes/a.md")));
+        assert!(is_visible_entry(Path::new("notes/sub")));
+        assert!(!is_visible_entry(Path::new("notes/.git")));
+        assert!(!is_visible_entry(Path::new("notes/.dotfile.md")));
+    }
+
+    #[test]
+    fn list_dir_refuses_a_file() {
+        let file = std::env::temp_dir().join(format!("t4-not-a-dir-{}.md", std::process::id()));
+        std::fs::write(&file, b"").unwrap();
+        let result = list_dir(file.to_string_lossy().into_owned());
+        std::fs::remove_file(&file).unwrap();
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn argv0_is_never_treated_as_the_document() {
         // Even if the executable itself somehow matched, argv[0] must be skipped.
         let args = vec!["viewer.exe".to_string()];
@@ -779,6 +943,10 @@ mod tests {
     #[test]
     fn unc_prefix_stripped() {
         assert_eq!(strip_unc(Path::new(r"\\?\C:\docs\a.md")), r"C:\docs\a.md");
+        assert_eq!(
+            strip_unc(Path::new(r"\\?\UNC\srv\share\a.md")),
+            r"\\srv\share\a.md"
+        );
         assert_eq!(strip_unc(Path::new(r"C:\docs\a.md")), r"C:\docs\a.md");
     }
 

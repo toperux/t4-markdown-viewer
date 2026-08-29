@@ -80,6 +80,11 @@ body {
   gap: 0.25rem;
 }
 
+/* A step apart from Back/Forward: it is not the third of a set. */
+#nav #folder-btn {
+  margin-left: 0.25rem;
+}
+
 /*
  * An icon button's content box is a 1rem glyph; a text button's is a 0.8125rem
  * line at 1.4, which is taller. Centring them leaves the gear visibly short
@@ -217,6 +222,165 @@ body {
 #bar #open-menu button:focus-visible {
   background: rgba(128, 128, 128, 0.2);
   border-color: transparent;
+}
+
+/* ---------- folder sidebar ---------- */
+
+/*
+ * The sidebar sits beside `main` and sticks under the bar. `flex-start` is
+ * load-bearing: a stretched flex item is as tall as the row and never sticks.
+ */
+#body-row {
+  display: flex;
+  align-items: flex-start;
+}
+
+main {
+  flex: 1;
+  min-width: 0;
+}
+
+#sidebar {
+  flex: none;
+  width: 16rem;
+  position: sticky;
+  top: var(--bar-h, 0px);
+  height: calc(100dvh - var(--bar-h, 0px));
+  overflow: auto;
+  border-right: 1px solid var(--ui-border);
+  background: var(--ui-bg);
+  color: var(--ui-fg);
+  font: 400 0.8125rem/1.4 "Segoe UI", system-ui, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#sidebar[hidden] {
+  display: none;
+}
+
+#sidebar-head {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.375rem 0.375rem 0.375rem 0.75rem;
+  border-bottom: 1px solid var(--ui-border);
+}
+
+#sidebar button {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+#sidebar button:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 1px;
+}
+
+/* The folder's name doubles as its refresh button. */
+#sidebar-name {
+  flex: 1;
+  min-width: 0;
+  padding: 0.125rem 0.25rem;
+  text-align: left;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#sidebar-name:hover {
+  background: rgba(128, 128, 128, 0.2);
+}
+
+#sidebar-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.1875rem;
+}
+
+#sidebar-close:hover {
+  border-color: var(--ui-accent);
+}
+
+#sidebar-close svg {
+  display: block;
+  width: 0.875rem;
+  height: 0.875rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+}
+
+#tree,
+#tree ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+#tree {
+  padding: 0.25rem 0;
+}
+
+#tree ul {
+  padding-left: 1rem;
+}
+
+#tree ul[hidden] {
+  display: none;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.125rem 0.5rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tree-row:hover {
+  background: rgba(128, 128, 128, 0.2);
+}
+
+.tree-row.active {
+  color: var(--ui-accent);
+  font-weight: 600;
+}
+
+.tree-row.error {
+  cursor: default;
+  opacity: 0.6;
+  white-space: normal;
+}
+
+.tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Chevron on a folder row; a file row keeps the slot so names line up. */
+.tree-twist {
+  flex: none;
+  width: 0.75rem;
+  height: 0.75rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.1s;
+}
+
+.tree-row[aria-expanded="true"] .tree-twist {
+  transform: rotate(90deg);
 }
 
 /* ---------- settings dialog ---------- */
