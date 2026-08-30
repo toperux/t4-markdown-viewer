@@ -27,7 +27,7 @@ Electron build starts around 150 MB.
   whether an opened file lands in a new tab or its own window. Tabs drag to
   reorder, and out onto the desktop to become their own window. Dragging one
   *into* another window is Windows-only — see [Platforms](#platforms).
-- **Themes are CSS files.** Thirteen bundled, and you can drop your own into a
+- **Themes are CSS files.** Fifteen bundled, and you can drop your own into a
   folder. The default is GitHub Dark with blue headings.
 - **Live reload.** Edit in another editor; the view updates on save and keeps
   your scroll position.
@@ -286,9 +286,10 @@ disappearing from under you is a worse surprise than an empty one.
 
 ## Themes
 
-Bundled: `azure-devops`, `azure-devops-dark`, `github-light`, `github-dark`,
-`github-dark-blue` (default), `github-light-blue`, `solarized-light`,
-`solarized-dark`, `dracula`, `dracula-green`, `dracula-blue`, `sakura`, `tufte`.
+Bundled: `azure-devops`, `azure-devops-dark`, `azure-devops-blue`,
+`azure-devops-dark-blue`, `github-light`, `github-dark`, `github-dark-blue`
+(default), `github-light-blue`, `solarized-light`, `solarized-dark`, `dracula`,
+`dracula-green`, `dracula-blue`, `sakura`, `tufte`.
 
 The same page in four of them — a theme owns every colour, the type scale and
 the code chrome, so they are not recolourings of one look:

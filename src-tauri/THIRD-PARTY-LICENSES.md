@@ -19,7 +19,7 @@ was copied verbatim.
 
 | Theme file | Palette source | License |
 | --- | --- | --- |
-| `azure-devops.css`, `azure-devops-dark.css` | Microsoft `azure-devops-ui` design tokens (`Core/core.css`, `Core/override.css`, `buildScripts/cssDefaults.json`); Visual Studio Light+/Dark+ syntax colors | MIT |
+| `azure-devops.css`, `azure-devops-dark.css`, `azure-devops-blue.css`, `azure-devops-dark-blue.css` | Microsoft `azure-devops-ui` design tokens (`Core/core.css`, `Core/override.css`, `buildScripts/cssDefaults.json`); Visual Studio Light+/Dark+ syntax colors | MIT |
 | `github-light.css`, `github-dark.css`, `github-light-blue.css`, `github-dark-blue.css` | GitHub Primer color palette (the `-blue` variants tint headings with a Dracula-derived blue) | MIT |
 | `solarized-light.css`, `solarized-dark.css` | Solarized, Ethan Schoonover | MIT |
 | `dracula.css` | Dracula theme palette | MIT |

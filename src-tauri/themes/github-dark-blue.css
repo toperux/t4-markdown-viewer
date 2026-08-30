@@ -1,8 +1,9 @@
 /*
  * GitHub Dark Blue
  *
- * GitHub Dark with headings tinted a pale Dracula-blue (#c4d6ff) and inline
- * code given a faint wash of the same blue; everything else unchanged.
+ * GitHub Dark with headings tinted a pale Dracula-blue (#c4d6ff) and the
+ * inline-code and code-block backgrounds washed with the same blue; everything
+ * else unchanged.
  *
  * Self-contained: document styles first, highlight.js token colors at the end.
  * Edit freely — this file is read at runtime and reloads on save.
@@ -171,7 +172,7 @@ select option {
   margin: 0 0 1em;
   padding: 1em;
   border-radius: 4px;
-  background: #151b23;
+  background: #182238;
   line-height: 1.5;
 }
 
@@ -219,7 +220,7 @@ select option {
 
 /* ---- highlight.js ---- */
 .markdown-body .hljs {
-  background: #151b23;
+  background: #182238;
   color: #e6edf3;
 }
 

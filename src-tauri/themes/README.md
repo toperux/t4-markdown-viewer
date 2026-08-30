@@ -113,6 +113,8 @@ Blocks without a declared language are not auto-detected; they get the plain
 | --- | --- |
 | `azure-devops` | Palette, type scale and font stacks lifted from Microsoft's `azure-devops-ui` package. |
 | `azure-devops-dark` | Same metrics, dark palette. |
+| `azure-devops-blue` | Azure DevOps with headings tinted a pale Dracula-derived blue. |
+| `azure-devops-dark-blue` | Same, dark. |
 | `github-light` / `github-dark` | GitHub Primer colors. |
 | `github-dark-blue` | **Default.** GitHub Dark with headings tinted a pale Dracula-blue. |
 | `github-light-blue` | GitHub Light with headings tinted the same blue, darkened for contrast. |

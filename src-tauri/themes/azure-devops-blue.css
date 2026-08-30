@@ -1,9 +1,13 @@
 /*
- * GitHub Light Blue
+ * Azure DevOps Blue
  *
- * GitHub Light with headings tinted a Dracula-derived blue (#5a86e0) and the
+ * Azure DevOps with headings tinted a Dracula-derived blue (#5a86e0) and the
  * inline-code and code-block backgrounds washed with the same blue; everything
  * else unchanged.
+ * Rebuilds the Azure DevOps wiki look. Palette, type scale and font stacks are
+ * taken from Microsoft's own `azure-devops-ui` package (Core/core.css,
+ * Core/override.css, buildScripts/cssDefaults.json). Code colors follow the
+ * Visual Studio 'Light+' syntax palette.
  *
  * Self-contained: document styles first, highlight.js token colors at the end.
  * Edit freely — this file is read at runtime and reloads on save.
@@ -11,11 +15,11 @@
 
 /* ---- app chrome (read by base.css) ---- */
 :root {
-  --ui-bg: #f6f8fa;
-  --ui-fg: #1f2328;
-  --ui-border: #d1d9e0;
-  --ui-accent: #0969da;
-  --content-width: 54rem;
+  --ui-bg: #f8f8f8;
+  --ui-fg: rgba(0, 0, 0, 0.9);
+  --ui-border: rgba(0, 0, 0, 0.08);
+  --ui-accent: #0078d4;
+  --content-width: 52rem;
 
   /*
    * Belongs on :root, not body — Chromium reads it from the root element for
@@ -37,51 +41,49 @@ body {
  * near-white text on a near-white background.
  */
 select option {
-  background-color: #f6f8fa;
-  color: #1f2328;
+  background-color: #f8f8f8;
+  color: rgba(0, 0, 0, 0.9);
 }
 
 /* ---- document ---- */
 .markdown-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial,
-    sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-  font-size: 1rem;
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Helvetica,
+    Ubuntu, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+  font-size: 0.875rem;
   line-height: 1.6;
-  color: #1f2328;
+  color: rgba(0, 0, 0, 0.9);
   background: #ffffff;
 }
 
 .markdown-body h1 {
-  font-size: 2em;
-  font-weight: 600;
-  padding-bottom: 0.3em;
-  border-bottom: 1px solid #d1d9e0;
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.04em;
 }
 
 .markdown-body h2 {
-  font-size: 1.5em;
+  font-size: 1.3125rem;
   font-weight: 600;
-  padding-bottom: 0.3em;
-  border-bottom: 1px solid #d1d9e0;
+  letter-spacing: -0.02em;
 }
 
 .markdown-body h3 {
-  font-size: 1.25em;
+  font-size: 1.0625rem;
   font-weight: 600;
 }
 
 .markdown-body h4 {
-  font-size: 1em;
+  font-size: 0.9375rem;
   font-weight: 600;
 }
 
 .markdown-body h5 {
-  font-size: 0.875em;
+  font-size: 0.875rem;
   font-weight: 600;
 }
 
 .markdown-body h6 {
-  font-size: 0.85em;
+  font-size: 0.8125rem;
   font-weight: 600;
 }
 
@@ -101,12 +103,12 @@ select option {
 }
 
 .markdown-body a {
-  color: #0969da;
+  color: #005a9e;
   text-decoration: none;
 }
 
 .markdown-body a:hover {
-  color: #0969da;
+  color: #0078d4;
   text-decoration: underline;
 }
 
@@ -140,8 +142,8 @@ select option {
 .markdown-body blockquote {
   margin: 0 0 1em;
   padding: 0.25em 0 0.25em 1em;
-  border-left-color: #d1d9e0;
-  color: #59636e;
+  border-left-color: #0078d4;
+  color: rgba(0, 0, 0, 0.55);
 }
 
 .markdown-body blockquote > :last-child {
@@ -150,7 +152,7 @@ select option {
 
 .markdown-body hr {
   margin: 2em 0;
-  border-top-color: #d1d9e0;
+  border-top-color: #eaeaea;
 }
 
 .markdown-body img {
@@ -159,11 +161,10 @@ select option {
 
 /* ---- code ---- */
 .markdown-body code {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
-    monospace;
+  font-family: "Cascadia Mono", Menlo, Consolas, "Courier New", monospace;
   font-size: 0.9em;
   background: rgba(90, 134, 224, 0.12);
-  color: #1f2328;
+  color: rgba(0, 0, 0, 0.9);
   padding: 0.15em 0.35em;
   border-radius: 3px;
 }
@@ -191,42 +192,38 @@ select option {
 
 .markdown-body th,
 .markdown-body td {
-  border-color: #d1d9e0;
+  border-color: #eaeaea;
   padding: 0.4em 0.8em;
   text-align: left;
 }
 
 .markdown-body th {
-  background: #f6f8fa;
+  background: #f8f8f8;
   font-weight: 600;
-}
-
-.markdown-body tbody tr:nth-child(2n) {
-  background: #f6f8fa;
 }
 
 /* ---- task lists ---- */
 .markdown-body li > input[type="checkbox"] {
-  accent-color: #0969da;
+  accent-color: #0078d4;
 }
 
 /* ---- footnotes ---- */
 .markdown-body .footnotes {
   margin-top: 2.5em;
   padding-top: 1em;
-  border-top: 1px solid #d1d9e0;
-  color: #59636e;
+  border-top: 1px solid #eaeaea;
+  color: rgba(0, 0, 0, 0.55);
 }
 
 /* ---- highlight.js ---- */
 .markdown-body .hljs {
   background: #eef3fc;
-  color: #1f2328;
+  color: rgba(0, 0, 0, 0.9);
 }
 
 .markdown-body .hljs-comment,
 .markdown-body .hljs-quote {
-  color: #59636e;
+  color: #008000;
   font-style: italic;
 }
 
@@ -235,7 +232,7 @@ select option {
 .markdown-body .hljs-literal,
 .markdown-body .hljs-section,
 .markdown-body .hljs-name {
-  color: #cf222e;
+  color: #0000ff;
 }
 
 .markdown-body .hljs-string,
@@ -243,7 +240,7 @@ select option {
 .markdown-body .hljs-addition,
 .markdown-body .hljs-attribute,
 .markdown-body .hljs-meta .hljs-string {
-  color: #0a3069;
+  color: #a31515;
 }
 
 .markdown-body .hljs-number,
@@ -251,19 +248,19 @@ select option {
 .markdown-body .hljs-bullet,
 .markdown-body .hljs-variable,
 .markdown-body .hljs-template-variable {
-  color: #0550ae;
+  color: #098658;
 }
 
 .markdown-body .hljs-title,
 .markdown-body .hljs-title.function_,
 .markdown-body .hljs-built_in {
-  color: #8250df;
+  color: #795e26;
 }
 
 .markdown-body .hljs-type,
 .markdown-body .hljs-title.class_,
 .markdown-body .hljs-params {
-  color: #953800;
+  color: #267f99;
 }
 
 .markdown-body .hljs-attr,
@@ -271,17 +268,17 @@ select option {
 .markdown-body .hljs-selector-attr,
 .markdown-body .hljs-selector-class,
 .markdown-body .hljs-selector-id {
-  color: #0550ae;
+  color: #e50000;
 }
 
 .markdown-body .hljs-meta,
 .markdown-body .hljs-doctag,
 .markdown-body .hljs-tag {
-  color: #6e7781;
+  color: #808080;
 }
 
 .markdown-body .hljs-deletion {
-  color: #cf222e;
+  color: #0000ff;
 }
 
 .markdown-body .hljs-emphasis {
