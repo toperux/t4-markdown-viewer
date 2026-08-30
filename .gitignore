@@ -2,3 +2,4 @@
 /src-tauri/gen/
 *.pdb
 /examples/exclude/
+/graphify-out/
