@@ -111,9 +111,11 @@ Blocks without a declared language are not auto-detected; they get the plain
 
 | Theme | Notes |
 | --- | --- |
-| `azure-devops` | **Default.** Palette, type scale and font stacks lifted from Microsoft's `azure-devops-ui` package. |
+| `azure-devops` | Palette, type scale and font stacks lifted from Microsoft's `azure-devops-ui` package. |
 | `azure-devops-dark` | Same metrics, dark palette. |
 | `github-light` / `github-dark` | GitHub Primer colors. |
+| `github-dark-blue` | **Default.** GitHub Dark with headings tinted a pale Dracula-blue. |
+| `github-light-blue` | GitHub Light with headings tinted the same blue, darkened for contrast. |
 | `solarized-light` / `solarized-dark` | Ethan Schoonover's Solarized. |
 | `dracula` | Dracula palette. |
 | `dracula-green` | Dracula with the purples rotated to green; warm accents kept. |
