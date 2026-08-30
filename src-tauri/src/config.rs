@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-pub const DEFAULT_THEME: &str = "github-dark-blue";
+pub const DEFAULT_THEME: &str = "azure-devops-dark";
 
 /// Where a newly opened file lands: `"tab"` in the focused window, or
 /// `"window"` for one window per document.

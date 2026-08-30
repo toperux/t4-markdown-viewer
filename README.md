@@ -28,7 +28,7 @@ Electron build starts around 150 MB.
   reorder, and out onto the desktop to become their own window. Dragging one
   *into* another window is Windows-only — see [Platforms](#platforms).
 - **Themes are CSS files.** Fifteen bundled, and you can drop your own into a
-  folder. The default is GitHub Dark with blue headings.
+  folder. The default is Azure DevOps Dark.
 - **Live reload.** Edit in another editor; the view updates on save and keeps
   your scroll position.
 - **Diagrams you can actually read.** A link to an SVG or an image opens it in a
@@ -286,9 +286,9 @@ disappearing from under you is a worse surprise than an empty one.
 
 ## Themes
 
-Bundled: `azure-devops`, `azure-devops-dark`, `azure-devops-blue`,
-`azure-devops-dark-blue`, `github-light`, `github-dark`, `github-dark-blue`
-(default), `github-light-blue`, `solarized-light`, `solarized-dark`, `dracula`,
+Bundled: `azure-devops`, `azure-devops-dark` (default), `azure-devops-blue`,
+`azure-devops-dark-blue`, `github-light`, `github-dark`, `github-dark-blue`,
+`github-light-blue`, `solarized-light`, `solarized-dark`, `dracula`,
 `dracula-green`, `dracula-blue`, `sakura`, `tufte`.
 
 The same page in four of them — a theme owns every colour, the type scale and

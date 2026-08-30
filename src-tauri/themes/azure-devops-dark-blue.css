@@ -1,8 +1,7 @@
 /*
  * Azure DevOps Dark Blue
  *
- * Azure DevOps Dark with headings tinted a pale Dracula-derived blue (#c4d6ff)
- * and the inline-code and code-block backgrounds washed with the same blue;
+ * Azure DevOps Dark with headings tinted a pale Dracula-derived blue (#c4d6ff);
  * everything else unchanged.
  * Azure DevOps wiki look in dark. Type scale and font stacks match the light
  * theme; the dark palette follows the Azure DevOps dark UI and the Visual
@@ -162,7 +161,7 @@ select option {
 .markdown-body code {
   font-family: "Cascadia Mono", Menlo, Consolas, "Courier New", monospace;
   font-size: 0.9em;
-  background: rgba(196, 214, 255, 0.14);
+  background: #2d2d2d;
   color: rgba(255, 255, 255, 0.9);
   padding: 0.15em 0.35em;
   border-radius: 3px;
@@ -172,7 +171,7 @@ select option {
   margin: 0 0 1em;
   padding: 1em;
   border-radius: 4px;
-  background: #262c3d;
+  background: #252526;
   line-height: 1.5;
 }
 
@@ -216,7 +215,7 @@ select option {
 
 /* ---- highlight.js ---- */
 .markdown-body .hljs {
-  background: #262c3d;
+  background: #252526;
   color: rgba(255, 255, 255, 0.9);
 }
 

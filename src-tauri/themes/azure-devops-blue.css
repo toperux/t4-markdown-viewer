@@ -1,9 +1,8 @@
 /*
  * Azure DevOps Blue
  *
- * Azure DevOps with headings tinted a Dracula-derived blue (#5a86e0) and the
- * inline-code and code-block backgrounds washed with the same blue; everything
- * else unchanged.
+ * Azure DevOps with headings tinted a Dracula-derived blue (#5a86e0);
+ * everything else unchanged.
  * Rebuilds the Azure DevOps wiki look. Palette, type scale and font stacks are
  * taken from Microsoft's own `azure-devops-ui` package (Core/core.css,
  * Core/override.css, buildScripts/cssDefaults.json). Code colors follow the
@@ -163,7 +162,7 @@ select option {
 .markdown-body code {
   font-family: "Cascadia Mono", Menlo, Consolas, "Courier New", monospace;
   font-size: 0.9em;
-  background: rgba(90, 134, 224, 0.12);
+  background: #f4f4f4;
   color: rgba(0, 0, 0, 0.9);
   padding: 0.15em 0.35em;
   border-radius: 3px;
@@ -173,7 +172,7 @@ select option {
   margin: 0 0 1em;
   padding: 1em;
   border-radius: 4px;
-  background: #eef3fc;
+  background: #f4f4f4;
   line-height: 1.5;
 }
 
@@ -217,7 +216,7 @@ select option {
 
 /* ---- highlight.js ---- */
 .markdown-body .hljs {
-  background: #eef3fc;
+  background: #f4f4f4;
   color: rgba(0, 0, 0, 0.9);
 }
 
