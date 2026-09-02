@@ -647,18 +647,29 @@ async function cycleTab(step) {
   await activateTab(next.id);
 }
 
-/** Rebuild a tab handed over from another window and take it on. */
-async function adoptTab(data, at) {
+/** The plain JSON a tab is handed around as: between windows, and across an update restart. */
+function packTab(tab) {
+  return { path: tab.path, entries: tab.entries, index: tab.index };
+}
+
+/** A live tab from the plain JSON one is handed around as, or null if it names nothing. */
+function rebuildTab(data) {
   const entries =
     Array.isArray(data?.entries) && data.entries.length
       ? data.entries
       : [{ path: data?.path, scrollY: 0 }];
   const index = Math.max(0, Math.min(entries.length - 1, data?.index ?? 0));
   const path = entries[index]?.path;
-  if (!path) return;
+  if (!path) return null;
+  return Object.assign(makeTab(path), { entries, index });
+}
+
+/** Rebuild a tab handed over from another window and take it on. */
+async function adoptTab(data, at) {
+  const tab = rebuildTab(data);
+  if (!tab) return;
 
   rememberScroll();
-  const tab = { id: nextTabId++, path, dir: "", label: baseName(path), heading: "", entries, index };
   tabs.splice(Math.max(0, Math.min(tabs.length, at)), 0, tab);
   activeId = tab.id;
   syncWatch();
@@ -1308,7 +1319,7 @@ async function onDragEnd(event) {
     const outcome = await invoke("drop_tab", {
       x,
       y,
-      tab: { path: tab.path, entries: tab.entries, index: tab.index },
+      tab: packTab(tab),
       // The last tab already has a window to itself: tearing it off would only
       // swap this window for a new one and leave an empty shell behind.
       tearOff: tabs.length > 1,
