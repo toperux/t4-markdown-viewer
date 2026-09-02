@@ -986,7 +986,8 @@ html.image-mode {
   font-size: 0.875em;
 }
 
-/* Anchor targets clear the sticky bar instead of hiding behind it. */
+/* Anchor targets clear the sticky bar instead of hiding behind it. `--bar-h`
+   comes from measureBar(), since the bar grows when the tab strip shows. */
 .markdown-body :target {
-  scroll-margin-top: 3.5rem;
+  scroll-margin-top: calc(var(--bar-h, 3rem) + 0.5rem);
 }
