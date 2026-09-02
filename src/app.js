@@ -590,6 +590,17 @@ function syncWatch() {
   invoke("watch_files", { paths }).catch(console.error);
 }
 
+/**
+ * Answer Rust's `update-installing` with what this window has open, so the
+ * restart can bring it back. The same shape a tab travels in between windows.
+ */
+function reportSession() {
+  return invoke("set_session", {
+    tabs: tabs.map(packTab),
+    active: Math.max(0, tabs.findIndex((t) => t.id === activeId)),
+  }).catch(console.error);
+}
+
 async function openTab(path) {
   const tab = makeTab(path);
   tabs.push(tab);
@@ -675,6 +686,14 @@ async function adoptTab(data, at) {
   syncWatch();
   await showActive();
   appWindow.setFocus().catch(() => {});
+}
+
+/** Put back every tab an update restart carried over, in order. */
+async function restoreTabs(list, active) {
+  tabs = list.map(rebuildTab).filter(Boolean);
+  activeId = (tabs[active] ?? tabs[0])?.id ?? null;
+  syncWatch();
+  await showActive();
 }
 
 /* ---------------- folder sidebar ---------------- */
@@ -1832,6 +1851,13 @@ async function main() {
   // Broadcast on purpose: one install is happening to the whole app, so every
   // window's dialog should count along with it.
   await listen("update-progress", (e) => showUpdateProgress(e.payload));
+  // Rust asks once the update is downloaded and waits for the answer. The
+  // reader's place is only noted when they leave a document, so the restart
+  // would otherwise land them where they last switched tabs.
+  await listen("update-installing", () => {
+    rememberScroll();
+    reportSession();
+  });
 
   // Another window's tab is hovering over this one.
   await listenHere("tab-drag-over", (e) => {
@@ -1844,19 +1870,23 @@ async function main() {
     await adoptTab(e.payload.tab, at);
   });
 
-  // Whatever this window was created to show: a file-association open, or a
-  // tab torn off another window.
+  // Whatever this window was created to show: a file-association open, a tab
+  // torn off another window, or everything it had before an update restart.
   const pending = await invoke("take_pending");
   if (pending?.kind === "path") {
     await openTab(pending.path);
   } else if (pending?.kind === "tab") {
     await adoptTab(pending.tab, 0);
+  } else if (pending?.kind === "session") {
+    await restoreTabs(pending.tabs, pending.active);
   } else {
     show("empty");
     updateChrome();
   }
 
-  // Window starts hidden so the first frame is already themed and painted.
+  // Window starts hidden so the first frame is already themed and painted. A
+  // restored maximize waits for the same reason: on Windows it shows the window.
+  if (pending?.maximized) await appWindow.maximize().catch(() => {});
   await appWindow.show();
   // Showing does not raise a window whose process is in the background, and a
   // window created for a file the user just opened has to land in front.

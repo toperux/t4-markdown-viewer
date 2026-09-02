@@ -2,6 +2,7 @@
 
 mod config;
 mod render;
+mod session;
 mod themes;
 mod update;
 mod watch;
@@ -11,7 +12,7 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
+use std::sync::{Condvar, Mutex};
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindowBuilder, Window,
     WindowEvent,
@@ -28,10 +29,19 @@ const IMG_EXTS: &[&str] = &[
 
 #[derive(Default)]
 struct AppState {
-    /// What a freshly created window should open once its webview asks. Either
-    /// `{kind:"path"}` from a file-association open or `{kind:"tab"}` from a
-    /// torn-off tab. Keyed by window label.
+    /// What a freshly created window should open once its webview asks:
+    /// `{kind:"path"}` from a file-association open, `{kind:"tab"}` from a
+    /// torn-off tab, or `{kind:"session"}` after an update restart. Keyed by
+    /// window label.
     pending: Mutex<HashMap<String, Value>>,
+    /// What each window has open, as it last reported — or, until it has, what
+    /// it was created to open. Only read when an update is about to replace
+    /// the process — see `session`.
+    sessions: Mutex<HashMap<String, session::OpenTabs>>,
+    /// Windows a session snapshot is still waiting to hear from, and the bell
+    /// each answer rings. See `session::snapshot`.
+    awaiting: Mutex<HashSet<String>>,
+    reported: Condvar,
     /// Windows whose webview has asked for its pending payload, and so is live
     /// enough to receive events. A window not in here is still booting, which is
     /// the normal state when the OS hands us a file during startup.
@@ -186,21 +196,55 @@ fn focus_window(app: &AppHandle, label: &str) {
     }
 }
 
-/// Create a window. `at` is a physical screen point taken straight off a
-/// pointer event; the window is offset so the cursor lands near its tab strip.
+/// Stash what a window should open once its webview asks, unless something is
+/// already on its way in — a booting window's payload must not be overwritten.
+/// Says whether the slot was taken. The same payload stands in for the
+/// window's session report until it makes one, so a snapshot taken while it
+/// boots still counts it.
+fn claim_pending(state: &AppState, label: &str, payload: Value) -> bool {
+    let open = session::OpenTabs::from_pending(&payload);
+    {
+        let mut pending = state.pending.lock().unwrap();
+        if pending.contains_key(label) {
+            return false;
+        }
+        pending.insert(label.to_string(), payload);
+    }
+    if let Some(open) = open {
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(label.to_string(), open);
+    }
+    true
+}
+
+/// Where a new window goes.
+enum Placement {
+    /// Wherever the OS puts it.
+    Default,
+    /// A physical screen point taken straight off a pointer event; the window
+    /// is offset so the cursor lands near its tab strip.
+    Cursor(f64, f64),
+    /// Exactly where a window stood before an update restart.
+    Frame(session::Frame),
+}
+
+/// Create a window.
 ///
 /// The build runs on a worker thread on purpose. `build()` waits on the event
 /// loop to construct the webview, and both callers here — a synchronous command
 /// and the single-instance hook — already run *on* that loop, so building
 /// inline deadlocks the app. Reserving the label and stashing `pending` happens
 /// first and synchronously, so the new window's `take_pending` cannot race it.
-fn spawn_window(app: &AppHandle, pending: Option<Value>, at: Option<(f64, f64)>) -> String {
+fn spawn_window(app: &AppHandle, pending: Option<Value>, place: Placement) -> String {
     let state = app.state::<AppState>();
     let n = state.next_window.fetch_add(1, Ordering::Relaxed) + 1;
     let label = format!("w{n}");
 
     if let Some(p) = pending {
-        state.pending.lock().unwrap().insert(label.clone(), p);
+        claim_pending(&state, &label, p);
     }
 
     let app = app.clone();
@@ -212,21 +256,21 @@ fn spawn_window(app: &AppHandle, pending: Option<Value>, at: Option<(f64, f64)>)
             .visible(false)
             .build()
         {
-            Ok(win) => {
-                if let Some((x, y)) = at {
+            Ok(win) => match place {
+                Placement::Default => {}
+                Placement::Cursor(x, y) => {
                     let _ = win.set_position(PhysicalPosition::new(
                         (x - 140.0).round() as i32,
                         (y - 24.0).round() as i32,
                     ));
                 }
-            }
+                Placement::Frame(frame) => frame.apply(&win),
+            },
             Err(e) => {
                 eprintln!("window {target} failed to open: {e}");
-                app.state::<AppState>()
-                    .pending
-                    .lock()
-                    .unwrap()
-                    .remove(&target);
+                let state = app.state::<AppState>();
+                state.pending.lock().unwrap().remove(&target);
+                state.sessions.lock().unwrap().remove(&target);
             }
         }
     });
@@ -482,7 +526,21 @@ fn watch_files(app: AppHandle, state: State<AppState>, window: Window, paths: Ve
 #[tauri::command]
 fn open_window(app: AppHandle, path: Option<String>) -> String {
     let pending = path.map(|p| json!({ "kind": "path", "path": p }));
-    spawn_window(&app, pending, None)
+    spawn_window(&app, pending, Placement::Default)
+}
+
+/// A window answering `update-installing` with what it has open, so the
+/// restart can bring it back. `tabs` is the frontend's own shape, kept opaque
+/// here.
+#[tauri::command]
+fn set_session(state: State<AppState>, window: Window, tabs: Vec<Value>, active: usize) {
+    let label = window.label();
+    state
+        .sessions
+        .lock()
+        .unwrap()
+        .insert(label.to_string(), session::OpenTabs { tabs, active });
+    session::reported(&state, label);
 }
 
 /// The window's client-area origin and scale, both physical. The frontend turns
@@ -576,7 +634,7 @@ fn drop_tab(
             spawn_window(
                 &app,
                 Some(json!({ "kind": "tab", "tab": tab })),
-                Some((x, y)),
+                Placement::Cursor(x, y),
             );
             Ok("detached".into())
         }
@@ -629,8 +687,9 @@ fn set_open_mode(app: AppHandle, mode: String) {
 /// A window that has not yet drained its pending slot is still booting and has
 /// nothing in it, so it takes the file whatever the open mode says; emitting
 /// `file-opened` at a window with no listener yet would drop it on the floor.
-/// A booting window that *does* have something pending is a torn-off tab on its
-/// way in, and must not be overwritten.
+/// A booting window that *does* have something pending is a torn-off tab or a
+/// restored session on its way in, and must not be overwritten; the file gets
+/// a window of its own.
 fn open_path(app: &AppHandle, path: &Path) {
     let path = strip_unc(path);
     let state = app.state::<AppState>();
@@ -642,21 +701,10 @@ fn open_path(app: &AppHandle, path: &Path) {
     // a cold argv open does everywhere else. Only the first file can claim it;
     // Finder can open several at once, and the rest still get windows of their
     // own.
-    if app.webview_windows().is_empty() {
-        let claimed = {
-            let mut pending = state.pending.lock().unwrap();
-            let vacant = !pending.contains_key("main");
-            if vacant {
-                pending.insert(
-                    "main".to_string(),
-                    json!({ "kind": "path", "path": path.clone() }),
-                );
-            }
-            vacant
-        };
-        if claimed {
-            return;
-        }
+    let payload = json!({ "kind": "path", "path": path });
+
+    if app.webview_windows().is_empty() && claim_pending(&state, "main", payload.clone()) {
+        return;
     }
 
     if let Some(label) = last_focused(app) {
@@ -664,28 +712,63 @@ fn open_path(app: &AppHandle, path: &Path) {
         // it: every other holder of these locks takes one at a time, and this
         // keeps it that way, so there is no lock order to get wrong later.
         let ready = state.ready.lock().unwrap().contains(&label);
-        let booting = {
-            let mut pending = state.pending.lock().unwrap();
-            let booting = !ready && !pending.contains_key(&label);
-            if booting {
-                pending.insert(label.clone(), json!({ "kind": "path", "path": path }));
+        if !ready {
+            if claim_pending(&state, &label, payload.clone()) {
+                focus_window(app, &label);
+                return;
             }
-            booting
-        };
-
-        if booting {
-            focus_window(app, &label);
-            return;
-        }
-
-        if config::load().open_mode != "window" {
+            // Booting with something already on the way in — a torn-off tab
+            // or a restored session. An event now would reach a webview with
+            // no listeners yet, so the file gets a window of its own instead.
+        } else if config::load().open_mode != "window" {
             let _ = app.emit_to(&label, "file-opened", path);
             focus_window(app, &label);
             return;
         }
     }
 
-    spawn_window(app, Some(json!({ "kind": "path", "path": path })), None);
+    spawn_window(app, Some(payload), Placement::Default);
+}
+
+/// Put back what an update restart took down: one window per saved window,
+/// with its tabs and its place on screen.
+///
+/// The config-declared `main` window already exists and would otherwise stand
+/// empty, so the first saved window goes there — unless a file-association
+/// open has claimed it first, in which case every saved window gets a new one.
+fn restore_session(app: &AppHandle, windows: Vec<session::WindowSession>) {
+    let state = app.state::<AppState>();
+    let spawn = |w: session::WindowSession| {
+        let pending = session_payload(&w);
+        spawn_window(
+            app,
+            Some(pending),
+            w.frame.map_or(Placement::Default, Placement::Frame),
+        );
+    };
+    let mut windows = windows.into_iter();
+
+    if let Some(w) = windows.next() {
+        if claim_pending(&state, "main", session_payload(&w)) {
+            if let (Some(frame), Some(main)) = (&w.frame, app.get_webview_window("main")) {
+                frame.apply(&main);
+            }
+        } else {
+            spawn(w);
+        }
+    }
+    windows.for_each(spawn);
+}
+
+/// What a restored window opens with. `maximized` is left to the frontend to
+/// act on once it has shown the window — see `session::Frame::apply`.
+fn session_payload(w: &session::WindowSession) -> Value {
+    json!({
+        "kind": "session",
+        "tabs": w.open.tabs,
+        "active": w.open.active,
+        "maximized": w.frame.as_ref().is_some_and(|f| f.maximized),
+    })
 }
 
 /// Menu id for the one item that is not predefined.
@@ -785,6 +868,7 @@ fn main() {
             watch_files,
             watch_folders,
             open_window,
+            set_session,
             window_origin,
             drag_over,
             drag_cancel,
@@ -807,8 +891,10 @@ fn main() {
                     state.watches.lock().unwrap().remove(label);
                     state.folder_watches.lock().unwrap().remove(label);
                     state.pending.lock().unwrap().remove(label);
+                    state.sessions.lock().unwrap().remove(label);
                     state.ready.lock().unwrap().remove(label);
                     state.focus_order.lock().unwrap().retain(|l| l != label);
+                    session::reported(&state, label);
                 }
                 _ => {}
             }
@@ -818,11 +904,21 @@ fn main() {
             let state = app.state::<AppState>();
             touch_focus(&state, "main");
 
+            // An update restart repeats the old process's argv, so the file it
+            // was once double-clicked on would come back even if it had since
+            // been closed. That echo is skipped; the session says what is open.
+            let session = session::take(app.handle());
+            let echoed = session.as_ref().is_some_and(|s| s.argv[..] == args[1..]);
+
             // Windows and Linux never fire RunEvent::Opened; a cold
             // file-association open arrives as argv. `main` exists by now but
             // its webview does not, so this stashes rather than emits.
-            if let Some(path) = file_from_args(&args) {
+            if let Some(path) = file_from_args(&args).filter(|_| !echoed) {
                 open_path(app.handle(), &path);
+            }
+
+            if let Some(s) = session {
+                restore_session(app.handle(), s.windows);
             }
 
             // Broadcast: a theme edit restyles every open window at once.
