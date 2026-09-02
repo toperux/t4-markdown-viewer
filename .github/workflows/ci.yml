@@ -3,8 +3,13 @@ name: CI
 on:
   push:
     branches: [main]
-  pull_request:
   workflow_dispatch:
+
+# One run per push: a burst of pushes to main cancels the superseded runs
+# instead of queueing a full 3-OS matrix for each.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
