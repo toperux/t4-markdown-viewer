@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub const DEFAULT_THEME: &str = "azure-devops-dark";
 
@@ -47,9 +47,17 @@ pub fn load() -> Config {
 }
 
 pub fn save(cfg: &Config) {
-    let _ = std::fs::create_dir_all(dir());
-    if let Ok(json) = serde_json::to_string_pretty(cfg) {
-        let _ = std::fs::write(file(), json);
+    write_json(&file(), cfg);
+}
+
+/// Write a value as JSON, creating the directory on the way. Failure is
+/// silent: nothing this app persists is worth interrupting the reader over.
+pub fn write_json(path: &Path, value: &impl Serialize) {
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(json) = serde_json::to_string_pretty(value) {
+        let _ = std::fs::write(path, json);
     }
 }
 
