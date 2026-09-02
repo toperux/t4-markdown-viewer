@@ -110,8 +110,8 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
     let done_app = app.clone();
     let counter = Arc::clone(&downloaded);
 
-    update
-        .download_and_install(
+    let bytes = update
+        .download(
             move |chunk, total| {
                 let done = counter.fetch_add(chunk as u64, Ordering::Relaxed) + chunk as u64;
                 // A manifest without a content length gives no percentage;
@@ -125,6 +125,17 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
         )
         .await
         .map_err(|e| e.to_string())?;
+
+    // Where every reader is, taken after the download rather than before it:
+    // a download is long enough to keep reading through. This is the last
+    // moment the process is still whole — on Windows the installer kills it
+    // as the very next step, and `restart` below never returns.
+    crate::session::snapshot(&app, update.version.clone()).await;
+
+    update.install(bytes).map_err(|e| {
+        crate::session::discard();
+        e.to_string()
+    })?;
 
     app.restart()
 }
