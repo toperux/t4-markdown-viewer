@@ -1309,9 +1309,20 @@ async function onDragEnd(event) {
       x,
       y,
       tab: { path: tab.path, entries: tab.entries, index: tab.index },
+      // The last tab already has a window to itself: tearing it off would only
+      // swap this window for a new one and leave an empty shell behind.
+      tearOff: tabs.length > 1,
     });
     // "adopted" — another window took it. "detached" — it became a new window.
+    // "cancelled" — nowhere to go; the tab stays put.
+    if (outcome === "cancelled") {
+      renderTabs();
+      return;
+    }
     if (outcome === "adopted" || outcome === "detached") await removeTab(d.id);
+    // Handing the last tab to another window leaves nothing here worth keeping;
+    // the user is already looking at the target, so close the empty shell.
+    if (outcome === "adopted" && tabs.length === 0) await appWindow.close();
   } catch (err) {
     console.error(err);
   }

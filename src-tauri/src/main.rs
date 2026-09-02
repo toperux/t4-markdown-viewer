@@ -549,8 +549,9 @@ fn drag_cancel(app: AppHandle, state: State<AppState>) {
 }
 
 /// Release a dragged tab. Over another window it is adopted there; over
-/// anything else it becomes a new window at the cursor. Either way the caller
-/// drops its own copy once this returns.
+/// anything else it becomes a new window at the cursor, unless `tear_off` is
+/// false, in which case the drop is cancelled and the tab stays where it was.
+/// The caller drops its own copy on "adopted" and "detached".
 #[tauri::command]
 fn drop_tab(
     app: AppHandle,
@@ -559,6 +560,7 @@ fn drop_tab(
     x: f64,
     y: f64,
     tab: Value,
+    tear_off: bool,
 ) -> Result<String, String> {
     clear_drag(&app, &state);
 
@@ -569,6 +571,7 @@ fn drop_tab(
             focus_window(&app, &label);
             Ok("adopted".into())
         }
+        None if !tear_off => Ok("cancelled".into()),
         None => {
             spawn_window(
                 &app,
