@@ -11,23 +11,21 @@ manifest and publishes a GitHub release. **A published release is public and
 installed copies will offer it as an update**, so get the version right before
 the tag goes up.
 
-## The version lives in three files
-
-All three are bumped by hand and CI hard-fails if they disagree:
+## The version lives in two files
 
 | File | Form |
 | --- | --- |
-| `src-tauri/tauri.conf.json` | `"version": "1.2.0"` |
 | `src-tauri/Cargo.toml` | `version = "1.2.0"` (line 3) |
 | `src-tauri/Cargo.lock` | under `name = "t4-markdown-viewer"` |
 
-Edit the first two; refresh the lock with `cargo check --manifest-path
-src-tauri/Cargo.toml` rather than hand-editing it.
+Edit the first; refresh the lock with `cargo check --manifest-path
+src-tauri/Cargo.toml` rather than hand-editing it. `tauri.conf.json` has no
+`version` key — Tauri falls back to the crate's, so the installer is named from
+`Cargo.toml`.
 
-The `version` job in the workflow compares `Cargo.toml` against
-`tauri.conf.json`, and the tag against both. It exists because the failure it
-catches is silent otherwise: a release called v1.3.0 shipping an installer
-named 1.2.0, which the updater then refuses.
+The `version` job in the workflow compares the tag against `Cargo.toml`. It
+exists because the failure it catches is silent otherwise: a release called
+v1.3.0 shipping an installer named 1.2.0, which the updater then refuses.
 
 ## Steps
 
@@ -35,8 +33,8 @@ named 1.2.0, which the updater then refuses.
    commit. Check `git status` is otherwise clean.
 2. **Verify** — `cargo test --manifest-path src-tauri/Cargo.toml`. CI runs the
    same suite on all three platforms, so a failure here is a failure there.
-3. **Bump** the two files, then `cargo check` to refresh `Cargo.lock`.
-4. **Commit the bump on its own**, touching only those three files:
+3. **Bump** `Cargo.toml`, then `cargo check` to refresh `Cargo.lock`.
+4. **Commit the bump on its own**, touching only those two files:
 
    ```
    Release 1.3.0
