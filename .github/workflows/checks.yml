@@ -1,0 +1,66 @@
+name: Checks
+
+# Called by ci.yml on a push and by release.yml on a tag. Referenced by a local
+# `./` path, so it always runs at the caller's commit - which is what lets a
+# release verify the exact tree it is about to publish.
+on:
+  workflow_call:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: ${{ matrix.os }}
+    # A called workflow runs with the caller's token, and release.yml grants
+    # `contents: write` for `publish`. Without this the check matrix would
+    # inherit write access it has no use for; it only builds and tests.
+    permissions:
+      contents: read
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22.04 rather than latest: the .deb links against whatever glibc the
+        # builder has, so building on the oldest supported runner is what makes
+        # the package installable on more than just the newest distros.
+        os: [windows-latest, macos-latest, ubuntu-22.04]
+    defaults:
+      run:
+        working-directory: src-tauri
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # Formatting is platform-independent, so check it once, on the cheapest runner.
+      - name: Format
+        if: runner.os == 'Linux'
+        run: cargo fmt --check
+
+      # `-D warnings` goes after `--`, not in RUSTFLAGS: as an env var it also
+      # applies to every dependency, so one warning in a crate we do not own
+      # turns the build red.
+      #
+      # `--locked` because the release build passes it too: without it here a
+      # stale `Cargo.lock` goes green, and then kills every release leg after
+      # the tag is already public.
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --locked
