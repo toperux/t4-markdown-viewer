@@ -2,17 +2,24 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # The `pull_request` trigger was dropped on purpose (ea40fe6), which would
+    # leave dependabot's PRs showing no checks at all. Its branches are pushed
+    # to this repo, so a push trigger on them puts the matrix on the PR.
+    branches: [main, "dependabot/**"]
+    # A docs-only push has nothing here to check. Mixed commits still run.
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
   workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
 
 # One run per push: a burst of pushes to main cancels the superseded runs
 # instead of queueing a full 3-OS matrix for each.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  CARGO_TERM_COLOR: always
 
 jobs:
   check:
@@ -30,7 +37,7 @@ jobs:
         working-directory: src-tauri
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Linux build dependencies
         if: runner.os == 'Linux'
@@ -47,16 +54,20 @@ jobs:
         with:
           workspaces: src-tauri
 
-      # Formatting is platform-independent, so checking it once is enough.
+      # Formatting is platform-independent, so check it once, on the cheapest runner.
       - name: Format
-        if: runner.os == 'Windows'
+        if: runner.os == 'Linux'
         run: cargo fmt --check
 
       # `-D warnings` goes after `--`, not in RUSTFLAGS: as an env var it also
       # applies to every dependency, so one warning in a crate we do not own
       # turns the build red.
+      #
+      # `--locked` because the release build passes it too: without it here a
+      # stale `Cargo.lock` goes green, and then kills every release leg after
+      # the tag is already public.
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Test
-        run: cargo test
+        run: cargo test --workspace --locked
