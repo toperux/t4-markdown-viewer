@@ -14,37 +14,65 @@ env:
 
 permissions:
   contents: write
+  # `gh run list` / `gh run watch` in the version job.
+  actions: read
 
 jobs:
-  # Resolved once and shared. The tag and tauri.conf.json must agree, or the
-  # release is called v0.2.0 and ships an installer named 0.1.0. Cheap to check,
+  # Resolved once and shared. The tag and Cargo.toml must agree, or the release
+  # is called v0.2.0 and ships an installer named 0.1.0. Cheap to check,
   # confusing to discover later.
   version:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.read.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: read
         shell: bash
         run: |
           set -euo pipefail
-          conf=$(python3 -c 'import json;print(json.load(open("src-tauri/tauri.conf.json"))["version"])')
-          # Both are bumped by hand, and the updater compares against whichever
-          # one it was built with. Disagreeing versions are worth stopping for.
           crate=$(grep -m1 '^version = ' src-tauri/Cargo.toml | cut -d'"' -f2)
-          if [[ "$crate" != "$conf" ]]; then
-            echo "Cargo.toml version $crate does not match tauri.conf.json version $conf" >&2
-            exit 1
-          fi
+          # workflow_dispatch has no tag, so there is nothing to compare
+          # against, and it is allowed to build whatever version the tree has —
+          # packaging can then be checked in the middle of a bump.
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            # Plain x.y.z only: the rpm tooling rejects a `-rc.1` suffix, and the
+            # updater compares versions as released.
+            if ! [[ "$crate" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "version $crate is not a plain x.y.z release" >&2
+              exit 1
+            fi
             tag="${GITHUB_REF_NAME#v}"
-            if [[ "$tag" != "$conf" ]]; then
-              echo "tag $tag does not match tauri.conf.json version $conf" >&2
+            if [[ "$tag" != "$crate" ]]; then
+              echo "tag $tag does not match Cargo.toml version $crate" >&2
               exit 1
             fi
           fi
-          echo "version=$conf" >> "$GITHUB_OUTPUT"
+          echo "version=$crate" >> "$GITHUB_OUTPUT"
+
+      # The build no longer runs the tests (CI does), so a tag has to prove CI
+      # went green on this exact commit before anything is signed and published.
+      # A run that is still going is waited for; one that was cancelled by a
+      # later push to main fails this, which is the right answer.
+      - name: Require a green CI run for this commit
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          id=""
+          # The tag usually lands seconds after the push, before the run is listed.
+          for _ in $(seq 12); do
+            id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow CI --commit "$GITHUB_SHA" \
+              --json databaseId --jq '.[0].databaseId // empty')
+            [ -n "$id" ] && break
+            sleep 10
+          done
+          if [ -z "$id" ]; then
+            echo "no CI run for $GITHUB_SHA: push main and let CI start before tagging" >&2
+            exit 1
+          fi
+          gh run watch --repo "$GITHUB_REPOSITORY" "$id" --exit-status
 
   build:
     needs: version
@@ -69,7 +97,7 @@ jobs:
             bundle_dir: target/release/bundle
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Linux build dependencies
         if: runner.os == 'Linux'
@@ -87,10 +115,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-
-      - name: Test
-        working-directory: src-tauri
-        run: cargo test
 
       - uses: cargo-bins/cargo-binstall@main
 
@@ -119,6 +143,7 @@ jobs:
         run: >
           cargo tauri build --bundles ${{ matrix.bundles }}
           ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+          -- --locked
 
       # Tauri names bundles with the product name, spaces and all, and GitHub
       # rewrites spaces in asset names anyway. Pick the final names here instead
@@ -176,7 +201,7 @@ jobs:
             echo "$f  $hash"
           done
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: packages-${{ runner.os }}
           path: dist/*
@@ -186,7 +211,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
