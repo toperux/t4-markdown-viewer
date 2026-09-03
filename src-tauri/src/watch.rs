@@ -86,7 +86,13 @@ where
             match rx.recv_timeout(DEBOUNCE) {
                 Ok(ev) => collect(&ev, &mut hits),
                 Err(RecvTimeoutError::Timeout) => break,
-                Err(RecvTimeoutError::Disconnected) => return,
+                // Every navigation rebuilds the watcher — once before the read,
+                // again once the document's pictures are known — and returning
+                // here threw away hits already collected, so a save landing
+                // between the two was neither read nor reported. Break instead
+                // and the burst is emitted; the outer `recv` then sees the
+                // closed channel and the thread exits as before.
+                Err(RecvTimeoutError::Disconnected) => break,
             }
         }
 
