@@ -14,8 +14,6 @@ env:
 
 permissions:
   contents: write
-  # `gh run list` / `gh run watch` in the version job.
-  actions: read
 
 jobs:
   # Resolved once and shared. The tag and Cargo.toml must agree, or the release
@@ -50,29 +48,19 @@ jobs:
           fi
           echo "version=$crate" >> "$GITHUB_OUTPUT"
 
-      # The build no longer runs the tests (CI does), so a tag has to prove CI
-      # went green on this exact commit before anything is signed and published.
-      # A run that is still going is waited for; one that was cancelled by a
-      # later push to main fails this, which is the right answer.
-      - name: Require a green CI run for this commit
-        if: startsWith(github.ref, 'refs/tags/')
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          id=""
-          # The tag usually lands seconds after the push, before the run is listed.
-          for _ in $(seq 12); do
-            id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow CI --commit "$GITHUB_SHA" \
-              --json databaseId --jq '.[0].databaseId // empty')
-            [ -n "$id" ] && break
-            sleep 10
-          done
-          if [ -z "$id" ]; then
-            echo "no CI run for $GITHUB_SHA: push main and let CI start before tagging" >&2
-            exit 1
-          fi
-          gh run watch --repo "$GITHUB_REPOSITORY" "$id" --exit-status
+  # The release build does not run the tests (D7), so the checks run here
+  # instead, at this exact commit. They gate `publish`, not `build`: the two
+  # run side by side, and a failure means the artifacts exist but nothing is
+  # published - including no latest.json, so no installed copy is offered a
+  # release that did not pass.
+  #
+  # Tags only. All this job protects is `publish`, and `publish` is itself
+  # tag-only, so on a workflow_dispatch packaging run the matrix would be
+  # three legs guarding nothing. Skipping it here also skips `publish`, which
+  # is what the dispatch wanted anyway.
+  checks:
+    if: startsWith(github.ref, 'refs/tags/')
+    uses: ./.github/workflows/checks.yml
 
   build:
     needs: version
@@ -207,7 +195,7 @@ jobs:
           path: dist/*
 
   publish:
-    needs: [version, build]
+    needs: [version, checks, build]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:

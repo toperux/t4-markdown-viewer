@@ -33,8 +33,8 @@ v1.3.0 shipping an installer named 1.2.0, which the updater then refuses.
    commit. Check `git status` is otherwise clean.
 2. **Verify** — `cargo test --manifest-path src-tauri/Cargo.toml`. CI runs the
    same suite on all three platforms, so a failure here is a failure there. The
-   release build no longer runs the tests itself, so this and the CI run on the
-   pushed commit are the only ones between the work and the tag.
+   release build does not run the tests itself; the Release workflow runs the
+   same checks separately, at the tagged commit.
 3. **Bump** `Cargo.toml`, then `cargo check` to refresh `Cargo.lock`. Plain
    `x.y.z` only — the rpm tooling rejects a `-rc.1` suffix, and the workflow
    refuses such a tag, but only once the tag is already public. Catch it here.
@@ -56,9 +56,8 @@ v1.3.0 shipping an installer named 1.2.0, which the updater then refuses.
    ```
 
    Push the branch before the tag, or CI builds a commit GitHub does not have.
-   The release workflow waits for that commit's CI run and refuses to publish
-   unless it is green, so a red or cancelled CI run means a failed release
-   rather than a broken one.
+   The release does not depend on that run: it runs the same checks itself, at
+   the tagged commit, and publishes nothing unless they pass.
 
 ## Checking the packaging without burning a version
 
