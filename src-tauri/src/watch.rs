@@ -20,9 +20,12 @@ fn is_content_change(kind: &EventKind) -> bool {
 }
 
 /// Watch `dirs`, emitting `event` with the list of changed paths when anything
-/// passing `filter` moves. Directories are watched rather than files: most
-/// editors save by writing a temp file and renaming over the target, which
-/// destroys a watch registered on the original file.
+/// `filter` claims moves. `filter` answers with the paths to *report* for an
+/// event path — empty for "not mine" — because the frontend matches what it
+/// registered, which is not always how the OS spells it back. Directories are
+/// watched rather than files: most editors save by writing a temp file and
+/// renaming over the target, which destroys a watch registered on the original
+/// file.
 ///
 /// `to` addresses a single window by label — each window watches only the files
 /// its own tabs have open. `None` broadcasts, which is what the theme watcher
@@ -35,7 +38,7 @@ pub fn watch<F>(
     to: Option<String>,
 ) -> Option<Handle>
 where
-    F: Fn(&Path) -> bool + Send + 'static,
+    F: Fn(&Path) -> Vec<String> + Send + 'static,
 {
     if dirs.is_empty() {
         return None;
@@ -63,12 +66,10 @@ where
             return;
         }
         for p in &ev.paths {
-            if !filter(p) {
-                continue;
-            }
-            let path = crate::strip_unc(p);
-            if !out.contains(&path) {
-                out.push(path);
+            for path in filter(p) {
+                if !out.contains(&path) {
+                    out.push(path);
+                }
             }
         }
     };

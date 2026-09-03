@@ -417,7 +417,13 @@ fn watch_folders(app: AppHandle, state: State<AppState>, window: Window, dirs: V
     let handle = watch::watch(
         app,
         dirs,
-        is_visible_entry,
+        |p| {
+            if is_visible_entry(p) {
+                vec![strip_unc(p)]
+            } else {
+                vec![]
+            }
+        },
         "folder-changed",
         Some(label.clone()),
     );
@@ -497,15 +503,21 @@ fn list_dir(path: String) -> Result<Listing, String> {
 /// Replace this window's watcher so it covers exactly the files its tabs hold.
 #[tauri::command]
 fn watch_files(app: AppHandle, state: State<AppState>, window: Window, paths: Vec<String>) {
-    let files: Vec<PathBuf> = paths
+    // Each file is kept beside the string the frontend registered it under: the
+    // frontend matches events against that, and canonicalizing can change it —
+    // a picture behind a junction, a file reached through a symlink. Two
+    // spellings of one file both get reported.
+    let files: Vec<(PathBuf, String)> = paths
         .into_iter()
-        .map(PathBuf::from)
-        .map(|p| std::fs::canonicalize(&p).unwrap_or(p))
+        .map(|s| {
+            let p = PathBuf::from(&s);
+            (std::fs::canonicalize(&p).unwrap_or(p), s)
+        })
         .collect();
 
     let mut dirs: Vec<PathBuf> = files
         .iter()
-        .filter_map(|p| p.parent().map(Path::to_path_buf))
+        .filter_map(|(p, _)| p.parent().map(Path::to_path_buf))
         .collect();
     dirs.sort();
     dirs.dedup();
@@ -515,7 +527,13 @@ fn watch_files(app: AppHandle, state: State<AppState>, window: Window, paths: Ve
     let handle = watch::watch(
         app,
         dirs,
-        move |p| targets.iter().any(|f| f == p),
+        move |p| {
+            targets
+                .iter()
+                .filter(|(f, _)| f == p)
+                .map(|(_, original)| original.clone())
+                .collect()
+        },
         "file-changed",
         Some(label.clone()),
     );
@@ -925,7 +943,10 @@ fn main() {
             *state.theme_watch.lock().unwrap() = watch::watch(
                 app.handle().clone(),
                 themes::watch_dirs(app.handle()),
-                |p| p.extension().and_then(|e| e.to_str()) == Some("css"),
+                |p| match p.extension().and_then(|e| e.to_str()) {
+                    Some("css") => vec![strip_unc(p)],
+                    _ => vec![],
+                },
                 "themes-changed",
                 None,
             );
