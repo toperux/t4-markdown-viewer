@@ -195,14 +195,16 @@ function rememberScroll() {
 /* ---------------- rendering ---------------- */
 
 /**
- * How many times each file has been seen to change. The asset protocol sends no
+ * How many times each file has been asked for afresh. The asset protocol sends no
  * caching headers and the app never navigates away, so the webview hands back the
  * copy it already has for a URL it has already fetched; a version in the query
- * string is what makes new bytes a new URL.
+ * string is what makes new bytes a new URL. A file is bumped when it is seen to
+ * change, and again when it is shown while unwatched — nobody was listening, so
+ * the cached copy proves nothing.
  */
 const assetVersions = new Map();
 
-/** Versioned only once a file has changed, so untouched pictures stay cached. */
+/** Unversioned until the file's first bump, so untouched pictures stay cached. */
 function assetUrl(file) {
   const v = assetVersions.get(normPath(file));
   return v ? `${convertFileSrc(file)}?v=${v}` : convertFileSrc(file);
@@ -219,6 +221,11 @@ function resolveMedia(root, dir) {
     const raw = el.getAttribute("src");
     if (!isRelative(raw)) return;
     const file = resolvePath(dir, raw);
+    // A picture nothing was watching may have changed unseen, so the webview's
+    // cached copy cannot be trusted; a bump refetches it. A watched one is left
+    // alone — that is what keeps a refresh's scroll restore honest, since the
+    // page then has its pictures' full height straight away.
+    if (isImage(file) && !isWatched(file)) bumpAsset(file);
     el.setAttribute("src", assetUrl(file));
     // Remember the file behind the picture so a click can open it full size —
     // a diagram at column width is often too small to read. Images only: the
@@ -497,6 +504,11 @@ async function showActive(scrollY) {
       tab.media = []; // a picture shows only itself
       // `scrollY` is a document position and means nothing here; the picture
       // restores its own zoom and pan from the entry.
+      //
+      // Nothing was watching this file, so the copy the webview holds may be
+      // stale: Back and Forward, a reopened tab, and a picture opened in its
+      // own tab after being embedded all land here and refetch.
+      if (!isWatched(asset.path)) bumpAsset(asset.path);
       await showImage(asset, entry, token);
       if (token !== renderToken) return;
     } else {
@@ -517,6 +529,9 @@ async function showActive(scrollY) {
     }
   } catch (err) {
     if (token !== renderToken) return;
+    // An error panel shows no pictures, so the watcher should not go on
+    // holding the previous document's.
+    tab.media = [];
     els.errorDetail.textContent = String(err);
     show("error");
   }
@@ -608,6 +623,8 @@ function setCaret(index) {
 /* ---------------- tab operations ---------------- */
 
 let watching = null;
+/** The same paths in comparison form, so `isWatched` need not rebuild them. */
+const watched = new Set();
 
 /** Keep the Rust watcher pointed at exactly the files this window has open. */
 function syncWatch() {
@@ -619,7 +636,14 @@ function syncWatch() {
   const key = paths.join("\0");
   if (key === watching) return;
   watching = key;
+  watched.clear();
+  for (const p of paths) watched.add(normPath(p));
   invoke("watch_files", { paths }).catch(console.error);
+}
+
+/** Whether a change to this file would be reported, or would pass unnoticed. */
+function isWatched(file) {
+  return watched.has(normPath(file));
 }
 
 /**
@@ -1872,18 +1896,20 @@ async function main() {
 
   await listenHere("file-opened", (e) => openTab(e.payload));
   await listenHere("folder-changed", (e) => onFolderChanged(e.payload ?? []).catch(console.error));
-  await listenHere("file-changed", (e) => {
+  await listenHere("file-changed", async (e) => {
     const changed = e.payload ?? [];
+    const open = currentEntry(activeTab())?.path;
+    if (open && changed.some((c) => samePath(c, open))) {
+      // Re-render with the pictures the webview already holds, so the page has
+      // its full height when the scroll is restored; new bytes go in below.
+      await refresh();
+      // The restore is queued in renderDocument's rAF; run after it.
+      await new Promise(requestAnimationFrame);
+    }
     // A picture the webview has fetched once is served from its cache the next
     // time too, so every changed image needs a new version whether or not a tab
     // showing it is the one on screen — the background tab reads it on the way in.
     for (const p of changed) if (isImage(p)) bumpAsset(p);
-
-    const open = currentEntry(activeTab())?.path;
-    if (open && changed.some((c) => samePath(c, open))) {
-      refresh();
-      return;
-    }
     // A picture embedded in the document on screen: swap that one `<img>` rather
     // than re-rendering the page around it, which would cost the reading position.
     if (!els.content.hidden) {
