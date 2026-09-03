@@ -129,11 +129,13 @@ function dirName(p) {
  * so folding case there would quietly merge them into one tab.
  */
 function samePath(a, b) {
-  const norm = (p) => {
-    const slashed = p.replace(/\\/g, "/");
-    return state.caseInsensitivePaths ? slashed.toLowerCase() : slashed;
-  };
-  return norm(a) === norm(b);
+  return normPath(a) === normPath(b);
+}
+
+/** Slash- and, where the platform folds it, case-normalised: the form paths compare in. */
+function normPath(p) {
+  const slashed = p.replace(/\\/g, "/");
+  return state.caseInsensitivePaths ? slashed.toLowerCase() : slashed;
 }
 
 /* ---------------- tabs ---------------- */
@@ -170,6 +172,8 @@ function makeTab(path) {
     dir: "",
     label: baseName(path),
     heading: "",
+    /** Pictures the rendered document shows, so the watcher covers them too. */
+    media: [],
     entries: [{ path, scrollY: 0 }],
     index: 0,
   };
@@ -190,13 +194,32 @@ function rememberScroll() {
 
 /* ---------------- rendering ---------------- */
 
+/**
+ * How many times each file has been seen to change. The asset protocol sends no
+ * caching headers and the app never navigates away, so the webview hands back the
+ * copy it already has for a URL it has already fetched; a version in the query
+ * string is what makes new bytes a new URL.
+ */
+const assetVersions = new Map();
+
+/** Versioned only once a file has changed, so untouched pictures stay cached. */
+function assetUrl(file) {
+  const v = assetVersions.get(normPath(file));
+  return v ? `${convertFileSrc(file)}?v=${v}` : convertFileSrc(file);
+}
+
+function bumpAsset(file) {
+  const key = normPath(file);
+  assetVersions.set(key, (assetVersions.get(key) ?? 0) + 1);
+}
+
 /** Point relative media at the asset protocol so it loads from disk. */
 function resolveMedia(root, dir) {
   root.querySelectorAll("img[src], video[src], audio[src], source[src]").forEach((el) => {
     const raw = el.getAttribute("src");
     if (!isRelative(raw)) return;
     const file = resolvePath(dir, raw);
-    el.setAttribute("src", convertFileSrc(file));
+    el.setAttribute("src", assetUrl(file));
     // Remember the file behind the picture so a click can open it full size —
     // a diagram at column width is often too small to read. Images only: the
     // same loop also rewrites video and audio, which have their own controls.
@@ -313,9 +336,6 @@ const PAN_THRESHOLD = 3; // px before a click on the picture becomes a pan
  */
 let picture = null;
 
-/** Bumped only by a refresh: the same asset URL would otherwise come from cache. */
-let assetVersion = 0;
-
 /**
  * Width that shows the whole picture, whichever way round it is. Measured
  * against the panel rather than the scroll box inside it: a picture that fits
@@ -412,7 +432,7 @@ async function showImage(asset, entry, token) {
   els.imageEl.style.width = "";
   els.zoomLevel.textContent = "";
   els.imageEl.alt = baseName(asset.path);
-  els.imageEl.src = `${convertFileSrc(asset.path)}?v=${assetVersion}`;
+  els.imageEl.src = assetUrl(asset.path);
   clearHash();
   show("image");
 
@@ -474,6 +494,7 @@ async function showActive(scrollY) {
       tab.dir = asset.dir;
       tab.label = baseName(asset.path);
       tab.heading = "";
+      tab.media = []; // a picture shows only itself
       // `scrollY` is a document position and means nothing here; the picture
       // restores its own zoom and pan from the entry.
       await showImage(asset, entry, token);
@@ -487,12 +508,19 @@ async function showActive(scrollY) {
       tab.label = baseName(doc.path);
       tab.heading = doc.title ?? "";
       renderDocument(doc, scrollY ?? entry.scrollY ?? 0, entry.hash);
+      // Only a rendered document has pictures the webview can be holding stale;
+      // recording them here covers exactly those, and the list survives a tab
+      // switch, so a document in the background stays watched.
+      tab.media = [
+        ...new Set([...els.content.querySelectorAll("img[data-file]")].map((i) => i.dataset.file)),
+      ];
     }
   } catch (err) {
     if (token !== renderToken) return;
     els.errorDetail.textContent = String(err);
     show("error");
   }
+  syncWatch();
   updateChrome();
 }
 
@@ -583,7 +611,11 @@ let watching = null;
 
 /** Keep the Rust watcher pointed at exactly the files this window has open. */
 function syncWatch() {
-  const paths = [...new Set(tabs.map((t) => currentEntry(t)?.path).filter(Boolean))];
+  // A document's pictures go in the list too: a re-saved diagram has to reach the
+  // page it is drawn on, not just the page's own file.
+  const paths = [
+    ...new Set(tabs.flatMap((t) => [currentEntry(t)?.path, ...t.media]).filter(Boolean)),
+  ];
   const key = paths.join("\0");
   if (key === watching) return;
   watching = key;
@@ -1008,8 +1040,10 @@ async function refresh() {
   // returns here rather than to wherever the entry was last left.
   rememberScroll();
   // A re-saved picture keeps its path, and the webview would serve the copy it
-  // already has. Documents are re-read by Rust, so only this side needs it.
-  if (isImage(entry.path)) assetVersion++;
+  // already has. Documents are re-read by Rust, and their pictures are watched
+  // in their own right, so nothing else needs invalidating here — refetching
+  // them would leave the page short of their height when the scroll is restored.
+  if (isImage(entry.path)) bumpAsset(entry.path);
   await showActive(window.scrollY);
 }
 
@@ -1840,8 +1874,24 @@ async function main() {
   await listenHere("folder-changed", (e) => onFolderChanged(e.payload ?? []).catch(console.error));
   await listenHere("file-changed", (e) => {
     const changed = e.payload ?? [];
+    // A picture the webview has fetched once is served from its cache the next
+    // time too, so every changed image needs a new version whether or not a tab
+    // showing it is the one on screen — the background tab reads it on the way in.
+    for (const p of changed) if (isImage(p)) bumpAsset(p);
+
     const open = currentEntry(activeTab())?.path;
-    if (open && changed.some((c) => samePath(c, open))) refresh();
+    if (open && changed.some((c) => samePath(c, open))) {
+      refresh();
+      return;
+    }
+    // A picture embedded in the document on screen: swap that one `<img>` rather
+    // than re-rendering the page around it, which would cost the reading position.
+    if (!els.content.hidden) {
+      for (const img of els.content.querySelectorAll("img[data-file]")) {
+        const file = img.dataset.file;
+        if (changed.some((c) => samePath(c, file))) img.src = assetUrl(file);
+      }
+    }
   });
   await listen("themes-changed", async () => {
     await loadThemeList();
