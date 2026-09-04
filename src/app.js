@@ -30,6 +30,7 @@ const els = {
   autoUpdate: document.getElementById("auto-update"),
   checkNow: document.getElementById("check-now"),
   updateStatus: document.getElementById("update-status"),
+  settingsUpdate: document.getElementById("settings-update"),
   appVersion: document.getElementById("app-version"),
   updateBtn: document.getElementById("update-btn"),
   updateDialog: document.getElementById("update-dialog"),
@@ -1124,7 +1125,11 @@ async function checkUpdate(force) {
   const info = await invoke("check_for_update", { force });
   state.update = info ?? null;
   els.updateBtn.hidden = !info;
-  if (info) els.updateBtn.title = `Version ${info.version} is available`;
+  els.settingsUpdate.hidden = !info;
+  if (info) {
+    els.updateBtn.title = `Version ${info.version} is available`;
+    els.settingsUpdate.textContent = `Update to ${info.version}…`;
+  }
   return info;
 }
 
@@ -1914,6 +1919,12 @@ async function main() {
 
   els.updateBtn.addEventListener("click", () => {
     showOpenMenu(false);
+    showUpdateDialog();
+  });
+  // Settings is closed first so the two dialogs never stack; Later then
+  // returns to the document, same as coming from the bar.
+  els.settingsUpdate.addEventListener("click", () => {
+    els.settings.close();
     showUpdateDialog();
   });
   els.updateNow.addEventListener("click", runUpdate);

@@ -72,11 +72,12 @@ macOS, `Get-FileHash '.\<file>' -Algorithm SHA256` on Windows.
 From 1.2.0 the app looks after this itself. On launch it asks GitHub once
 whether there is a newer release; if there is, an **Update** button appears in
 the toolbar. Clicking through it downloads the new version, installs it, and
-restarts — **open tabs are not restored**, so it waits until you say so.
-Nothing is downloaded before that.
+restarts with your windows and tabs where they were. Nothing is downloaded
+before you say so.
 
 Turn the check off in **Settings → Updates**; **Check now** there works either
-way, and shows the version you are on.
+way, shows the version you are on, and offers the update right there when it
+finds one.
 
 Two things it deliberately does not do. It never installs silently — an unsigned
 app that swaps itself out behind your back has earned every bit of suspicion

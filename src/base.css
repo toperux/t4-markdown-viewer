@@ -566,6 +566,22 @@ select option {
   border-color: var(--ui-accent);
 }
 
+/*
+ * The row's primary action, so accented like the bar's Update button. Selector
+ * carries #settings-dialog because `#settings-dialog .minor` would otherwise
+ * outrank a bare id and leave it looking like Check now.
+ */
+#settings-dialog #settings-update {
+  border-color: var(--ui-accent);
+  color: var(--ui-accent);
+  font-weight: 600;
+}
+
+#settings-dialog #settings-update:hover {
+  background: var(--ui-accent);
+  color: #fff;
+}
+
 /* Not a .hint: a row with a live control in it should not be dimmed. */
 #update-check-row {
   display: flex;
