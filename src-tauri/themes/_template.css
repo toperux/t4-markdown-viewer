@@ -35,6 +35,10 @@
    * Which palette the browser uses for the scrollbars and checkboxes it draws
    * itself. Set `dark` for dark themes.
    *
+   * It also decides which side of its family this theme sits on, and so which
+   * way the bar's light/dark button moves. It outranks the filename, so get it
+   * right even when the name already says `-dark`.
+   *
    * Keep this on :root — Chromium reads it from the root element only. Note it
    * does NOT affect the theme dropdown's popup list; see below.
    */

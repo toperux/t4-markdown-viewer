@@ -13,6 +13,9 @@ const els = {
   docName: document.getElementById("doc-name"),
   tabs: document.getElementById("tabs"),
   picker: document.getElementById("theme-picker"),
+  themeToggle: document.getElementById("theme-mode-btn"),
+  themeSun: document.getElementById("theme-mode-sun"),
+  themeMoon: document.getElementById("theme-mode-moon"),
   openBtn: document.getElementById("open-btn"),
   openMore: document.getElementById("open-more"),
   openMenu: document.getElementById("open-menu"),
@@ -52,6 +55,14 @@ const els = {
 
 const state = {
   theme: null,
+  /*
+   * The light/dark side to prefer when moving between theme families. Kept
+   * rather than read back off the current theme, because a family that has
+   * only one side hands that one over — and re-deriving from it would make
+   * stepping past Sakura silently change the side every later step lands on.
+   * Only the toggle button changes it.
+   */
+  themeMode: "dark",
   themes: [],
   openMode: "tab",
   /**
@@ -1435,11 +1446,36 @@ function onTabClick(event) {
 
 /* ---------------- themes ---------------- */
 
+/**
+ * The themes the picker offers: one per family, in list order. Rust sorts a
+ * family's members adjacently, so the first of each is the one to show.
+ */
+function themeGroups() {
+  const seen = new Set();
+  return state.themes.filter((t) => !seen.has(t.group) && seen.add(t.group));
+}
+
+/** The entry for the theme on screen, or undefined if config names a stem that is gone. */
+function currentTheme() {
+  return state.themes.find((t) => t.name === state.theme);
+}
+
+/**
+ * The member of `group` to switch to. Prefers `mode`, so moving between
+ * families keeps you on the side you were already on; a family that only has
+ * the other side hands that over rather than refusing.
+ */
+function themeIn(group, mode) {
+  const members = state.themes.filter((t) => t.group === group);
+  return members.find((t) => t.mode === mode) ?? members[0];
+}
+
 async function applyTheme(name) {
   try {
     els.themeStyle.textContent = await invoke("read_theme", { name });
     state.theme = name;
-    els.picker.value = name;
+    els.picker.value = currentTheme()?.group ?? "";
+    updateThemeToggle();
   } catch (err) {
     console.error("theme load failed", name, err);
   }
@@ -1453,21 +1489,63 @@ async function selectTheme(name) {
 async function loadThemeList() {
   state.themes = await invoke("list_themes");
   els.picker.replaceChildren(
-    ...state.themes.map((t) => {
+    ...themeGroups().map((t) => {
       const opt = document.createElement("option");
-      opt.value = t.name;
-      opt.textContent = t.label;
+      opt.value = t.group;
+      opt.textContent = t.group_label;
       return opt;
     }),
   );
-  if (state.theme) els.picker.value = state.theme;
+  els.picker.value = currentTheme()?.group ?? "";
+  updateThemeToggle();
 }
 
+/**
+ * The bar's light/dark button. The icon is the side being switched *to*, so it
+ * reads as an action like every other button up there.
+ *
+ * Five of the bundled families have only one side, and `aria-disabled` rather
+ * than `disabled` is what says so: Chromium delivers no mouse events to a
+ * disabled control, so its `title` never appears — and the tooltip is the whole
+ * explanation of why the button does nothing.
+ */
+function updateThemeToggle() {
+  const current = currentTheme();
+  const dark = current?.mode === "dark";
+  // `toggleAttribute`, not `.hidden`: that IDL property belongs to HTMLElement,
+  // and these are SVG elements, so assigning to it would set a plain expando
+  // and never reach the DOM — leaving whichever icon the markup ships visible
+  // for good.
+  els.themeSun.toggleAttribute("hidden", !dark);
+  els.themeMoon.toggleAttribute("hidden", dark);
+
+  const other = current && themeIn(current.group, dark ? "light" : "dark");
+  const off = !current || other === current;
+  els.themeToggle.setAttribute("aria-disabled", String(off));
+
+  const label = off
+    ? `${current ? current.group_label : "This theme"} has no ${dark ? "light" : "dark"} version`
+    : `Switch to ${dark ? "light" : "dark"} theme`;
+  els.themeToggle.title = label;
+  els.themeToggle.setAttribute("aria-label", label);
+}
+
+function toggleThemeMode() {
+  const current = currentTheme();
+  if (!current) return;
+  const other = themeIn(current.group, current.mode === "dark" ? "light" : "dark");
+  if (other === current) return; // single-sided family: the button reads as off
+  state.themeMode = other.mode;
+  selectTheme(other.name);
+}
+
+/** F8 walks the families, keeping the light/dark side you chose. */
 function cycleTheme(step) {
-  if (!state.themes.length) return;
-  const i = state.themes.findIndex((t) => t.name === state.theme);
-  const next = state.themes[(i + step + state.themes.length) % state.themes.length];
-  selectTheme(next.name);
+  const groups = themeGroups();
+  if (!groups.length) return;
+  const i = groups.findIndex((t) => t.group === currentTheme()?.group);
+  const next = groups[(i + step + groups.length) % groups.length];
+  selectTheme(themeIn(next.group, state.themeMode).name);
 }
 
 /* ---------------- interactions ---------------- */
@@ -1843,7 +1921,11 @@ async function main() {
     if (state.update) openUrl(state.update.release_url).catch(console.error);
   });
 
-  els.picker.addEventListener("change", (e) => selectTheme(e.target.value));
+  // The picker's value is a family, not a theme: keep the side you chose.
+  els.picker.addEventListener("change", (e) => {
+    selectTheme(themeIn(e.target.value, state.themeMode).name);
+  });
+  els.themeToggle.addEventListener("click", toggleThemeMode);
   els.content.addEventListener("click", onLinkClick);
   els.back.addEventListener("click", () => go(-1));
   els.forward.addEventListener("click", () => go(1));
@@ -1883,6 +1965,8 @@ async function main() {
   showOpenMode(settings.open_mode ?? "tab");
   await loadThemeList();
   await applyTheme(settings.theme);
+  // The saved theme is the side the reader last chose, so start from it.
+  state.themeMode = currentTheme()?.mode ?? state.themeMode;
 
   /*
    * Addressed to this window only. `listen()` defaults to the `Any` target,

@@ -131,13 +131,24 @@ body {
   stroke-linejoin: round;
 }
 
-/* Ends of the history stack: visibly inert rather than hidden. */
-#bar button:disabled {
+/* The `display` above outranks the browser's own `[hidden]` rule, so the
+   swapped-out half of the light/dark toggle needs saying explicitly. */
+#bar button.nav svg[hidden] {
+  display: none;
+}
+
+/* Ends of the history stack, and a theme family with only one side: visibly
+   inert rather than hidden. `aria-disabled` is deliberate on the theme toggle —
+   a truly disabled button receives no mouse events, so it could not explain
+   itself in a tooltip. */
+#bar button:disabled,
+#bar button[aria-disabled="true"] {
   opacity: 0.35;
   cursor: default;
 }
 
-#bar button:disabled:hover {
+#bar button:disabled:hover,
+#bar button[aria-disabled="true"]:hover {
   border-color: var(--ui-border);
 }
 

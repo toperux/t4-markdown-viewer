@@ -22,6 +22,27 @@ can override `azure-devops.css` without touching the install directory.
 The file stem is the theme id and the picker label is derived from it:
 `solarized-light.css` → **Solarized Light**. Files starting with `_` are skipped.
 
+## Families
+
+The picker lists **families**, not files, and the bar's light/dark button moves
+between the two sides of one. A family is the stem with its first `light` or
+`dark` token removed, so `github-light.css` and `github-dark.css` are both
+**GitHub**, and `solarized-light` / `solarized-dark` are both **Solarized**.
+Whole tokens only — `highlight.css` is its own family, not `high`.
+
+A theme with no counterpart is a family of one, and the button greys out for it:
+`dracula` is dark-only, `sakura` and `tufte` light-only.
+
+If two themes would land in the same family on the same side, the family cannot
+say what "the other side" is, so it is not formed at all and **every** member is
+listed on its own. Dissolving the whole family is deliberate: keeping it would
+mean one of the two clashing themes silently standing in for the other under the
+family's name.
+
+That is worth knowing before naming a theme. `azure-devops.css` **is** the light
+half of Azure DevOps despite not saying so, so adding an `azure-devops-light.css`
+would not join it — it would split Azure DevOps into three separate entries.
+
 ## Writing one
 
 Copy `_template.css` into your themes directory, rename it, and start editing.
@@ -49,9 +70,18 @@ Settings dialog — all of which sit outside the document:
 }
 ```
 
-Dark themes must also set `color-scheme: dark` on `:root` (not `body` —
-Chromium reads it from the root element), which fixes the scrollbars and
-checkboxes the browser draws itself.
+Every theme must declare `color-scheme` on `:root` (not `body` — Chromium reads
+it from the root element). It does two jobs: it fixes the scrollbars and
+checkboxes the browser draws itself, and it is what decides which side of its
+family the theme sits on. The stylesheet wins over the filename, so a theme
+called `foo-dark.css` that declares `color-scheme: light` is treated as light —
+which is what the window will actually look like.
+
+Only a top-level rule counts. A declaration inside `@media (prefers-color-scheme:
+dark)` is ignored, so a light theme that also adapts to the OS stays light.
+
+A theme that declares nothing falls back to its filename — `foo-dark.css` is
+read as dark — and to light if the name says nothing either.
 
 ### The theme dropdown needs literal colors
 
