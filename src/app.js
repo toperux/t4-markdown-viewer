@@ -1554,7 +1554,7 @@ async function pickFile() {
   const picked = await openDialog({
     multiple: false,
     filters: [
-      { name: "Markdown", extensions: ["md", "markdown", "mdown", "mkd", "mdtext", "mdwn"] },
+      { name: "Markdown", extensions: ["md", "markdown", "mdown", "mkd", "mdtext", "mdwn", "mdtxt", "mkdn"] },
       { name: "Images", extensions: ["svg", "png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico"] },
       { name: "All files", extensions: ["*"] },
     ],

@@ -8,7 +8,8 @@
  * Core/override.css, buildScripts/cssDefaults.json). Code colors follow the
  * Visual Studio 'Light+' syntax palette.
  *
- * Self-contained: document styles first, highlight.js token colors at the end.
+ * Colors and overrides only — the shared type scale and spacing live in
+ * src/base.css. Document colors first, highlight.js token colors at the end.
  * Edit freely — this file is read at runtime and reloads on save.
  */
 
@@ -18,7 +19,6 @@
   --ui-fg: rgba(0, 0, 0, 0.9);
   --ui-border: rgba(0, 0, 0, 0.08);
   --ui-accent: #0078d4;
-  --content-width: 52rem;
 
   /*
    * Belongs on :root, not body — Chromium reads it from the root element for
@@ -46,44 +46,16 @@ select option {
 
 /* ---- document ---- */
 .markdown-body {
-  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Helvetica,
-    Ubuntu, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
-  font-size: 0.875rem;
-  line-height: 1.6;
   color: rgba(0, 0, 0, 0.9);
   background: #ffffff;
 }
 
 .markdown-body h1 {
-  font-size: 1.75rem;
-  font-weight: 700;
   letter-spacing: -0.04em;
 }
 
 .markdown-body h2 {
-  font-size: 1.3125rem;
-  font-weight: 600;
   letter-spacing: -0.02em;
-}
-
-.markdown-body h3 {
-  font-size: 1.0625rem;
-  font-weight: 600;
-}
-
-.markdown-body h4 {
-  font-size: 0.9375rem;
-  font-weight: 600;
-}
-
-.markdown-body h5 {
-  font-size: 0.875rem;
-  font-weight: 600;
-}
-
-.markdown-body h6 {
-  font-size: 0.8125rem;
-  font-weight: 600;
 }
 
 .markdown-body h1,
@@ -92,65 +64,23 @@ select option {
 .markdown-body h4,
 .markdown-body h5,
 .markdown-body h6 {
-  margin: 1.6em 0 0.6em;
-  line-height: 1.25;
   color: #5a86e0;
-}
-
-.markdown-body p {
-  margin: 0 0 1em;
 }
 
 .markdown-body a {
   color: #005a9e;
-  text-decoration: none;
 }
 
 .markdown-body a:hover {
   color: #0078d4;
-  text-decoration: underline;
-}
-
-.markdown-body strong {
-  font-weight: 600;
-}
-
-.markdown-body ul,
-.markdown-body ol {
-  margin: 0 0 1em;
-  padding-left: 2em;
-}
-
-.markdown-body li + li {
-  margin-top: 0.25em;
-}
-
-.markdown-body li > p {
-  margin-bottom: 0.5em;
-}
-
-.markdown-body dt {
-  font-weight: 600;
-  margin-top: 0.8em;
-}
-
-.markdown-body dd {
-  margin: 0 0 0.5em 2em;
 }
 
 .markdown-body blockquote {
-  margin: 0 0 1em;
-  padding: 0.25em 0 0.25em 1em;
   border-left-color: #0078d4;
   color: rgba(0, 0, 0, 0.55);
 }
 
-.markdown-body blockquote > :last-child {
-  margin-bottom: 0;
-}
-
 .markdown-body hr {
-  margin: 2em 0;
   border-top-color: #eaeaea;
 }
 
@@ -160,45 +90,26 @@ select option {
 
 /* ---- code ---- */
 .markdown-body code {
-  font-family: "Cascadia Mono", Menlo, Consolas, "Courier New", monospace;
-  font-size: 0.9em;
   background: #f4f4f4;
   color: rgba(0, 0, 0, 0.9);
-  padding: 0.15em 0.35em;
-  border-radius: 3px;
 }
 
 .markdown-body pre {
-  margin: 0 0 1em;
-  padding: 1em;
-  border-radius: 4px;
   background: #f4f4f4;
-  line-height: 1.5;
 }
 
 .markdown-body pre code {
-  padding: 0;
   background: none;
-  border-radius: 0;
-  font-size: 0.875em;
 }
 
 /* ---- tables ---- */
-.markdown-body table {
-  margin: 0 0 1em;
-  font-size: 0.95em;
-}
-
 .markdown-body th,
 .markdown-body td {
   border-color: #eaeaea;
-  padding: 0.4em 0.8em;
-  text-align: left;
 }
 
 .markdown-body th {
   background: #f8f8f8;
-  font-weight: 600;
 }
 
 /* ---- task lists ---- */
@@ -208,9 +119,7 @@ select option {
 
 /* ---- footnotes ---- */
 .markdown-body .footnotes {
-  margin-top: 2.5em;
-  padding-top: 1em;
-  border-top: 1px solid #eaeaea;
+  border-top-color: #eaeaea;
   color: rgba(0, 0, 0, 0.55);
 }
 

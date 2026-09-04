@@ -3,7 +3,8 @@
  *
  * Adapted from oxalorg/sakura (MIT) — minimal, generous line height.
  *
- * Self-contained: document styles first, highlight.js token colors at the end.
+ * Colors and overrides only — the shared type scale and spacing live in
+ * src/base.css. Document colors first, highlight.js token colors at the end.
  * Edit freely — this file is read at runtime and reloads on save.
  */
 
@@ -13,7 +14,6 @@
   --ui-fg: #4a4a4a;
   --ui-border: #d1d1d1;
   --ui-accent: #1d7484;
-  --content-width: 45rem;
 
   /*
    * Belongs on :root, not body — Chromium reads it from the root element for
@@ -56,27 +56,22 @@ select option {
 
 .markdown-body h2 {
   font-size: 1.5em;
-  font-weight: 600;
 }
 
 .markdown-body h3 {
   font-size: 1.25em;
-  font-weight: 600;
 }
 
 .markdown-body h4 {
   font-size: 1em;
-  font-weight: 600;
 }
 
 .markdown-body h5 {
   font-size: 0.875em;
-  font-weight: 600;
 }
 
 .markdown-body h6 {
   font-size: 0.85em;
-  font-weight: 600;
   color: #7a7a7a;
 }
 
@@ -86,65 +81,23 @@ select option {
 .markdown-body h4,
 .markdown-body h5,
 .markdown-body h6 {
-  margin: 1.6em 0 0.6em;
-  line-height: 1.25;
   color: #1d7484;
-}
-
-.markdown-body p {
-  margin: 0 0 1em;
 }
 
 .markdown-body a {
   color: #1d7484;
-  text-decoration: none;
 }
 
 .markdown-body a:hover {
   color: #982c61;
-  text-decoration: underline;
-}
-
-.markdown-body strong {
-  font-weight: 600;
-}
-
-.markdown-body ul,
-.markdown-body ol {
-  margin: 0 0 1em;
-  padding-left: 2em;
-}
-
-.markdown-body li + li {
-  margin-top: 0.25em;
-}
-
-.markdown-body li > p {
-  margin-bottom: 0.5em;
-}
-
-.markdown-body dt {
-  font-weight: 600;
-  margin-top: 0.8em;
-}
-
-.markdown-body dd {
-  margin: 0 0 0.5em 2em;
 }
 
 .markdown-body blockquote {
-  margin: 0 0 1em;
-  padding: 0.25em 0 0.25em 1em;
   border-left-color: #1d7484;
   color: #7a7a7a;
 }
 
-.markdown-body blockquote > :last-child {
-  margin-bottom: 0;
-}
-
 .markdown-body hr {
-  margin: 2em 0;
   border-top-color: #d1d1d1;
 }
 
@@ -156,44 +109,26 @@ select option {
 .markdown-body code {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
     monospace;
-  font-size: 0.9em;
   background: #f1f1f1;
   color: #4a4a4a;
-  padding: 0.15em 0.35em;
-  border-radius: 3px;
 }
 
 .markdown-body pre {
-  margin: 0 0 1em;
-  padding: 1em;
-  border-radius: 4px;
   background: #f1f1f1;
-  line-height: 1.5;
 }
 
 .markdown-body pre code {
-  padding: 0;
   background: none;
-  border-radius: 0;
-  font-size: 0.875em;
 }
 
 /* ---- tables ---- */
-.markdown-body table {
-  margin: 0 0 1em;
-  font-size: 0.95em;
-}
-
 .markdown-body th,
 .markdown-body td {
   border-color: #d1d1d1;
-  padding: 0.4em 0.8em;
-  text-align: left;
 }
 
 .markdown-body th {
   background: #f1f1f1;
-  font-weight: 600;
 }
 
 /* ---- task lists ---- */
@@ -203,9 +138,7 @@ select option {
 
 /* ---- footnotes ---- */
 .markdown-body .footnotes {
-  margin-top: 2.5em;
-  padding-top: 1em;
-  border-top: 1px solid #d1d1d1;
+  border-top-color: #d1d1d1;
   color: #7a7a7a;
 }
 

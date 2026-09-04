@@ -4,7 +4,7 @@
 
 This repo is one of three t4 projects (with `t4-claude-session-browser` and `t4-git-ui`) whose
 GitHub Actions workflows are kept to a single shared shape. Round 1 landed here in commits
-`0290e08`, `9bad897`, `520a385` and `da45f30`; `docs/plans/ci-alignment.md` is its record and
+`0290e08`, `9bad897`, `520a385` and `da45f30`; `docs/plans/done/ci-alignment.md` is its record and
 stays as-is.
 
 Round 1 worked, but each of the three repos was executed by someone who could not see the

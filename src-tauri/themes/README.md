@@ -50,11 +50,13 @@ Save and the view re-styles immediately — the picker keeps your selection.
 
 ### The contract
 
-`base.css` owns **structure**: content width, margins, `overflow`, border
-*widths*, table collapsing. It deliberately declares no document colors.
+`base.css` owns **structure**: margins, padding, `overflow`, border *widths*,
+table collapsing, and the shared document type scale and spacing. It
+deliberately declares no document colors.
 
-A theme owns **everything visual**: colors, fonts, type sizes, border colors.
-Every selector is scoped under `.markdown-body`, which wraps the rendered
+A theme owns **every color** — and, on top of that, whatever bits of the type
+scale or spacing it wants different; leave the rest out and base.css supplies
+it. Every selector is scoped under `.markdown-body`, which wraps the rendered
 document.
 
 Four variables control the app's own chrome — top bar, tab strip and the
@@ -66,7 +68,6 @@ Settings dialog — all of which sit outside the document:
   --ui-fg: #1f1f1f;
   --ui-border: rgba(0, 0, 0, 0.12);
   --ui-accent: #0078d4;
-  --content-width: 54rem;
 }
 ```
 
@@ -112,9 +113,9 @@ picker lived in the top bar; that no longer matches. If you have one, drop the
 
 ### Elements to cover
 
-`h1`–`h6`, `p`, `a`, `strong`/`em`, `ul`/`ol`/`li`, `dl`/`dt`/`dd`,
-`blockquote`, `table`/`th`/`td`, `code`, `pre`, `hr`, `img`,
-`li > input[type=checkbox]`, `.footnotes`.
+Colors for `.markdown-body` itself, `h1`–`h6`, `a`, `blockquote`, `th`/`td`,
+`code`, `pre`, `hr`, `img`, `li > input[type=checkbox]`, `.footnotes`. Nothing
+else needs a rule unless you want it to differ from the shared scale.
 
 Raw HTML in a document is stripped before rendering (the app opens untrusted
 files), so tags that only come from hand-written HTML — `<kbd>`, `<sub>`,
@@ -123,9 +124,9 @@ files), so tags that only come from hand-written HTML — `<kbd>`, `<sub>`,
 A few need care because `base.css` sets only half the property:
 
 - `blockquote` — `border-left-width` is set; supply `border-left-color`.
-- `th`, `td`, `hr` — border widths are set; supply the colors.
-- `pre code` — inline `code` styling must be reset inside fenced blocks
-  (`padding: 0; background: none`), or every code block gets a double chip.
+- `th`, `td`, `hr`, `.footnotes` — border widths are set; supply the colors.
+- `pre code` — inline `code`'s background must be reset inside fenced blocks
+  (`background: none`), or every code block gets a double chip.
 
 ### Syntax highlighting
 

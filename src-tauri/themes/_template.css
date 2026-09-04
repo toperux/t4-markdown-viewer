@@ -12,9 +12,9 @@
  * The file stem is the theme id; the picker label is derived from it, so
  * `my-theme.css` shows up as "My Theme".
  *
- * base.css owns layout (widths, margins, overflow, border *widths*). This file
- * owns every color, font and type size. You only need to set what you care
- * about — anything you leave out simply falls back to base.css metrics.
+ * base.css owns layout *and* the shared document type scale and spacing. This
+ * file owns every color, plus whatever bits of the scale you want different —
+ * anything you leave out falls back to base.css.
  *
  * Note: raw HTML in a document is stripped before rendering, so tags that only
  * ever come from hand-written HTML (`<kbd>`, `<sub>`, `<mark>`) never appear.
@@ -29,7 +29,6 @@
   --ui-fg: #1f1f1f; /* top bar text */
   --ui-border: rgba(0, 0, 0, 0.12); /* top bar bottom rule, control borders */
   --ui-accent: #0078d4; /* focus rings, hover, primary button */
-  --content-width: 54rem; /* measure of the document column */
 
   /*
    * Which palette the browser uses for the scrollbars and checkboxes it draws
@@ -65,12 +64,9 @@ select option {
   color: #1f1f1f;
 }
 
-/* ---- document ---------------------------------------------------------- */
+/* ---- document colors --------------------------------------------------- */
 /* Everything the renderer produces lives inside .markdown-body. */
 .markdown-body {
-  font-family: system-ui, sans-serif;
-  font-size: 1rem;
-  line-height: 1.6;
   color: #1f1f1f;
   background: #ffffff;
 }
@@ -81,56 +77,49 @@ select option {
 .markdown-body h4,
 .markdown-body h5,
 .markdown-body h6 {
-  margin: 1.6em 0 0.6em;
-  line-height: 1.25;
-  font-weight: 600;
+  color: #1f1f1f;
 }
 
-.markdown-body h1 { font-size: 2em; }
-.markdown-body h2 { font-size: 1.5em; }
-.markdown-body h3 { font-size: 1.25em; }
-.markdown-body h4 { font-size: 1em; }
-.markdown-body h5 { font-size: 0.875em; }
-.markdown-body h6 { font-size: 0.85em; color: #666666; }
+.markdown-body h6 {
+  color: #666666;
+}
 
-.markdown-body p { margin: 0 0 1em; }
-
-.markdown-body a { color: #0969da; text-decoration: none; }
-.markdown-body a:hover { text-decoration: underline; }
-
-.markdown-body ul,
-.markdown-body ol { margin: 0 0 1em; padding-left: 2em; }
+.markdown-body a {
+  color: #0969da;
+}
 
 /* base.css sets border-left-width; supply the color. */
 .markdown-body blockquote {
-  padding: 0.25em 0 0.25em 1em;
   border-left-color: #d0d7de;
   color: #666666;
 }
 
-.markdown-body hr { border-top-color: #d0d7de; }
+.markdown-body hr {
+  border-top-color: #d0d7de;
+}
+
+.markdown-body li > input[type="checkbox"] {
+  accent-color: #0078d4;
+}
+
+/* base.css sets border-top-width; supply the color. */
+.markdown-body .footnotes {
+  border-top-color: #d0d7de;
+  color: #666666;
+}
 
 /* ---- code -------------------------------------------------------------- */
 .markdown-body code {
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: 0.9em;
   background: #f4f4f4;
-  padding: 0.15em 0.35em;
-  border-radius: 3px;
 }
 
 .markdown-body pre {
-  margin: 0 0 1em;
-  padding: 1em;
-  border-radius: 4px;
   background: #f4f4f4;
 }
 
-/* Inline-code styling must be undone inside fenced blocks. */
+/* Inline-code's background must be undone inside fenced blocks. */
 .markdown-body pre code {
-  padding: 0;
   background: none;
-  border-radius: 0;
 }
 
 /* ---- tables ------------------------------------------------------------ */
@@ -138,13 +127,29 @@ select option {
 .markdown-body th,
 .markdown-body td {
   border-color: #d0d7de;
-  padding: 0.4em 0.8em;
-  text-align: left;
 }
 
 .markdown-body th {
   background: #f6f8fa;
-  font-weight: 600;
+}
+
+/* ---- overrides --------------------------------------------------------- */
+/*
+ * Optional. base.css already sets the document font stacks, type scale and
+ * spacing; restate only what your theme wants different. Delete this section
+ * if the shared scale suits you.
+ */
+.markdown-body {
+  font-family: system-ui, sans-serif;
+  font-size: 1rem;
+}
+
+.markdown-body h1 {
+  font-size: 2em;
+}
+
+.markdown-body code {
+  font-family: ui-monospace, Consolas, monospace;
 }
 
 /* ---- highlight.js ------------------------------------------------------ */
@@ -212,5 +217,10 @@ select option {
   color: #808080;
 }
 
-.markdown-body .hljs-emphasis { font-style: italic; }
-.markdown-body .hljs-strong { font-weight: 600; }
+.markdown-body .hljs-emphasis {
+  font-style: italic;
+}
+
+.markdown-body .hljs-strong {
+  font-weight: 600;
+}
