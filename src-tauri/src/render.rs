@@ -23,6 +23,10 @@ fn options() -> Options<'static> {
     // `github_pre_lang` would emit `<pre lang="rust">` instead.
     o.render.github_pre_lang = false;
 
+    // Task-list write-back needs the line: this is what puts `data-sourcepos`
+    // on the `<li>`, so a clicked checkbox knows which line to flip.
+    o.render.sourcepos = true;
+
     o
 }
 
@@ -145,10 +149,66 @@ pub fn render(md: &str) -> String {
     out
 }
 
+/// The UTF-8 byte-order mark, which Windows editors leave on files this app
+/// both reads and — for task lists — writes back.
+pub const BOM: &[u8] = b"\xef\xbb\xbf";
+
 /// Best-effort plain-text decode: strips a UTF-8 BOM, replaces invalid sequences.
 pub fn decode(bytes: &[u8]) -> String {
-    let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
+    let bytes = bytes.strip_prefix(BOM).unwrap_or(bytes);
     String::from_utf8_lossy(bytes).into_owned()
+}
+
+/// Flip the task box on 1-based `line`, or say why that line has none.
+///
+/// comrak decides what a task item is, with the same options `render` used,
+/// so the line the webview sends back — read off a `data-sourcepos` comrak
+/// wrote — is matched against the same parse. A hand-rolled scan would be a
+/// second definition of "task item": one that counts lines differently (comrak
+/// ends a line on a bare `\r` too) and takes `- [ ]` inside a code block at
+/// face value.
+pub fn toggle_task(md: &str, line: usize, checked: bool) -> Result<String, String> {
+    let arena = Arena::new();
+    let root = parse_document(&arena, md, &options());
+    let symbol = root
+        .descendants()
+        .find_map(|node| {
+            let data = node.data.borrow();
+            match &data.value {
+                NodeValue::TaskItem(item) if data.sourcepos.start.line == line => {
+                    Some(item.symbol_sourcepos.start)
+                }
+                _ => None,
+            }
+        })
+        .ok_or_else(|| format!("Line {line} is not a task item"))?;
+
+    // Columns are 1-based bytes; the symbol is one ASCII byte between the brackets.
+    let at = line_start(md, symbol.line)
+        .map(|start| start + symbol.column - 1)
+        .filter(|&at| matches!(md.as_bytes().get(at), Some(b' ' | b'x' | b'X')))
+        .ok_or_else(|| format!("Line {line} does not hold the box comrak saw"))?;
+
+    let mut out = String::with_capacity(md.len());
+    out.push_str(&md[..at]);
+    out.push(if checked { 'x' } else { ' ' });
+    out.push_str(&md[at + 1..]);
+    Ok(out)
+}
+
+/// Byte offset where 1-based `line` starts, counting lines the way comrak
+/// does: `\n`, `\r\n`, or a bare `\r` each end one.
+fn line_start(md: &str, line: usize) -> Option<usize> {
+    let bytes = md.as_bytes();
+    let mut i = 0;
+    for _ in 1..line {
+        let eol = i + bytes[i..].iter().position(|b| matches!(b, b'\n' | b'\r'))?;
+        i = eol + 1;
+        if bytes[eol] == b'\r' && bytes.get(i) == Some(&b'\n') {
+            i += 1;
+        }
+    }
+    Some(i)
 }
 
 /// First ATX/setext heading in the document, used as the window title.
@@ -210,15 +270,23 @@ fn main() {}
     #[test]
     fn gfm_constructs_render() {
         let html = render(KITCHEN_SINK);
-        assert!(html.contains("<table>"), "table extension off: {html}");
+        // Opening tags only: `sourcepos` gives most elements an attribute.
+        assert!(html.contains("<table"), "table extension off: {html}");
         assert!(html.contains("type=\"checkbox\""), "tasklist off: {html}");
-        assert!(html.contains("<del>"), "strikethrough off: {html}");
+        assert!(html.contains("<del"), "strikethrough off: {html}");
         assert!(html.contains("footnote"), "footnotes off: {html}");
         assert!(
             html.contains("class=\"language-rust\""),
             "expected language- class for highlight.js: {html}"
         );
         assert!(html.contains("<h1"), "heading missing: {html}");
+        // `- [x] done` is line 7, and the line number on the task `<li>` — not
+        // merely the presence of the attribute — is what a clicked checkbox
+        // sends back for `toggle_task` to edit.
+        assert!(
+            html.contains("<li data-sourcepos=\"7:1-"),
+            "task item is not carrying its own line: {html}"
+        );
     }
 
     #[test]
@@ -362,6 +430,84 @@ fn main() {}
     fn decode_strips_bom() {
         assert_eq!(decode(b"\xef\xbb\xbf# Hi"), "# Hi");
         assert_eq!(decode(b"# Hi"), "# Hi");
+    }
+
+    #[test]
+    fn toggle_task_ticks_and_unticks() {
+        assert_eq!(toggle_task("- [ ] a\n", 1, true).unwrap(), "- [x] a\n");
+        assert_eq!(toggle_task("- [x] a\n", 1, false).unwrap(), "- [ ] a\n");
+        // Uppercase is accepted on the way in, and normalised on the way out.
+        assert_eq!(toggle_task("- [X] a\n", 1, false).unwrap(), "- [ ] a\n");
+    }
+
+    /// The edit is a three-byte swap on one line of the original text, so the
+    /// file's line endings — CRLF here — come through untouched.
+    #[test]
+    fn toggle_task_leaves_the_rest_of_the_file_alone() {
+        let md = "# Title\r\n\r\n- [ ] one\r\n- [ ] two\r\n";
+        assert_eq!(
+            toggle_task(md, 3, true).unwrap(),
+            "# Title\r\n\r\n- [x] one\r\n- [ ] two\r\n"
+        );
+    }
+
+    #[test]
+    fn toggle_task_finds_the_marker_in_every_list_shape() {
+        assert_eq!(
+            toggle_task("- [ ] a\n    - [ ] b\n", 2, true).unwrap(),
+            "- [ ] a\n    - [x] b\n"
+        );
+        assert_eq!(toggle_task("1. [ ] a\n", 1, true).unwrap(), "1. [x] a\n");
+        assert_eq!(toggle_task("1) [ ] a\n", 1, true).unwrap(), "1) [x] a\n");
+        assert_eq!(toggle_task("+ [ ] a\n", 1, true).unwrap(), "+ [x] a\n");
+        assert_eq!(toggle_task("* [ ] a\n", 1, true).unwrap(), "* [x] a\n");
+        assert_eq!(toggle_task("> - [ ] a\n", 1, true).unwrap(), "> - [x] a\n");
+    }
+
+    /// The line the frontend sends is checked against the file rather than
+    /// trusted, so anything that is not a task item is refused outright — a
+    /// stale line number must never turn into an edit somewhere else. A box
+    /// inside a code block is refused on the same grounds: it is text, not a
+    /// task.
+    #[test]
+    fn toggle_task_refuses_a_line_without_a_box() {
+        for line in [
+            "hello [ ] there\n",
+            "text - [ ] mid\n",
+            "- item\n",
+            "# [ ] heading\n",
+            "\n",
+        ] {
+            assert!(toggle_task(line, 1, true).is_err(), "{line:?}");
+        }
+    }
+
+    #[test]
+    fn toggle_task_refuses_a_line_past_the_end() {
+        assert!(toggle_task("- [ ] a\n", 9, true).is_err());
+    }
+
+    /// A bare `\r` ends a line for comrak, so the line it puts on the `<li>`
+    /// counts it — and the byte the box is written to has to be found the same way.
+    #[test]
+    fn toggle_task_counts_lines_like_comrak() {
+        let md = "# T\r\n\r- [ ] a\n- [ ] b\n";
+        assert_eq!(
+            toggle_task(md, 3, true).unwrap(),
+            "# T\r\n\r- [x] a\n- [ ] b\n"
+        );
+        assert_eq!(
+            toggle_task(md, 4, true).unwrap(),
+            "# T\r\n\r- [ ] a\n- [x] b\n"
+        );
+    }
+
+    /// Inside a code block `- [ ]` is content on the page, not a checkbox, so
+    /// there is nothing there to flip.
+    #[test]
+    fn toggle_task_ignores_boxes_in_code() {
+        assert!(toggle_task("```\n- [ ] x\n```\n", 2, true).is_err());
+        assert!(toggle_task("    - [ ] x\n", 1, true).is_err());
     }
 
     #[test]

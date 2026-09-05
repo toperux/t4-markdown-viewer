@@ -52,6 +52,7 @@ const els = {
   error: document.getElementById("error"),
   errorDetail: document.getElementById("error-detail"),
   themeStyle: document.getElementById("theme"),
+  toast: document.getElementById("toast"),
 };
 
 const state = {
@@ -289,6 +290,15 @@ function show(which) {
   if (which !== "image") picture = null;
 }
 
+let toastTimer;
+/** Say something briefly without leaving the page: shown for a few seconds, or until clicked. */
+function toast(message) {
+  els.toast.textContent = String(message);
+  els.toast.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (els.toast.hidden = true), 4000);
+}
+
 /*
  * Drop any fragment left over from the previous document. Without this, a `#f5`
  * still sitting in the URL means clicking `#f5` in the *next* file is not a
@@ -306,6 +316,14 @@ function renderDocument(doc, scrollY, hash) {
   clearHash();
 
   els.content.innerHTML = doc.html;
+  els.content.dataset.path = doc.path;
+  // comrak marks every task box disabled; here they are live, because a click
+  // goes back to the file — unless the file cannot be written back. A file
+  // decode had to repair is not valid UTF-8, so its boxes stay as comrak left
+  // them.
+  if (doc.editable)
+    for (const box of els.content.querySelectorAll('li > input[type="checkbox"]'))
+      box.disabled = false;
   resolveMedia(els.content, doc.dir);
   wrapTables(els.content);
   highlight(els.content);
@@ -1643,6 +1661,26 @@ function onLinkClick(event) {
   openUrl(href).catch(console.error);
 }
 
+/**
+ * A ticked box goes straight to the file; the watcher brings the new render
+ * back. The box is flipped by the browser already, so only a failed write
+ * needs undoing here.
+ */
+function onTaskToggle(event) {
+  const box = event.target;
+  const li = box.closest("li[data-sourcepos]");
+  if (box.type !== "checkbox" || !li) return;
+  const line = Number(li.dataset.sourcepos.split(":")[0]);
+  // The tab's entry moves on as soon as a navigation starts, before the new
+  // page is on screen; the line number belongs to the document still in the
+  // DOM, so take the path from there too.
+  const path = els.content.dataset.path;
+  invoke("toggle_task", { path, line, checked: box.checked }).catch((err) => {
+    box.checked = !box.checked;
+    toast(err);
+  });
+}
+
 /*
  * Panning the picture. Pointer capture rather than a document-level listener so
  * a drag that leaves the window still steers the scroll, and so releasing
@@ -1938,6 +1976,8 @@ async function main() {
   });
   els.themeToggle.addEventListener("click", toggleThemeMode);
   els.content.addEventListener("click", onLinkClick);
+  els.content.addEventListener("change", onTaskToggle);
+  els.toast.addEventListener("click", () => (els.toast.hidden = true));
   els.back.addEventListener("click", () => go(-1));
   els.forward.addEventListener("click", () => go(1));
 

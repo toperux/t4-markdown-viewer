@@ -97,6 +97,11 @@ struct Document {
     dir: String,
     title: String,
     html: String,
+    /// Whether a clicked box can be written back: true when the bytes are valid
+    /// UTF-8, which is what `toggle_task` requires. A file `decode` had to
+    /// repair renders fine, but its boxes stay disabled — there is no text to
+    /// put back that would not lose what could not be decoded.
+    editable: bool,
 }
 
 /// An image the webview will fetch for itself over the asset protocol. There is
@@ -380,6 +385,7 @@ fn load_file(app: AppHandle, path: String) -> Result<Document, String> {
     let (path, dir) = locate(path)?;
 
     let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let editable = std::str::from_utf8(&bytes).is_ok();
     let text = render::decode(&bytes);
     let html = render::render(&text);
 
@@ -397,7 +403,32 @@ fn load_file(app: AppHandle, path: String) -> Result<Document, String> {
         dir: strip_unc(&dir),
         title,
         html,
+        editable,
     })
+}
+
+/// Write a ticked or unticked box back to the document. The watcher sees the
+/// save and the window re-renders from disk, so nothing is updated here.
+///
+/// This is the app's only write to a document, and it is confined to swapping
+/// the three-byte marker on a line that already holds one — `toggle_task`
+/// refuses anything else — so the webview cannot use it to write content.
+#[tauri::command]
+fn toggle_task(path: String, line: usize, checked: bool) -> Result<(), String> {
+    let (path, _) = locate(path)?;
+    // Errors end up on screen, so name the file the way the user knows it.
+    let shown = strip_unc(&path);
+    let bytes = std::fs::read(&path).map_err(|e| format!("{shown}: {e}"))?;
+    let (bom, body) = match bytes.strip_prefix(render::BOM) {
+        Some(b) => (render::BOM, b),
+        None => (&[][..], &bytes[..]),
+    };
+    let text =
+        std::str::from_utf8(body).map_err(|_| format!("{shown}: not UTF-8, leaving it alone"))?;
+    let out = render::toggle_task(text, line, checked)?;
+    let mut buf = bom.to_vec();
+    buf.extend_from_slice(out.as_bytes());
+    std::fs::write(&path, buf).map_err(|e| format!("{shown}: {e}"))
 }
 
 /// Point this window's sidebar watcher at exactly the folders on show — the
@@ -881,6 +912,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             take_pending,
             load_file,
+            toggle_task,
             load_asset,
             list_dir,
             watch_files,

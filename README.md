@@ -31,6 +31,7 @@ Electron build starts around 150 MB.
   folder. The default is Azure DevOps Dark.
 - **Live reload.** Edit in another editor; the view updates on save and keeps
   your scroll position.
+- **Tick task lists.** Click a checkbox and the `[ ]` in the file flips with it.
 - **Diagrams you can actually read.** A link to an SVG or an image opens it in a
   tab of its own, with zoom and pan — a wide ERD is unreadable at column width.
   Clicking a picture embedded in a document opens the same view.
