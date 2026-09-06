@@ -23,6 +23,7 @@ const els = {
   sidebar: document.getElementById("sidebar"),
   sidebarName: document.getElementById("sidebar-name"),
   sidebarClose: document.getElementById("sidebar-close"),
+  treeFilter: document.getElementById("tree-filter"),
   tree: document.getElementById("tree"),
   settingsBtn: document.getElementById("settings-btn"),
   settings: document.getElementById("settings-dialog"),
@@ -869,6 +870,29 @@ async function renderTree(ul, dir) {
   await Promise.all(reopen.map((r) => expandRow(r, true)));
 }
 
+/**
+ * Narrow the tree to rows whose name contains what is in the filter box. A
+ * folder that matches shows everything under it; one that does not stays for
+ * any loaded descendant that does, collapsed or not, so the hit is a click away.
+ */
+function applyTreeFilter() {
+  const q = els.treeFilter.value.trim().toLowerCase();
+  const pass = (ul, inherited) => {
+    let any = false;
+    for (const li of ul.children) {
+      const name = li.querySelector(":scope > .tree-row > .tree-name");
+      // An error row has no name and always stays.
+      const hit = inherited || !name || name.textContent.toLowerCase().includes(q);
+      const sub = li.querySelector(":scope > ul");
+      const kid = sub ? pass(sub, hit) : false;
+      li.hidden = !hit && !kid;
+      any ||= !li.hidden;
+    }
+    return any;
+  };
+  pass(els.tree, !q);
+}
+
 /** Open or close a folder row. Leaves the watcher alone — see syncFolderWatch. */
 async function expandRow(row, open) {
   row.setAttribute("aria-expanded", String(open));
@@ -887,6 +911,7 @@ let watchingFolders = null;
  * moment later loses whatever happened in between.
  */
 function syncFolderWatch() {
+  applyTreeFilter(); // the same settled moment is when the filter wants the finished tree
   const dirs = [];
   if (state.folder !== null) {
     dirs.push(state.folder);
@@ -903,6 +928,7 @@ function syncFolderWatch() {
 async function openFolder(path) {
   state.folder = path;
   els.sidebar.hidden = false;
+  els.treeFilter.value = "";
   treeListings.delete(els.tree); // a different folder must rebuild even if it lists the same
   await renderTree(els.tree, path);
   // Canonical from here on, so it compares with what the watcher reports.
@@ -915,6 +941,7 @@ async function openFolder(path) {
 function closeFolder() {
   state.folder = null;
   els.sidebar.hidden = true;
+  els.treeFilter.value = "";
   els.tree.replaceChildren();
   syncFolderWatch();
 }
@@ -1846,6 +1873,12 @@ async function onKeydown(event) {
     event.preventDefault();
     const p = await pickFile();
     if (p) await openDocument(p);
+  } else if (key === "f" && event.shiftKey) {
+    event.preventDefault();
+    if (state.folder === null) await showFolder();
+    if (state.folder === null) return; // the picker was cancelled
+    els.treeFilter.focus();
+    els.treeFilter.select();
   } else if (key === "t" && event.shiftKey) {
     event.preventDefault();
     await reopenClosed();
@@ -1899,6 +1932,22 @@ async function main() {
     if (state.folder !== null) {
       treeListings.delete(els.tree); // an explicit refresh always rebuilds
       renderTree(els.tree, state.folder).then(syncFolderWatch).catch(console.error);
+    }
+  });
+  els.treeFilter.addEventListener("input", applyTreeFilter);
+  els.treeFilter.addEventListener("keydown", async (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation(); // onKeydown would read it as "close the open menu"
+      els.treeFilter.value = "";
+      applyTreeFilter();
+      els.treeFilter.blur();
+    } else if (event.key === "Enter" && els.treeFilter.value.trim()) {
+      event.preventDefault();
+      const row = [...els.tree.querySelectorAll(".tree-row[data-path]:not([data-dir])")].find(
+        (r) => !r.closest("[hidden]"),
+      );
+      if (row) await loadPath(row.dataset.path);
     }
   });
   els.tree.addEventListener("click", (e) => onTreeClick(e).catch(console.error));

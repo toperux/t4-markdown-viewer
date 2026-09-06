@@ -22,7 +22,8 @@ Electron build starts around 150 MB.
   clicking a file there opens it in the current tab, so Back walks through
   what you have read. `Ctrl`+click or middle-click opens it in a new tab. The
   tree follows the folder — files added, renamed or removed show up on their
-  own.
+  own. The box above the tree narrows it to names containing what you type,
+  across every folder it has listed so far.
 - **Tabs or windows.** Read several documents at once, and choose per taste
   whether an opened file lands in a new tab or its own window. Tabs drag to
   reorder, and out onto the desktop to become their own window. Dragging one
@@ -194,6 +195,7 @@ On macOS, read `Cmd` for every `Ctrl` below.
 | `Alt+←` / `Alt+→`, or `Ctrl+[` / `Ctrl+]` | Back / forward through visited documents |
 | `Ctrl+O` | Open a file, wherever Settings says |
 | `Ctrl+Shift+O` | Show or hide the sidebar with the current file's folder (a picker when nothing is open) |
+| `Ctrl+Shift+F` | Filter the sidebar tree (opens it first when it is closed) |
 | `Ctrl+T` | Open a file in a new **tab** |
 | `Ctrl+N` | Open a file in a new **window** |
 | `Ctrl+W` | Close the current tab |
