@@ -1,6 +1,6 @@
 [package]
 name = "t4-markdown-viewer"
-version = "1.5.3"
+version = "1.5.4"
 edition = "2021"
 description = "A fast, themeable Markdown viewer"
 authors = ["Christopher Montevirgen"]
