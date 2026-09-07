@@ -196,6 +196,59 @@ pub fn toggle_task(md: &str, line: usize, checked: bool) -> Result<String, Strin
     Ok(out)
 }
 
+/// The Markdown behind the heading on 1-based `line`: the heading itself and
+/// everything under it, down to the next heading of the same level or higher.
+///
+/// Same reasoning as `toggle_task` — comrak decides what a heading is, with the
+/// same options `render` used, so the line the webview sends back is matched
+/// against the parse that put the copy button there. A `#` inside a fenced
+/// block is text, not a section.
+///
+/// A heading inside a quote or a list item has no sibling to close it, so it
+/// owns the rest of that quote or item rather than the rest of the file.
+pub fn section(md: &str, line: usize) -> Result<String, String> {
+    let arena = Arena::new();
+    let root = parse_document(&arena, md, &options());
+    let (heading, level) = root
+        .descendants()
+        .find_map(|node| {
+            let data = node.data.borrow();
+            match &data.value {
+                NodeValue::Heading(h) if data.sourcepos.start.line == line => Some((node, h.level)),
+                _ => None,
+            }
+        })
+        .ok_or_else(|| format!("Line {line} is not a heading"))?;
+
+    // Deeper headings belong to this section; the first one at or above our
+    // level ends it. `skip(1)` because the iterator starts at the heading itself.
+    let next = heading.following_siblings().skip(1).find_map(|node| {
+        let data = node.data.borrow();
+        match &data.value {
+            NodeValue::Heading(h) if h.level <= level => Some(data.sourcepos.start.line),
+            _ => None,
+        }
+    });
+
+    let start = line_start(md, line).ok_or_else(|| format!("Line {line} is past the end"))?;
+    let end = match next {
+        Some(at) => line_start(md, at).ok_or_else(|| format!("Line {at} is past the end"))?,
+        // Nothing closes the section, so it ends where its container does: the
+        // file for a top-level heading, the quote or item for a nested one. A
+        // heading always has a parent, so the `else` is unreachable in practice.
+        None => match heading.parent() {
+            Some(parent) if !matches!(parent.data.borrow().value, NodeValue::Document) => {
+                let last = parent.data.borrow().sourcepos.end.line;
+                line_start(md, last + 1).unwrap_or(md.len())
+            }
+            _ => md.len(),
+        },
+    };
+    // Whatever the file's line endings are, the copy keeps them.
+    let eol = if md.contains("\r\n") { "\r\n" } else { "\n" };
+    Ok(md[start..end].trim_end_matches(['\n', '\r']).to_string() + eol)
+}
+
 /// Byte offset where 1-based `line` starts, counting lines the way comrak
 /// does: `\n`, `\r\n`, or a bare `\r` each end one.
 fn line_start(md: &str, line: usize) -> Option<usize> {
@@ -530,5 +583,77 @@ fn main() {}
     #[test]
     fn first_heading_absent() {
         assert_eq!(first_heading("just a paragraph\n"), None);
+    }
+
+    #[test]
+    fn section_stops_at_a_sibling_heading() {
+        assert_eq!(section("# A\ntext\n# B\nmore\n", 1).unwrap(), "# A\ntext\n");
+    }
+
+    /// A subsection is part of its parent, so the copy takes the lot.
+    #[test]
+    fn section_keeps_deeper_headings() {
+        let md = "# A\n## A1\nx\n### A1a\ny\n# B\n";
+        assert_eq!(section(md, 1).unwrap(), "# A\n## A1\nx\n### A1a\ny\n");
+        assert_eq!(section(md, 2).unwrap(), "## A1\nx\n### A1a\ny\n");
+    }
+
+    /// Nothing follows the last heading, so it runs to the end of the file —
+    /// and however many blank lines trail it, the copy ends in exactly one.
+    #[test]
+    fn section_runs_to_the_end_of_file() {
+        assert_eq!(
+            section("# A\n\n## B\ntail\n\n\n", 3).unwrap(),
+            "## B\ntail\n"
+        );
+    }
+
+    /// comrak puts a setext heading's line at its *text*, not its underline —
+    /// which is the line `data-sourcepos` carries, so it is the line that comes
+    /// back — and the underline is part of the section either way.
+    #[test]
+    fn section_keeps_a_setext_underline() {
+        let md = "Title\n=====\ntext\n\nNext\n=====\n";
+        assert_eq!(section(md, 1).unwrap(), "Title\n=====\ntext\n");
+    }
+
+    /// Inside a code block a `#` is content on the page, not a heading: line 1
+    /// copies the fence whole, and line 3 names no section at all.
+    #[test]
+    fn section_ignores_headings_in_fences() {
+        let md = "# A\n```\n# not a heading\n```\n# B\n";
+        assert_eq!(section(md, 1).unwrap(), "# A\n```\n# not a heading\n```\n");
+        assert!(section(md, 3).is_err());
+    }
+
+    #[test]
+    fn section_refuses_a_line_without_a_heading() {
+        assert!(section("# A\njust a paragraph\n", 2).is_err());
+        assert!(section("# A\n", 9).is_err());
+    }
+
+    /// The bytes are sliced out of the original text, so a CRLF file keeps its
+    /// line endings — the trailing run included, which is normalised to one.
+    #[test]
+    fn section_counts_lines_like_comrak() {
+        assert_eq!(
+            section("# A\r\ntext\r\n# B\r\n", 1).unwrap(),
+            "# A\r\ntext\r\n"
+        );
+    }
+
+    /// A heading in a quote has no sibling to stop at, so the quote stops it —
+    /// and `text` is a lazy continuation of the quoted paragraph, so it is in.
+    #[test]
+    fn section_inside_a_quote_ends_with_the_quote() {
+        let md = "# A\n> ## Nested\n> more\ntext\n# B\n";
+        assert_eq!(section(md, 2).unwrap(), "> ## Nested\n> more\ntext\n");
+    }
+
+    /// Same for a list item: the section ends with the item, not the list.
+    #[test]
+    fn section_inside_a_list_item_ends_with_the_item() {
+        let md = "# X\n- item\n  ## Y\n  more\n- next\n# Z\n";
+        assert_eq!(section(md, 3).unwrap(), "  ## Y\n  more\n");
     }
 }

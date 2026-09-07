@@ -1036,6 +1036,53 @@ html.image-mode {
   line-height: 1.25;
 }
 
+/* Copy-section button: invisible until the heading is hovered or it is focused. */
+.markdown-body .copy-section {
+  display: inline-flex;
+  margin-left: 0.4em;
+  padding: 0;
+  font-size: 0.7em;
+  vertical-align: middle;
+  background: none;
+  border: none;
+  color: currentColor;
+  cursor: pointer;
+  opacity: 0;
+  user-select: none;
+}
+
+.markdown-body :is(h1, h2, h3, h4, h5, h6):hover .copy-section,
+.markdown-body .copy-section:focus-visible {
+  opacity: 0.5;
+}
+
+.markdown-body .copy-section:hover {
+  opacity: 0.9;
+}
+
+.markdown-body .copy-section svg {
+  width: 1em;
+  height: 1em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.markdown-body .copy-section .glyph-check,
+.markdown-body .copy-section.copied .glyph-copy {
+  display: none;
+}
+
+.markdown-body .copy-section.copied .glyph-check {
+  display: block;
+}
+
+.markdown-body .copy-section.copied {
+  opacity: 0.9;
+}
+
 .markdown-body p {
   margin: 0 0 1em;
 }

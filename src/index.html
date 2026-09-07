@@ -185,6 +185,15 @@
       </form>
     </dialog>
 
+    <!-- Stamped onto every heading in the rendered document. Markup rather
+         than a string in app.js, so it reads like the other icons. -->
+    <template id="copy-section-icon">
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path class="glyph-copy" d="M5.5 5.5h7v7h-7z M3.5 10.5v-7h7" />
+        <path class="glyph-check" d="M3 8.5l3 3 7-7" />
+      </svg>
+    </template>
+
     <script src="vendor/highlight.min.js"></script>
     <script src="app.js"></script>
   </body>

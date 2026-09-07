@@ -54,6 +54,7 @@ const els = {
   errorDetail: document.getElementById("error-detail"),
   themeStyle: document.getElementById("theme"),
   toast: document.getElementById("toast"),
+  copyIcon: document.getElementById("copy-section-icon"),
 };
 
 const state = {
@@ -278,6 +279,24 @@ function highlight(root) {
   });
 }
 
+/**
+ * Put a copy button on every heading comrak gave a line to. The line is what
+ * `section_source` needs to find the section again, so a heading without one
+ * gets no button.
+ */
+function addCopyButtons(root) {
+  root.querySelectorAll("h1, h2, h3, h4, h5, h6").forEach((heading) => {
+    if (!heading.dataset.sourcepos) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "copy-section";
+    btn.setAttribute("aria-label", "Copy section as Markdown");
+    btn.title = "Copy section as Markdown";
+    btn.appendChild(els.copyIcon.content.cloneNode(true));
+    heading.appendChild(btn);
+  });
+}
+
 function show(which) {
   els.content.hidden = which !== "content";
   els.empty.hidden = which !== "empty";
@@ -328,6 +347,7 @@ function renderDocument(doc, scrollY, hash) {
   resolveMedia(els.content, doc.dir);
   wrapTables(els.content);
   highlight(els.content);
+  addCopyButtons(els.content);
   show("content");
 
   // Restore after layout, so the offset being scrolled to actually exists yet.
@@ -1708,6 +1728,41 @@ function onTaskToggle(event) {
   });
 }
 
+/**
+ * Copy a heading's own Markdown. The backend slices it out of the file rather
+ * than the DOM, so what lands on the clipboard is the source, not a round-trip
+ * through HTML. The tick is only feedback; it clears itself.
+ */
+function onCopySection(event) {
+  const btn = event.target.closest("button.copy-section");
+  if (!btn) return;
+  // A second click while the first is still in flight would parse the file
+  // again and race the tick.
+  if (btn.disabled) return;
+  btn.disabled = true;
+  const heading = btn.closest("h1, h2, h3, h4, h5, h6");
+  const line = Number(heading.dataset.sourcepos.split(":")[0]);
+  // As in `onTaskToggle`: the line belongs to the document in the DOM, so the
+  // path has to come from there too, not from a tab entry that may have moved on.
+  const path = els.content.dataset.path;
+  const md = invoke("section_source", { path, line });
+  // WebKit only honours a clipboard write started inside the click itself, so
+  // the write begins now and the text lands when the backend has it.
+  const item = new ClipboardItem({
+    "text/plain": md.then((text) => new Blob([text], { type: "text/plain" })),
+  });
+  navigator.clipboard
+    .write([item])
+    .then(() => {
+      btn.classList.add("copied");
+      setTimeout(() => btn.classList.remove("copied"), 1200);
+    })
+    // A backend refusal surfaces through the write as a generic clipboard
+    // error; the message worth showing is the backend's own.
+    .catch((err) => md.then(() => toast(err), toast))
+    .finally(() => (btn.disabled = false));
+}
+
 /*
  * Panning the picture. Pointer capture rather than a document-level listener so
  * a drag that leaves the window still steers the scroll, and so releasing
@@ -2024,6 +2079,7 @@ async function main() {
     selectTheme(themeIn(e.target.value, state.themeMode).name);
   });
   els.themeToggle.addEventListener("click", toggleThemeMode);
+  els.content.addEventListener("click", onCopySection);
   els.content.addEventListener("click", onLinkClick);
   els.content.addEventListener("change", onTaskToggle);
   els.toast.addEventListener("click", () => (els.toast.hidden = true));

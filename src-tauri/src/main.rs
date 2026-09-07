@@ -431,6 +431,21 @@ fn toggle_task(path: String, line: usize, checked: bool) -> Result<(), String> {
     std::fs::write(&path, buf).map_err(|e| format!("{shown}: {e}"))
 }
 
+/// The Markdown behind one heading, for the copy button the webview puts on
+/// it. Read-only, so a file `decode` had to repair is fine to copy from.
+///
+/// The file is read again here rather than kept from the render: if it changed
+/// in between, the watcher is already re-rendering, so the window in which the
+/// line could name a different heading is milliseconds wide. Guard it by
+/// sending the heading text along if that ever bites.
+#[tauri::command]
+fn section_source(path: String, line: usize) -> Result<String, String> {
+    let (path, _) = locate(path)?;
+    let shown = strip_unc(&path);
+    let bytes = std::fs::read(&path).map_err(|e| format!("{shown}: {e}"))?;
+    render::section(&render::decode(&bytes), line)
+}
+
 /// Point this window's sidebar watcher at exactly the folders on show — the
 /// root and whatever is expanded. Collapsed folders are re-listed on expand, so
 /// watching them would only cost handles. Empty `dirs` drops the watcher.
@@ -913,6 +928,7 @@ fn main() {
             take_pending,
             load_file,
             toggle_task,
+            section_source,
             load_asset,
             list_dir,
             watch_files,
