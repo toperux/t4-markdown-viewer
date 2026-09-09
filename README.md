@@ -18,7 +18,8 @@ Electron build starts around 150 MB.
   are registered by the installer.
 - **Open a folder.** The folder icon beside Back/Forward shows the current
   file's folder as a tree in a sidebar (or asks for one when nothing is open),
-  and hides it again on a second press;
+  and hides it again on a second press. Clicking the folder's name at the top
+  of the sidebar picks a different folder to show;
   clicking a file there opens it in the current tab, so Back walks through
   what you have read. `Ctrl`+click or middle-click opens it in a new tab. The
   tree follows the folder — files added, renamed or removed show up on their

@@ -293,13 +293,29 @@ main {
   outline-offset: 1px;
 }
 
-/* The folder's name doubles as its refresh button. */
+/* The folder's name doubles as the button that picks a different folder. */
 #sidebar-name {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
   flex: 1;
   min-width: 0;
   padding: 0.125rem 0.25rem;
-  text-align: left;
   font-weight: 600;
+}
+
+#sidebar-name svg {
+  flex: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+/* The name is what gives, so the icon stays put when the folder is deep. */
+#sidebar-name-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

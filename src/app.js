@@ -2,7 +2,7 @@
 
 const { invoke, convertFileSrc } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
-const { open: openDialog } = window.__TAURI__.dialog;
+const { open: openNativeDialog } = window.__TAURI__.dialog;
 const { openUrl } = window.__TAURI__.opener;
 const appWindow = window.__TAURI__.window.getCurrentWindow();
 
@@ -22,6 +22,7 @@ const els = {
   folderBtn: document.getElementById("folder-btn"),
   sidebar: document.getElementById("sidebar"),
   sidebarName: document.getElementById("sidebar-name"),
+  sidebarNameText: document.getElementById("sidebar-name-text"),
   sidebarClose: document.getElementById("sidebar-close"),
   treeFilter: document.getElementById("tree-filter"),
   tree: document.getElementById("tree"),
@@ -953,8 +954,8 @@ async function openFolder(path) {
   await renderTree(els.tree, path);
   // Canonical from here on, so it compares with what the watcher reports.
   if (state.folder === path) state.folder = els.tree.dataset.dir;
-  els.sidebarName.textContent = baseName(state.folder);
-  els.sidebarName.title = state.folder;
+  els.sidebarNameText.textContent = baseName(state.folder);
+  els.sidebarName.title = `${state.folder}\nClick to show a different folder`;
   syncFolderWatch();
 }
 
@@ -1620,6 +1621,24 @@ function cycleTheme(step) {
 
 /* ---------------- interactions ---------------- */
 
+let pickerOpen = false;
+
+/**
+ * One picker at a time. The native dialog does not own the button behind it, so
+ * a second click while it is up opens a second dialog; the extra one is answered
+ * with a path nobody asked for. Ignoring the click beats queueing it — the user
+ * clicking twice wanted one folder, not two.
+ */
+async function openDialog(options) {
+  if (pickerOpen) return null;
+  pickerOpen = true;
+  try {
+    return await openNativeDialog(options);
+  } finally {
+    pickerOpen = false;
+  }
+}
+
 async function pickFile() {
   const picked = await openDialog({
     multiple: false,
@@ -1983,11 +2002,9 @@ async function main() {
     await showFolder();
   });
   els.sidebarClose.addEventListener("click", closeFolder);
-  els.sidebarName.addEventListener("click", () => {
-    if (state.folder !== null) {
-      treeListings.delete(els.tree); // an explicit refresh always rebuilds
-      renderTree(els.tree, state.folder).then(syncFolderWatch).catch(console.error);
-    }
+  els.sidebarName.addEventListener("click", async () => {
+    const path = await pickFolder();
+    if (path) await openFolder(path);
   });
   els.treeFilter.addEventListener("input", applyTreeFilter);
   els.treeFilter.addEventListener("keydown", async (event) => {
