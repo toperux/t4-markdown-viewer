@@ -199,6 +199,13 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
+      # The notes are built from the log since the previous tag, so the whole
+      # history and every tag has to be here. Checkout cleans the workspace,
+      # so it goes before the artifacts land in it.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v8
         with:
           path: dist
@@ -249,55 +256,35 @@ jobs:
           PY
           cat latest.json
 
+      # Title and body are both the change list: the commit subjects since the
+      # previous tag, minus the release commit itself and the housekeeping that
+      # never reaches the app. Install instructions live in the README, not on
+      # every release page — here they would be the same paragraphs every time,
+      # burying the one thing the page exists to say.
+      #
+      # `generate_release_notes` used to fill this in. It lists merged pull
+      # requests, and this repository commits straight to main, so it produced
+      # nothing but a compare link.
+      - name: Build the release notes
+        id: notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          prev=$(git describe --tags --abbrev=0 --match 'v*' "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          changes=$(git log --format='%s' --no-merges "${prev:+$prev..}${GITHUB_REF_NAME}" \
+            | grep -Ev '^(Release [0-9]|ci:|docs:|release:|chore:)' || true)
+          if [ -n "$changes" ]; then
+            sed 's/^/- /' <<<"$changes" > notes.md
+            echo "name=${GITHUB_REF_NAME} — $(head -1 <<<"$changes")" >> "$GITHUB_OUTPUT"
+          else
+            echo 'No user-facing changes.' > notes.md
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+          cat notes.md
+
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
           draft: false
-          generate_release_notes: true
-          body: |
-            ### Updating
-
-            From 1.2.0 onwards the app checks for new versions on launch and
-            offers them; installing is one click and never happens on its own.
-            Turn it off in **Settings → Updates**. A `.deb` or `.rpm` install
-            updates through your package manager instead.
-
-            ### Windows
-
-            `T4-Markdown-Viewer_${{ needs.version.outputs.version }}_x64-setup.exe` —
-            per-user install, no admin prompt, into `%LOCALAPPDATA%\T4 Markdown Viewer`.
-
-            Not code-signed, so SmartScreen shows "Windows protected your PC" the
-            first few times: **More info** → **Run anyway**.
-
-            ### macOS
-
-            `T4-Markdown-Viewer_${{ needs.version.outputs.version }}_universal.dmg` —
-            Apple Silicon and Intel in one image. Drag to Applications, then:
-
-            ```sh
-            xattr -dr com.apple.quarantine "/Applications/T4 Markdown Viewer.app"
-            ```
-
-            Not signed or notarized, so without that Gatekeeper reports the app as
-            damaged. Right-click → **Open** works too.
-
-            ### Linux
-
-            `.deb`, `.rpm`, and `.AppImage`. The deb and rpm register the file
-            association; an AppImage is not installed into the system MIME
-            database, so double-click association needs AppImageLauncher or a
-            hand-installed `.desktop` file.
-
-            ```sh
-            sudo apt install ./T4-Markdown-Viewer_${{ needs.version.outputs.version }}_amd64.deb
-            ```
-
-            ### Verifying a download
-
-            Every asset ships a `.sha256` sidecar. Check one with `sha256sum -c`
-            on Linux, `shasum -a 256 -c` on macOS, or on Windows:
-
-            ```powershell
-            Get-FileHash '.\<file>' -Algorithm SHA256
-            ```
+          name: ${{ steps.notes.outputs.name }}
+          body_path: notes.md

@@ -66,7 +66,7 @@ within a window works everywhere.
 
 ## Installing
 
-Every release ships a `.sha256` sidecar next to each file, so you can check you
+Every installer ships a `.sha256` sidecar next to it, so you can check you
 got what CI built: `sha256sum -c <file>.sha256` on Linux, `shasum -a 256 -c` on
 macOS, `Get-FileHash '.\<file>' -Algorithm SHA256` on Windows.
 

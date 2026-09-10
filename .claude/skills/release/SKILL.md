@@ -43,8 +43,9 @@ v1.3.0 shipping an installer named 1.2.0, which the updater then refuses.
    ```
    Release 1.3.0
 
-   <a short paragraph in prose about what this release gives the reader —
-   not a changelog; the release page generates one from the commits.>
+   <a short paragraph in prose about what this release gives the reader.
+   This is for `git log` only — the release page is built from the feature
+   commits' subject lines, not from here.>
    ```
 
 5. **Tag and push:**
@@ -67,10 +68,18 @@ is about packaging rather than code.
 
 ## Release notes
 
-`generate_release_notes: true` writes the changelog from commits since the last
-tag, and the workflow appends a fixed body — install instructions per platform,
-the SmartScreen and Gatekeeper caveats, checksum verification. That body lives
-in `release.yml` and is edited there, not per release.
+The publish job builds them from `git log` since the previous tag. Every commit
+subject in the range becomes a bullet, and the newest one becomes the release
+title after the tag — `v1.3.0 — View SVGs and images in a tab`. Dropped from
+both: the `Release x.y.z` commit itself, and anything prefixed `ci:`, `docs:`,
+`release:` or `chore:`.
+
+So the subject line of each feature commit *is* the release note. Write it for
+the person reading the release page. The commit body is for whoever runs `git
+log` — it does not reach the page.
+
+Install instructions are not on the release page. They are in the README, which
+is one place to correct rather than one per release.
 
 The updater's `latest.json` is written by the publish job, which is the only one
 holding all three platforms' signatures at once. It cannot carry the real notes
@@ -89,7 +98,7 @@ accept. If a build fails at staging, suspect the secrets first.
   declare the icon files as build inputs, so a rebuild silently keeps the old
   icon embedded in the exe. Verify with `[System.Drawing.Icon]::ExtractAssociatedIcon`.
 - **Nothing is code-signed.** Expect SmartScreen on Windows and a quarantine
-  flag on macOS; both are documented in the release body already.
+  flag on macOS; both are documented in the README already.
 - **`.deb`/`.rpm` installs do not self-update** — `update.rs` reports them as
   not installable and sends the user to the download page instead.
 - The macOS updater takes the `.app.tar.gz`, not the `.dmg`. Humans take the
