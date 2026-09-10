@@ -5,3 +5,7 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # `ci:` keeps these bumps off the release page, which is built from commit
+    # subjects and drops that prefix. Dependabot adds the colon itself.
+    commit-message:
+      prefix: ci
