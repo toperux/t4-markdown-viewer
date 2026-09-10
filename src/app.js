@@ -44,6 +44,7 @@ const els = {
   updateNotesBtn: document.getElementById("update-notes-btn"),
   updateNow: document.getElementById("update-now"),
   emptyOpenBtn: document.getElementById("empty-open-btn"),
+  emptyFolderBtn: document.getElementById("empty-folder-btn"),
   content: document.getElementById("content"),
   empty: document.getElementById("empty"),
   image: document.getElementById("image"),
@@ -1656,6 +1657,12 @@ async function pickFolder() {
   return typeof picked === "string" ? picked : null;
 }
 
+/** Ask for a folder and show it in the sidebar. */
+async function chooseFolder() {
+  const path = await pickFolder();
+  if (path) await openFolder(path);
+}
+
 /** The active document's folder, or "" when there is none to name. */
 function activeDir() {
   const tab = activeTab();
@@ -1996,16 +2003,14 @@ async function main() {
     const p = await pickFile();
     if (p) await openDocument(p);
   });
+  els.emptyFolderBtn.addEventListener("click", chooseFolder);
 
   els.folderBtn.addEventListener("click", async () => {
     showOpenMenu(false);
     await showFolder();
   });
   els.sidebarClose.addEventListener("click", closeFolder);
-  els.sidebarName.addEventListener("click", async () => {
-    const path = await pickFolder();
-    if (path) await openFolder(path);
-  });
+  els.sidebarName.addEventListener("click", chooseFolder);
   els.treeFilter.addEventListener("input", applyTreeFilter);
   els.treeFilter.addEventListener("keydown", async (event) => {
     if (event.key === "Escape") {

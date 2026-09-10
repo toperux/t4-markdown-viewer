@@ -19,7 +19,7 @@
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3 L11 8 L6 13" /></svg>
           </button>
           <button id="folder-btn" class="nav" type="button" title="Show or hide this file's folder (Ctrl+Shift+O)" aria-label="Show or hide folder">
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 3.5h4.5l1.5 1.5h7v8.5h-13z" /></svg>
+            <svg aria-hidden="true"><use href="#icon-folder" /></svg>
           </button>
         </div>
         <div id="doc-name" title=""></div>
@@ -28,7 +28,7 @@
                offers the other one for this open only. -->
           <div id="open-split">
             <button id="open-btn" class="nav" type="button" title="Open a file (Ctrl+O)" aria-label="Open a file">
-              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 1.5h6L13 5v9.5h-9.5z M9.5 1.5V5H13" /></svg>
+              <svg aria-hidden="true"><use href="#icon-file" /></svg>
             </button>
             <button id="open-more" class="split-arrow" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Open in…" title="Open in…">
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.5 L8 10.5 L12 6.5" /></svg>
@@ -73,7 +73,7 @@
       <aside id="sidebar" hidden>
         <div id="sidebar-head">
           <button id="sidebar-name" type="button" title="">
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 3.5h4.5l1.5 1.5h7v8.5h-13z" /></svg>
+            <svg aria-hidden="true"><use href="#icon-folder" /></svg>
             <span id="sidebar-name-text"></span>
           </button>
           <button id="sidebar-close" class="nav" type="button" title="Close folder" aria-label="Close folder">
@@ -106,7 +106,8 @@
       <section id="empty">
         <h1>Markdown Viewer</h1>
         <p>Open a Markdown file or a folder, or associate <code>.md</code> files with this app and double-click one.</p>
-        <button id="empty-open-btn">Open a file…</button>
+        <button id="empty-open-btn" type="button"><svg aria-hidden="true"><use href="#icon-file" /></svg>Open a file…</button>
+        <button id="empty-folder-btn" type="button"><svg aria-hidden="true"><use href="#icon-folder" /></svg>Open a folder…</button>
       </section>
 
       <section id="error" hidden>
@@ -187,6 +188,14 @@
         </div>
       </form>
     </dialog>
+
+    <!-- Icons used in more than one place, drawn once and referenced with
+         <use>. Each referencing <svg> sets its own size and stroke, which the
+         shape inherits. base.css keeps the sprite itself out of the layout. -->
+    <svg id="icons">
+      <symbol id="icon-folder" viewBox="0 0 16 16"><path d="M1.5 3.5h4.5l1.5 1.5h7v8.5h-13z" /></symbol>
+      <symbol id="icon-file" viewBox="0 0 16 16"><path d="M3.5 1.5h6L13 5v9.5h-9.5z M9.5 1.5V5H13" /></symbol>
+    </svg>
 
     <!-- Stamped onto every heading in the rendered document. Markup rather
          than a string in app.js, so it reads like the other icons. -->
