@@ -12,9 +12,9 @@ env:
 jobs:
   check:
     name: ${{ matrix.os }}
-    # A called workflow runs with the caller's token, and release.yml grants
-    # `contents: write` for `publish`. Without this the check matrix would
-    # inherit write access it has no use for; it only builds and tests.
+    # A called workflow runs with the caller's token. Pinned read-only here so
+    # the check matrix never inherits write access, whatever a caller grants;
+    # it only builds and tests.
     permissions:
       contents: read
     runs-on: ${{ matrix.os }}
