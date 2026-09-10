@@ -18,6 +18,9 @@ fn options() -> Options<'static> {
     o.extension.tagfilter = true;
     // Empty prefix: heading anchors are plain slugs, so `#some-section` links work.
     o.extension.header_id_prefix = Some(String::new());
+    // YAML frontmatter is metadata for other tools, not content: without this
+    // its `---` fences render as a rule and a setext heading.
+    o.extension.front_matter_delimiter = Some("---".into());
 
     // We want `<code class="language-rust">`, which is what highlight.js keys on.
     // `github_pre_lang` would emit `<pre lang="rust">` instead.
@@ -265,7 +268,21 @@ fn line_start(md: &str, line: usize) -> Option<usize> {
 }
 
 /// First ATX/setext heading in the document, used as the window title.
+///
+/// Frontmatter is skipped using comrak's parse, so what counts as frontmatter
+/// here is exactly what `render` hides — a `---` fence is otherwise a setext
+/// underline, and the title would become `title: Foo`.
 pub fn first_heading(md: &str) -> Option<String> {
+    let arena = Arena::new();
+    let root = parse_document(&arena, md, &options());
+    let md = match root
+        .first_child()
+        .map(|node| node.data.borrow().value.clone())
+    {
+        Some(NodeValue::FrontMatter(fm)) => md.strip_prefix(fm.as_str()).unwrap_or(md),
+        _ => md,
+    };
+
     let mut in_fence = false;
     let mut prev: Option<&str> = None;
     for line in md.lines() {
@@ -583,6 +600,45 @@ fn main() {}
     #[test]
     fn first_heading_absent() {
         assert_eq!(first_heading("just a paragraph\n"), None);
+    }
+
+    /// Without the frontmatter extension the closing `---` underlines the
+    /// last key, so the title would be `title: Foo`.
+    #[test]
+    fn first_heading_skips_frontmatter() {
+        let md = "---\ntitle: Foo\ntags: x\n---\n\n# Real\n";
+        assert_eq!(first_heading(md), Some("Real".into()));
+        assert_eq!(first_heading("---\ntitle: Foo\n---\n\ntext\n"), None);
+    }
+
+    /// Frontmatter is metadata, not content: the opening fence is not a rule
+    /// and the closing one does not make the last key a setext heading.
+    #[test]
+    fn frontmatter_is_hidden() {
+        let html = render("---\ntitle: Foo\ntags: x\n---\n\n# Real\n");
+        assert!(!html.contains("<hr"), "opening fence became a rule: {html}");
+        assert!(!html.contains("title: Foo"), "frontmatter shown: {html}");
+        assert!(html.contains("<h1"), "heading missing: {html}");
+    }
+
+    /// comrak skips the frontmatter but keeps counting its lines, so the line
+    /// on a `data-sourcepos` is still the file's line — which is what
+    /// `toggle_task` and `section` index into.
+    #[test]
+    fn frontmatter_keeps_file_line_numbers() {
+        for eol in ["\n", "\r\n"] {
+            let md = ["---", "title: Foo", "---", "", "# A", "- [ ] t", ""].join(eol);
+            let html = render(&md);
+            assert!(
+                html.contains("<li data-sourcepos=\"6:1-"),
+                "task item is not carrying its file line: {html}"
+            );
+            assert_eq!(
+                toggle_task(&md, 6, true).unwrap(),
+                md.replace("- [ ] t", "- [x] t")
+            );
+            assert_eq!(section(&md, 5).unwrap(), format!("# A{eol}- [ ] t{eol}"));
+        }
     }
 
     #[test]
