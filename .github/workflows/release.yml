@@ -116,8 +116,10 @@ jobs:
 
       - name: Install the Tauri CLI
         # `--no-confirm` only. `-y` is its short form, and binstall rejects
-        # being given the same argument twice.
-        run: cargo binstall --no-confirm 'tauri-cli@^2'
+        # being given the same argument twice. Pinned exactly: this job holds the
+        # signing key, and a range would run whichever tauri-cli release came
+        # out last. Bump it deliberately when upgrading Tauri.
+        run: cargo binstall --no-confirm 'tauri-cli@2.11.4'
 
       # Staging picks the first file matching each glob, and the cache restores
       # target/ from an earlier run. A leftover installer from a previous
