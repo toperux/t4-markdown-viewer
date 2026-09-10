@@ -100,7 +100,8 @@ certificate*. Set them before pushing a tag. Before the first tag after any
 change to the signing steps, run a `workflow_dispatch` packaging build and
 check the macOS leg passes: once a tag is public the only fix is re-running
 the job, never retagging, and re-running cannot fix a workflow bug. Rotating
-the certificate means updating the fingerprint in *Check the macOS signature*.
+the certificate means updating the fingerprint in *Check the macOS signature*,
+which checks the bundle, the `.app.tar.gz` and the `.dmg`.
 
 ## Gotchas
 

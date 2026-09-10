@@ -179,13 +179,38 @@ jobs:
       # The fingerprint, not just the name: macOS keys its grants on the
       # certificate itself, so a regenerated one with the same name would still
       # cost every Mac user their access. Rotating the certificate means
-      # updating this hash.
+      # updating this hash. Every copy that ships is checked, not just the
+      # bundle: the .dmg is what people download and the .app.tar.gz is what
+      # installed copies update from, and both are repacked from the bundle.
       - name: Check the macOS signature
         if: runner.os == 'macOS'
-        working-directory: src-tauri/${{ matrix.bundle_dir }}/macos
+        shell: bash
+        working-directory: src-tauri/${{ matrix.bundle_dir }}
         run: |
-          codesign --verify --deep --strict --verbose=2 "T4 Markdown Viewer.app"
-          codesign -d -r- "T4 Markdown Viewer.app" 2>&1 | grep -i 'H"53effb03083bba9accd9b16f4e5db6c6ae5acc39"'
+          set -euo pipefail
+          fp='H"53effb03083bba9accd9b16f4e5db6c6ae5acc39"'
+          # Call it plainly, never as `check … || …`: that switches errexit
+          # off inside it, and a failed codesign would go unnoticed.
+          check() {
+            echo "== $1"
+            codesign --verify --deep --strict --verbose=2 "$2"
+            # Printed before matching, so a failure shows which certificate
+            # the app was actually signed with.
+            req=$(codesign -d -r- "$2" 2>&1)
+            echo "$req"
+            grep -qiF "$fp" <<<"$req"
+          }
+
+          check bundle "macos/T4 Markdown Viewer.app"
+
+          tgz=$(mktemp -d)
+          tar -xzf macos/*.app.tar.gz -C "$tgz"
+          check tarball "$tgz/T4 Markdown Viewer.app"
+
+          mnt=$(mktemp -d)
+          trap 'hdiutil detach "$mnt" >/dev/null 2>&1 || true' EXIT
+          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" dmg/*.dmg >/dev/null
+          check dmg "$mnt/T4 Markdown Viewer.app"
 
       # Tauri names bundles with the product name, spaces and all, and GitHub
       # rewrites spaces in asset names anyway. Pick the final names here instead
