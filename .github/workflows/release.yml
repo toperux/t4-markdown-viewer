@@ -129,6 +129,33 @@ jobs:
         shell: bash
         run: rm -rf "src-tauri/${{ matrix.bundle_dir }}"
 
+      # Tauri's own APPLE_CERTIFICATE import only resolves certificates named
+      # like Apple's ("Developer ID Application: …"), so with a self-signed one
+      # the build fails. Import it here instead and hand Tauri just the name.
+      # The secrets stay in this macOS-only step: whoever holds them can sign
+      # as both T4 apps, and no other leg needs them.
+      - name: Import the macOS signing certificate
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          kc="$RUNNER_TEMP/signing.keychain-db"
+          pass=$(openssl rand -base64 24)
+          base64 --decode <<<"$APPLE_CERTIFICATE" > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$pass" "$kc"
+          security set-keychain-settings -lut 21600 "$kc"
+          security unlock-keychain -p "$pass" "$kc"
+          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$pass" "$kc" >/dev/null
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          # Self-signed: nothing vouches for it until it is trusted here.
+          security find-certificate -p -c "T4 Apps Self-Signed Code Signing" "$kc" > "$RUNNER_TEMP/cert.pem"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/cert.pem"
+          rm "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/cert.pem"
+
       - name: Build the packages
         working-directory: src-tauri
         # The signing key is what the updater checks before it will install
@@ -138,10 +165,27 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS code signing with the certificate imported above; the other
+          # legs ignore it. macOS remembers a Documents/Desktop grant against
+          # the signature, and an unsigned app is a new identity every build,
+          # so users got asked again and again. Self-signed, not notarized: the
+          # README's quarantine step still applies.
+          APPLE_SIGNING_IDENTITY: T4 Apps Self-Signed Code Signing
         run: >
           cargo tauri build --bundles ${{ matrix.bundles }}
           ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
           -- --locked
+
+      # The fingerprint, not just the name: macOS keys its grants on the
+      # certificate itself, so a regenerated one with the same name would still
+      # cost every Mac user their access. Rotating the certificate means
+      # updating this hash.
+      - name: Check the macOS signature
+        if: runner.os == 'macOS'
+        working-directory: src-tauri/${{ matrix.bundle_dir }}/macos
+        run: |
+          codesign --verify --deep --strict --verbose=2 "T4 Markdown Viewer.app"
+          codesign -d -r- "T4 Markdown Viewer.app" 2>&1 | grep -i 'H"53effb03083bba9accd9b16f4e5db6c6ae5acc39"'
 
       # Tauri names bundles with the product name, spaces and all, and GitHub
       # rewrites spaces in asset names anyway. Pick the final names here instead

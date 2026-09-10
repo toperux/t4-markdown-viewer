@@ -49,11 +49,12 @@ Electron build starts around 150 MB.
 | Tabs, tear-off, live reload, themes | ✅ | ✅ | ✅ |
 | Drag a tab **into another window** | ✅ | — | — |
 | Updates itself | ✅ | ✅ | ✅ AppImage |
-| Signed installer | — | — | n/a |
+| Signed installer | — | self-signed | n/a |
 
-Nothing is code-signed. On Windows that means a SmartScreen prompt; on macOS it
-means a quarantine flag to clear. Both are one-time, and both are described
-below.
+Nothing is signed by a certificate the OS trusts. On Windows that means a
+SmartScreen prompt; on macOS, where releases after 1.5.7 carry the project's
+own self-signed certificate, it means a quarantine flag to clear. Both are
+one-time, and both are described below.
 
 The one real feature gap is dragging a tab from one window into another. It
 needs to know which window the compositor is drawing under the cursor, which on
@@ -82,14 +83,14 @@ Turn the check off in **Settings → Updates**; **Check now** there works either
 way, shows the version you are on, and offers the update right there when it
 finds one.
 
-Two things it deliberately does not do. It never installs silently — an unsigned
-app that swaps itself out behind your back has earned every bit of suspicion
-that follows. And it does not touch a `.deb` or `.rpm` install: those belong to
-your package manager, so the app points you at the download page instead. An
-AppImage updates in place like Windows and macOS.
+Two things it deliberately does not do. It never installs silently — an app
+without a trusted signature that swaps itself out behind your back has earned
+every bit of suspicion that follows. And it does not touch a `.deb` or `.rpm`
+install: those belong to your package manager, so the app points you at the
+download page instead. An AppImage updates in place like Windows and macOS.
 
 Downloads are verified against a signing key held outside this repository —
-separate from code signing, which the project still does not do (see below).
+separate from code signing (see below).
 A release built without that key ships no signatures, and the app refuses it.
 
 Anything installed before 1.2.0 predates all of this and has to be replaced by
@@ -120,9 +121,15 @@ quarantine flag:
 xattr -dr com.apple.quarantine "/Applications/T4 Markdown Viewer.app"
 ```
 
-Without that, Gatekeeper reports the app as *damaged* rather than merely
-unsigned, which is its usual response to an unsigned download. Right-click →
-**Open** works too, if you prefer the prompt to the command.
+Without that, Gatekeeper refuses to open it. 1.5.7 and earlier are not signed
+at all; later releases are signed, but with the project's own certificate
+rather than one Apple vouches for. To skip the command, try to open the app
+once, then use System Settings → Privacy & Security → **Open Anyway** (on
+macOS 14 and earlier, right-click → **Open** does the same).
+
+The signature is what lets macOS remember the Documents, Desktop and Downloads
+access you grant, across updates too. Unsigned releases ask again every time;
+the first signed update asks one last time.
 
 Finder offers the app under **Open With** straight away. To make it the default,
 select a `.md` file → **Get Info** → *Open with* → pick it → **Change All…**.

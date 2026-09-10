@@ -92,13 +92,24 @@ secrets. Without them the build still succeeds but emits no `.sig` files, and
 staging fails loudly rather than shipping a release no installed copy can
 accept. If a build fails at staging, suspect the secrets first.
 
+`APPLE_CERTIFICATE` and `APPLE_CERTIFICATE_PASSWORD` hold the self-signed macOS
+certificate shared with t4-git-ui and kept outside both repos. The workflow
+imports it itself, because Tauri's own import only accepts Apple-named
+certificates. A missing or wrong one fails *Import the macOS signing
+certificate*. Set them before pushing a tag. Before the first tag after any
+change to the signing steps, run a `workflow_dispatch` packaging build and
+check the macOS leg passes: once a tag is public the only fix is re-running
+the job, never retagging, and re-running cannot fix a workflow bug. Rotating
+the certificate means updating the fingerprint in *Check the macOS signature*.
+
 ## Gotchas
 
 - **Icon changes need `touch src-tauri/build.rs`.** `tauri-build` does not
   declare the icon files as build inputs, so a rebuild silently keeps the old
   icon embedded in the exe. Verify with `[System.Drawing.Icon]::ExtractAssociatedIcon`.
-- **Nothing is code-signed.** Expect SmartScreen on Windows and a quarantine
-  flag on macOS; both are documented in the README already.
+- **Nothing is signed by a trusted certificate.** Expect SmartScreen on Windows
+  and a quarantine flag on macOS (self-signed, not notarized); both are
+  documented in the README already.
 - **`.deb`/`.rpm` installs do not self-update** — `update.rs` reports them as
   not installable and sends the user to the download page instead.
 - The macOS updater takes the `.app.tar.gz`, not the `.dmg`. Humans take the
