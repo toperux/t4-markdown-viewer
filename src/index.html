@@ -104,10 +104,18 @@
       </section>
 
       <section id="empty">
-        <h1>Markdown Viewer</h1>
-        <p>Open a Markdown file or a folder, or associate <code>.md</code> files with this app and double-click one.</p>
-        <button id="empty-open-btn" type="button"><svg aria-hidden="true"><use href="#icon-file" /></svg>Open a file…</button>
-        <button id="empty-folder-btn" type="button"><svg aria-hidden="true"><use href="#icon-folder" /></svg>Open a folder…</button>
+        <div class="empty-start">
+          <h1>Markdown Viewer</h1>
+          <p>Open a Markdown file or a folder, or associate <code>.md</code> files with this app and double-click one.</p>
+          <button id="empty-open-btn" type="button"><svg aria-hidden="true"><use href="#icon-file" /></svg>Open a file…</button>
+          <button id="empty-folder-btn" type="button"><svg aria-hidden="true"><use href="#icon-folder" /></svg>Open a folder…</button>
+        </div>
+        <div class="empty-browse">
+          <h1>No file open</h1>
+          <p class="hint-pick">Choose a file from the sidebar.</p>
+          <p class="hint-empty">This folder has no Markdown files or images. Click its name in the sidebar to pick another.</p>
+          <p class="hint-error">Couldn’t read this folder. Click its name in the sidebar to pick another.</p>
+        </div>
       </section>
 
       <section id="error" hidden>

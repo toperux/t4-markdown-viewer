@@ -832,6 +832,7 @@ async function renderTree(ul, dir) {
     li.className = "tree-row error";
     li.textContent = String(err);
     ul.replaceChildren(li);
+    if (ul === els.tree) els.sidebar.dataset.tree = "error";
     return;
   }
   if (token !== treeTokens.get(ul)) return; // a newer listing already won
@@ -884,6 +885,7 @@ async function renderTree(ul, dir) {
     return li;
   });
   ul.replaceChildren(...nodes);
+  if (ul === els.tree) els.sidebar.dataset.tree = entries.length ? "" : "empty";
   markTreeSelection();
 
   const reopen = [...ul.querySelectorAll(":scope > li > .tree-row[data-dir]")].filter((r) =>
@@ -952,6 +954,7 @@ async function openFolder(path) {
   els.sidebar.hidden = false;
   els.treeFilter.value = "";
   treeListings.delete(els.tree); // a different folder must rebuild even if it lists the same
+  els.sidebar.dataset.tree = ""; // the last folder's error or emptiness is not this one's
   await renderTree(els.tree, path);
   // Canonical from here on, so it compares with what the watcher reports.
   if (state.folder === path) state.folder = els.tree.dataset.dir;

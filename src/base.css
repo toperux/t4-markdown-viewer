@@ -902,6 +902,17 @@ html.dragging-tab * {
   cursor: pointer;
 }
 
+/* A folder on show means the way in is the sidebar, not the open buttons —
+   unless its listing failed or came back empty (`data-tree`, set by
+   renderTree and reset by openFolder). */
+#sidebar[hidden] + main .empty-browse,
+#sidebar:not([hidden]) + main .empty-start,
+#sidebar:not([data-tree="empty"]) + main .hint-empty,
+#sidebar:not([data-tree="error"]) + main .hint-error,
+#sidebar:is([data-tree="empty"], [data-tree="error"]) + main .hint-pick {
+  display: none;
+}
+
 #error-detail {
   font-family: ui-monospace, Consolas, monospace;
   word-break: break-all;
