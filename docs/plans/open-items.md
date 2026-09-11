@@ -10,12 +10,15 @@ Tick items as they close. Move this file to `done/` once every box is ticked.
 
 ## Needs a decision
 
-- [ ] **Reply to and close issue #1, "Cannot open folder"** (macOS, opened 2026-09-10, no
+- [x] **Reply to and close issue #1, "Cannot open folder"** (macOS, opened 2026-09-10, no
   comments). The reporter wanted to open a whole folder from the start screen. The
   "Open a folder…" button beside "Open a file…" (10c7458) shipped in 1.5.8, and a5e5fef (1.5.9)
   points to the sidebar once a folder is open. The reply is public, so the owner posts it or
   approves it. Ask the reporter to confirm the Mac update item below too.
-- [ ] **Delete the stale branches.** None holds work missing from `main`; each was squashed in.
+  *Closed 2026-09-11 with a comment that also asks about the Mac update.*
+- [x] **Delete the stale branches.** None holds work missing from `main`; each was squashed in.
+  *Deleted 2026-09-11. Tips, for the reflog: e2bcf54, 1158096, cab1798, 244463f, 03e8c27,
+  97bfa6b.*
   - local: `backup-pre-fixup`, `backup-pre-plandoc`, `backup-pre-squash`,
     `backup-pre-theme-squash`, `session-restore`, `cross-platform`
   - remote: `origin/cross-platform`
