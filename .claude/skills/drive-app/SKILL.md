@@ -105,14 +105,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/drive-app/scr
 ## 5. Clean up
 
 1. `taskkill //PID <pid>`. The double slash matters: MSYS mangles `/PID` into a
-   path. A debug app with Settings open once ignored the plain kill; `//F` works.
+   path. A debug app once ignored the plain kill (three later tries didn't
+   reproduce it); `//F` works.
 2. Copy the backed-up `config.json` back only after the process is gone, since
    it may write on exit. Re-read the file to confirm.
 3. If you closed the user's viewer, reopen it detached:
    `powershell -NoProfile -Command "Start-Process '<path>\t4-markdown-viewer.exe'"`.
-   A background bash job would die with the session.
+   A background bash job would die with the session. To bring back the file it
+   had open, add `-ArgumentList '\"<file path>\"'`.
 
 ## Other gotchas
+
+- **Spaces in paths.** The repo sits under `_ pet projects`. Wrap repeated
+  script calls in a shell function that passes `"$@"`, not in a command stored
+  in a variable: an unquoted `$D -Path …` split the script path at the space,
+  and every dialog call failed.
 
 - **Window size.** `core:window:allow-set-size` isn't granted, so resize with
   Win32 `MoveWindow` from PowerShell.

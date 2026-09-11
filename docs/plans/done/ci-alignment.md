@@ -1,5 +1,8 @@
 # CI/CD alignment plan — t4-markdown-viewer (mdv)
 
+> **Status (2026-09-11):** shipped. The boxes below were never ticked. Round 2
+> (`ci-alignment-round-2.md`) replaced parts of it, Dependabot among them.
+
 ## Context
 
 This repo is one of three t4 projects whose GitHub Actions workflows are being aligned to a

@@ -1,5 +1,10 @@
 # CI/CD alignment, round 2 — t4-markdown-viewer (mdv)
 
+> **Status (2026-09-11):** shipped. The boxes below were never ticked. D10 has since been
+> partly reversed: `.github/dependabot.yml` is back for GitHub Actions updates (with a `ci:`
+> commit prefix since 2bace27), and Dependabot security updates (`automated-security-fixes`)
+> are now on, though this plan left them off on purpose. See `../open-items.md`.
+
 ## Context
 
 This repo is one of three t4 projects (with `t4-claude-session-browser` and `t4-git-ui`) whose
