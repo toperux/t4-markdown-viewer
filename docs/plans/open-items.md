@@ -36,30 +36,34 @@ Tick items as they close. Move this file to `done/` once every box is ticked.
 
 ## Bugs
 
-- [ ] **Accent buttons are hard to read in the Dracula themes.** Every accent button is `#fff`
-  text on `var(--ui-accent)`: five rules in `src/base.css`, among them `#empty button`,
-  `#bar #update-btn:hover`, `#settings-dialog #settings-update:hover` and
-  `#update-actions #update-now`. Contrast measured on 2026-09-11, against WCAG AA's 4.5 for
-  normal text:
-
-  | Theme | Ratio |
-  | --- | --- |
-  | dracula-green | 1.37 |
-  | dracula-blue | 2.30 |
-  | dracula | 2.41 |
-  | github-dark, github-dark-blue | 3.10 |
-  | solarized-light, solarized-dark | 3.68 |
-  | azure-devops (all four) | 4.53 |
-  | github-light, github-light-blue | 5.19 |
-  | sakura | 5.41 |
-  | tufte | 8.42 |
-
-  A fix probably needs a per-theme text colour for accent buttons, with `#fff` as the default.
-  Recheck all five rules, not just the empty screen.
-  *Deferred by the owner on 2026-09-11. Candidate text colours were measured the same day:
-  each theme's own dark `--ui-bg` passes for Dracula (6.55, 7.15 and 11.33) and GitHub dark
-  (5.59). Solarized's darkest base, `#002b36`, reaches only 4.08, so only `#000` passes there
-  (5.71).*
+- [x] **Text contrast across the themes.** First seen as white text on the Dracula accent
+  buttons (1.37–2.41). A full audit on 2026-09-11 (every visible text element, all 15 themes,
+  8 UI states) found it went wider: accent-coloured text, opacity-dimmed hints, Solarized's UI
+  text, the sidebar filter's placeholder, and several document colours.
+  *Fixed on 2026-09-11. The owner chose to keep the upstream palettes faithful:*
+  - *App chrome, every theme: three optional tokens in `base.css` (`--ui-on-accent`,
+    `--ui-accent-text`, `--ui-fg-muted`), each set per theme only where the default failed.*
+  - *Invented document colours: the `-blue` heading tint (#5a86e0 → #4d73c1), secondary text
+    in dracula-blue and dracula-green, comments in dracula-blue, secondary text and syntax
+    colours in sakura, comments in tufte.*
+  - *Solarized's UI text colour (`--ui-fg`, chrome only, not the document) also moved, because
+    the upstream base00/base0 fell short: light #657b83 → #576a71, dark #839496 → #93a1a1
+    (Solarized base1).*
+  - *Hover and selection no longer lay a grey fill under text, since the fill cut contrast
+    below AA where a colour had little headroom. The active tab takes the page's colour and a
+    soft glow in the text colour over its accent underline, and a hovered tab gets a faint
+    underline; hovered sidebar rows, the folder name and Open-menu items get a thin accent
+    outline instead. The tab close × uses the dimmed text colour instead of 55% opacity (which was
+    about 2.1:1).*
+  - *macOS 10.15's WebKit has no `color-mix()`, so there the dimmed text falls back to the old
+    75% opacity.*
+  - *Left failing on purpose, because they're upstream colours:*
+    - *Solarized's document and syntax colours (light body text is 4.13).*
+    - *Solarized's dimmed text is nearly as strong as its normal UI text (4.61 vs 4.63),
+      because nothing fits between 4.5 and the text colour.*
+    - *Dracula's #6272a4 for comments, blockquotes and footnotes (3.03).*
+    - *The Visual Studio Light+ syntax colours in azure-devops and azure-devops-blue (4.17–4.41
+      on the #f4f4f4 code background).*
 - [x] **The debug app ignored a normal close while Settings was open.** In the 2026-09-11 smoke
   run, `taskkill //PID` (WM_CLOSE) did nothing for 5+ s with the Settings dialog open, and
   `//F` worked. The installed 1.5.9 closed normally that day with no dialog open. Neither `src/`

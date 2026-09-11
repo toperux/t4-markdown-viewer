@@ -1548,6 +1548,8 @@ function themeIn(group, mode) {
 async function applyTheme(name) {
   try {
     els.themeStyle.textContent = await invoke("read_theme", { name });
+    // Themes colour the page on body, not in a --ui-* variable; the active tab wears it.
+    document.documentElement.style.setProperty("--page-bg", getComputedStyle(document.body).backgroundColor);
     state.theme = name;
     els.picker.value = currentTheme()?.group ?? "";
     updateThemeToggle();

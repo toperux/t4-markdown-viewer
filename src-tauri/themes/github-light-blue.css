@@ -1,9 +1,9 @@
 /*
  * GitHub Light Blue
  *
- * GitHub Light with headings tinted a Dracula-derived blue (#5a86e0) and the
- * inline-code and code-block backgrounds washed with the same blue; everything
- * else unchanged.
+ * GitHub Light with headings tinted a darkened Dracula-derived blue (#4d73c1)
+ * and the inline-code and code-block backgrounds washed with a lighter one
+ * (#5a86e0); everything else unchanged.
  *
  * Colors and overrides only — the shared type scale and spacing live in
  * src/base.css. Document colors first, highlight.js token colors at the end.
@@ -85,7 +85,7 @@ select option {
 .markdown-body h4,
 .markdown-body h5,
 .markdown-body h6 {
-  color: #5a86e0;
+  color: #4d73c1;
 }
 
 .markdown-body a {

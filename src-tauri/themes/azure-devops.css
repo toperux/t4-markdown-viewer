@@ -17,6 +17,7 @@
   --ui-fg: rgba(0, 0, 0, 0.9);
   --ui-border: rgba(0, 0, 0, 0.08);
   --ui-accent: #0078d4;
+  --ui-accent-text: #0072c9;
 
   /*
    * Belongs on :root, not body — Chromium reads it from the root element for

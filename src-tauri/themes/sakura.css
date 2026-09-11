@@ -14,6 +14,7 @@
   --ui-fg: #4a4a4a;
   --ui-border: #d1d1d1;
   --ui-accent: #1d7484;
+  --ui-fg-muted: #6c6c6c;
 
   /*
    * Belongs on :root, not body — Chromium reads it from the root element for
@@ -72,7 +73,7 @@ select option {
 
 .markdown-body h6 {
   font-size: 0.85em;
-  color: #7a7a7a;
+  color: #717171;
 }
 
 .markdown-body h1,
@@ -94,7 +95,7 @@ select option {
 
 .markdown-body blockquote {
   border-left-color: #1d7484;
-  color: #7a7a7a;
+  color: #717171;
 }
 
 .markdown-body hr {
@@ -139,7 +140,7 @@ select option {
 /* ---- footnotes ---- */
 .markdown-body .footnotes {
   border-top-color: #d1d1d1;
-  color: #7a7a7a;
+  color: #717171;
 }
 
 /* ---- highlight.js ---- */
@@ -150,7 +151,7 @@ select option {
 
 .markdown-body .hljs-comment,
 .markdown-body .hljs-quote {
-  color: #7a7a7a;
+  color: #6b6b6b;
   font-style: italic;
 }
 
@@ -187,7 +188,7 @@ select option {
 .markdown-body .hljs-type,
 .markdown-body .hljs-title.class_,
 .markdown-body .hljs-params {
-  color: #8a6d3b;
+  color: #836838;
 }
 
 .markdown-body .hljs-attr,
@@ -201,7 +202,7 @@ select option {
 .markdown-body .hljs-meta,
 .markdown-body .hljs-doctag,
 .markdown-body .hljs-tag {
-  color: #7a7a7a;
+  color: #6b6b6b;
 }
 
 .markdown-body .hljs-deletion {

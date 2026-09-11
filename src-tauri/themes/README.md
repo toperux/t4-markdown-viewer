@@ -71,6 +71,19 @@ Settings dialog — all of which sit outside the document:
 }
 ```
 
+Three more are optional. base.css supplies defaults — `--ui-on-accent` is
+white, `--ui-accent-text` follows `--ui-accent`, `--ui-fg-muted` is `--ui-fg`
+at 75% — so set one only where its default falls short on contrast in your
+theme:
+
+```css
+:root {
+  --ui-on-accent: #fff; /* text on accent-filled buttons */
+  --ui-accent-text: var(--ui-accent); /* accent-colored text: selected file, Update */
+  --ui-fg-muted: color-mix(in srgb, var(--ui-fg) 75%, transparent); /* hints, file name */
+}
+```
+
 Every theme must declare `color-scheme` on `:root` (not `body` — Chromium reads
 it from the root element). It does two jobs: it fixes the scrollbars and
 checkboxes the browser draws itself, and it is what decides which side of its
@@ -144,7 +157,7 @@ Blocks without a declared language are not auto-detected; they get the plain
 | --- | --- |
 | `azure-devops` | Palette, type scale and font stacks lifted from Microsoft's `azure-devops-ui` package. |
 | `azure-devops-dark` | **Default.** Same metrics, dark palette. |
-| `azure-devops-blue` | Azure DevOps with headings tinted a pale Dracula-derived blue. |
+| `azure-devops-blue` | Azure DevOps with headings tinted a darkened Dracula-derived blue. |
 | `azure-devops-dark-blue` | Same, dark. |
 | `github-light` / `github-dark` | GitHub Primer colors. |
 | `github-dark-blue` | GitHub Dark with headings tinted a pale Dracula-blue. |

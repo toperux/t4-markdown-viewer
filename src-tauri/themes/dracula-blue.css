@@ -17,6 +17,7 @@
   --ui-fg: #f2f6fa;
   --ui-border: #33465e;
   --ui-accent: #82aaff;
+  --ui-on-accent: #17202c;
 
   /*
    * Belongs on :root, not body — Chromium reads it from the root element for
@@ -74,7 +75,7 @@ select option {
 
 .markdown-body h6 {
   font-size: 0.85em;
-  color: #6a86a8;
+  color: #7c95b2;
 }
 
 .markdown-body h1,
@@ -96,7 +97,7 @@ select option {
 
 .markdown-body blockquote {
   border-left-color: #82aaff;
-  color: #6a86a8;
+  color: #7c95b2;
 }
 
 .markdown-body hr {
@@ -141,7 +142,7 @@ select option {
 /* ---- footnotes ---- */
 .markdown-body .footnotes {
   border-top-color: #33465e;
-  color: #6a86a8;
+  color: #7c95b2;
 }
 
 /* ---- highlight.js ---- */
@@ -152,7 +153,7 @@ select option {
 
 .markdown-body .hljs-comment,
 .markdown-body .hljs-quote {
-  color: #6a86a8;
+  color: #6e8aab;
   font-style: italic;
 }
 

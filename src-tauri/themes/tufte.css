@@ -149,7 +149,7 @@ select option {
 
 .markdown-body .hljs-comment,
 .markdown-body .hljs-quote {
-  color: #8a8a80;
+  color: #6e6e66;
   font-style: italic;
 }
 
@@ -200,7 +200,7 @@ select option {
 .markdown-body .hljs-meta,
 .markdown-body .hljs-doctag,
 .markdown-body .hljs-tag {
-  color: #8a8a80;
+  color: #6e6e66;
 }
 
 .markdown-body .hljs-deletion {

@@ -30,6 +30,12 @@
   --ui-border: rgba(0, 0, 0, 0.12); /* top bar bottom rule, control borders */
   --ui-accent: #0078d4; /* focus rings, hover, primary button */
 
+  /* Optional: base.css supplies defaults for these. Uncomment one only
+     where its default falls short on contrast in your theme. */
+  /* --ui-on-accent: #fff; */ /* text on accent-filled buttons */
+  /* --ui-accent-text: #0078d4; */ /* accent-colored text: selected file, Update */
+  /* --ui-fg-muted: #555555; */ /* secondary text: hints, file name */
+
   /*
    * Which palette the browser uses for the scrollbars and checkboxes it draws
    * itself. Set `dark` for dark themes.

@@ -7,8 +7,8 @@
  * correctly. A theme restates only the scale or spacing it wants different.
  *
  * The app chrome (top bar) is the one exception: it needs *some* color to be
- * usable before a theme loads. It reads the `--ui-*` custom properties, which
- * every theme sets; the values below are only fallbacks.
+ * usable before a theme loads. It reads the `--ui-*` custom properties; every
+ * theme sets the four core ones, and the values below are only fallbacks.
  */
 
 :root {
@@ -16,6 +16,11 @@
   --ui-fg: #1f1f1f;
   --ui-border: rgba(0, 0, 0, 0.12);
   --ui-accent: #0078d4;
+  /* Optional; a theme sets one only where its default falls short on
+     contrast. */
+  --ui-on-accent: #fff;
+  --ui-accent-text: var(--ui-accent);
+  --ui-fg-muted: color-mix(in srgb, var(--ui-fg) 75%, transparent);
   --content-pad: 2.5rem;
 
   /* Themes override this. Must be on :root — see the note in _template.css. */
@@ -62,7 +67,7 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  opacity: 0.75;
+  color: var(--ui-fg-muted);
 }
 
 #nav,
@@ -236,7 +241,7 @@ body {
 
 #bar #open-menu button:hover,
 #bar #open-menu button:focus-visible {
-  background: rgba(128, 128, 128, 0.2);
+  box-shadow: inset 0 0 0 1px var(--ui-accent);
   border-color: transparent;
 }
 
@@ -330,7 +335,7 @@ main {
 }
 
 #sidebar-name:hover {
-  background: rgba(128, 128, 128, 0.2);
+  box-shadow: inset 0 0 0 1px var(--ui-accent);
 }
 
 #sidebar-close {
@@ -370,6 +375,11 @@ main {
   border-radius: 3px;
 }
 
+/* The browser's own placeholder grey is one color for every theme. */
+#tree-filter::placeholder {
+  color: var(--ui-fg-muted);
+}
+
 #tree-filter:focus-visible {
   outline: 2px solid var(--ui-accent);
   outline-offset: 1px;
@@ -404,17 +414,17 @@ main {
 }
 
 .tree-row:hover {
-  background: rgba(128, 128, 128, 0.2);
+  box-shadow: inset 0 0 0 1px var(--ui-accent);
 }
 
 .tree-row.active {
-  color: var(--ui-accent);
+  color: var(--ui-accent-text);
   font-weight: 600;
 }
 
 .tree-row.error {
   cursor: default;
-  opacity: 0.6;
+  color: var(--ui-fg-muted);
   white-space: normal;
   overflow-wrap: anywhere; /* the message carries a path, which has no spaces to wrap at */
 }
@@ -495,7 +505,7 @@ main {
 
 #settings-dialog .hint {
   margin: 0 0 0.75rem;
-  opacity: 0.75;
+  color: var(--ui-fg-muted);
 }
 
 #settings-dialog fieldset .hint:last-child {
@@ -573,7 +583,7 @@ select option {
   border-radius: 3px;
   border: 1px solid var(--ui-accent);
   background: var(--ui-accent);
-  color: #fff;
+  color: var(--ui-on-accent);
   cursor: pointer;
 }
 
@@ -585,13 +595,13 @@ select option {
  */
 #bar #update-btn {
   border-color: var(--ui-accent);
-  color: var(--ui-accent);
+  color: var(--ui-accent-text);
   font-weight: 600;
 }
 
 #bar #update-btn:hover {
   background: var(--ui-accent);
-  color: #fff;
+  color: var(--ui-on-accent);
 }
 
 #settings-dialog input[type="checkbox"] {
@@ -623,13 +633,13 @@ select option {
  */
 #settings-dialog #settings-update {
   border-color: var(--ui-accent);
-  color: var(--ui-accent);
+  color: var(--ui-accent-text);
   font-weight: 600;
 }
 
 #settings-dialog #settings-update:hover {
   background: var(--ui-accent);
-  color: #fff;
+  color: var(--ui-on-accent);
 }
 
 /* Not a .hint: a row with a live control in it should not be dimmed. */
@@ -641,7 +651,7 @@ select option {
 }
 
 #update-status {
-  opacity: 0.75;
+  color: var(--ui-fg-muted);
 }
 
 /*
@@ -680,7 +690,7 @@ select option {
 }
 
 #update-dialog .hint {
-  opacity: 0.75;
+  color: var(--ui-fg-muted);
 }
 
 #update-error {
@@ -713,7 +723,7 @@ select option {
 
 #update-actions #update-now {
   background: var(--ui-accent);
-  color: #fff;
+  color: var(--ui-on-accent);
 }
 
 #update-actions button:disabled {
@@ -725,15 +735,16 @@ select option {
 
 /*
  * Themed entirely through the --ui-* variables, so adding a tab strip cost the
- * theme files nothing. The active tab is picked out with a neutral grey wash
- * rather than a themed color: at 22% it reads as "raised" against both a
- * near-white and a near-black bar, which no single literal color manages.
+ * theme files nothing. The active tab takes the page's colour (--page-bg, set by
+ * applyTheme) and a soft glow in the text colour. The page sits within 1.15:1 of
+ * the bar in every theme, so the label keeps its contrast; a grey wash didn't.
  */
 #tabs {
   display: flex;
   align-items: stretch;
   gap: 2px;
-  padding: 0 0.5rem;
+  /* Room above the tabs for the active tab's glow, which the scroller clips. */
+  padding: 6px 0.5rem 0;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
@@ -760,12 +771,14 @@ select option {
   user-select: none;
 }
 
+/* A faint preview of the active underline, so hover never outshines it. */
 .tab:hover {
-  background: rgba(128, 128, 128, 0.14);
+  border-bottom-color: color-mix(in srgb, var(--ui-accent) 40%, transparent);
 }
 
 .tab.active {
-  background: rgba(128, 128, 128, 0.22);
+  background: var(--page-bg);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--ui-fg) 35%, transparent);
   border-bottom-color: var(--ui-accent);
 }
 
@@ -786,14 +799,13 @@ select option {
   border: 0;
   border-radius: 3px;
   background: transparent;
-  color: inherit;
-  opacity: 0.55;
+  color: var(--ui-fg-muted);
   font-size: 0.9375rem;
   line-height: 1;
 }
 
 #tabs .tab-close:hover {
-  opacity: 1;
+  color: var(--ui-fg);
   background: rgba(128, 128, 128, 0.3);
 }
 
@@ -899,7 +911,7 @@ html.dragging-tab * {
   border-radius: 3px;
   border: 1px solid var(--ui-accent);
   background: var(--ui-accent);
-  color: #fff;
+  color: var(--ui-on-accent);
   cursor: pointer;
 }
 
@@ -1267,4 +1279,16 @@ html.image-mode {
    comes from measureBar(), since the bar grows when the tab strip shows. */
 .markdown-body :target {
   scroll-margin-top: calc(var(--bar-h, 3rem) + 0.5rem);
+}
+
+/* Engines without color-mix() (Safari 15, macOS 10.15) can't resolve
+   --ui-fg-muted, so the muted text falls back to the old dimming. Last in the
+   file so it wins over the equal-specificity rules above. The placeholder is
+   its own rule: one unsupported selector drops a whole selector list. */
+@supports not (color: color-mix(in srgb, red, blue)) {
+  #doc-name, .tree-row.error, #settings-dialog .hint, #update-status, #update-dialog .hint {
+    color: var(--ui-fg);
+    opacity: 0.75;
+  }
+  #tree-filter::placeholder { color: var(--ui-fg); opacity: 0.75; }
 }

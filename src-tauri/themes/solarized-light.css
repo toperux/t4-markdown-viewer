@@ -11,9 +11,12 @@
 /* ---- app chrome (read by base.css) ---- */
 :root {
   --ui-bg: #eee8d5;
-  --ui-fg: #657b83;
+  --ui-fg: #576a71;
   --ui-border: #eee8d5;
   --ui-accent: #268bd2;
+  --ui-on-accent: #002029;
+  --ui-accent-text: #1d6ba2;
+  --ui-fg-muted: #5f696a;
 
   /*
    * Belongs on :root, not body — Chromium reads it from the root element for
@@ -36,7 +39,7 @@ body {
  */
 select option {
   background-color: #eee8d5;
-  color: #657b83;
+  color: #576a71;
 }
 
 /* ---- document ---- */

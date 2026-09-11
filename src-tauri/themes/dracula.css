@@ -14,6 +14,7 @@
   --ui-fg: #f8f8f2;
   --ui-border: #44475a;
   --ui-accent: #bd93f9;
+  --ui-on-accent: #21222c;
 
   /*
    * Belongs on :root, not body — Chromium reads it from the root element for

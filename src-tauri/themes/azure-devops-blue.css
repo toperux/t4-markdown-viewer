@@ -1,7 +1,7 @@
 /*
  * Azure DevOps Blue
  *
- * Azure DevOps with headings tinted a Dracula-derived blue (#5a86e0);
+ * Azure DevOps with headings tinted a darkened Dracula-derived blue (#4d73c1);
  * everything else unchanged.
  * Rebuilds the Azure DevOps wiki look. Palette, type scale and font stacks are
  * taken from Microsoft's own `azure-devops-ui` package (Core/core.css,
@@ -19,6 +19,7 @@
   --ui-fg: rgba(0, 0, 0, 0.9);
   --ui-border: rgba(0, 0, 0, 0.08);
   --ui-accent: #0078d4;
+  --ui-accent-text: #0072c9;
 
   /*
    * Belongs on :root, not body — Chromium reads it from the root element for
@@ -64,7 +65,7 @@ select option {
 .markdown-body h4,
 .markdown-body h5,
 .markdown-body h6 {
-  color: #5a86e0;
+  color: #4d73c1;
 }
 
 .markdown-body a {
