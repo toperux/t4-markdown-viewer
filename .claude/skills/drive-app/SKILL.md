@@ -18,21 +18,34 @@ Scripts in `.claude/skills/drive-app/scripts/` (run from the repo root):
 
 ## 1. Before launching
 
-- **Is the installed viewer running?** `tasklist | grep -i t4-markdown`. The
-  debug build shares its single-instance identifier, so while the installed app
-  (`%LOCALAPPDATA%\T4 Markdown Viewer\t4-markdown-viewer.exe`) runs, the debug
-  exe forwards its argv there and exits. Closing the user's app is their call,
-  so ask. Note its window title first (`Get-Process t4-markdown-viewer | select
-  MainWindowTitle`): a plain relaunch doesn't restore tabs, so tell the user
-  what they had open.
+- **Leave the user's viewer open; rename the debug build instead.**
+  Single-instance locks on the app identifier (`{identifier}-sim`), so a debug
+  exe built from `tauri.conf.json` as-is hands its argv to the installed app
+  (`%LOCALAPPDATA%\T4 Markdown Viewer\t4-markdown-viewer.exe`) and exits. Build
+  with an override and the two run side by side:
+
+  ```bash
+  TAURI_CONFIG='{"identifier":"com.montevirgen.t4-markdown-viewer.audit"}' \
+    cargo build --manifest-path src-tauri/Cargo.toml
+  ```
+
+  A plain `cargo build` afterwards restores the real identifier; tauri-build
+  re-runs when `TAURI_CONFIG` changes. Only a test that needs the real
+  identifier justifies closing the user's app, and that's their call, so ask.
+  Note its window title first (`Get-Process t4-markdown-viewer | select
+  MainWindowTitle`), because a plain relaunch doesn't restore tabs.
 - **Settings are shared too.** Theme, open mode and the update toggle live in
-  `%APPDATA%\t4-markdown-viewer\config.json`. Copy it to the scratchpad now and
-  back at the end: `selectTheme`, the light/dark button and F8 all write it.
+  `%APPDATA%\t4-markdown-viewer\config.json`. Back it up to the scratchpad now:
+  `selectTheme`, the light/dark button and F8 all write it. The user's viewer
+  stays open and may save its own changes meanwhile, so at the end restore it
+  only if the debug app changed it — diff the live file against the backup
+  first, and copy back only that change.
 - **Port.** `netstat -ano | grep 9222`. t4-git-ui often holds 9222; use 9223.
-- **Build.** `cargo build --manifest-path src-tauri/Cargo.toml`. Frontend
-  assets are embedded at build time, so rebuild after every `src/` edit. Themes
-  are copied into `target/debug/themes/` and the exe prefers that copy, so after
-  editing `src-tauri/themes/*.css` rebuild or copy them across.
+- **Build.** Use the `TAURI_CONFIG` command above, and rebuild after every
+  `src/` edit: frontend assets are embedded at build time. Themes are copied into
+  `target/debug/themes/` and the exe prefers that copy, so after editing
+  `src-tauri/themes/*.css` rebuild or copy them across. A plain `cargo build`
+  restores the real identifier, so don't run one until you're done.
 
 ## 2. Launch
 
@@ -107,8 +120,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/drive-app/scr
 1. `taskkill //PID <pid>`. The double slash matters: MSYS mangles `/PID` into a
    path. A debug app once ignored the plain kill (three later tries didn't
    reproduce it); `//F` works.
-2. Copy the backed-up `config.json` back only after the process is gone, since
-   it may write on exit. Re-read the file to confirm.
+2. Only after the process is gone, since it may write on exit: diff the live
+   `config.json` against the backup, and if the debug app changed it, copy
+   back only that change, not the whole backup. Re-read the file to confirm.
 3. If you closed the user's viewer, reopen it detached:
    `powershell -NoProfile -Command "Start-Process '<path>\t4-markdown-viewer.exe'"`.
    A background bash job would die with the session. To bring back the file it
