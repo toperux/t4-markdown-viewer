@@ -416,6 +416,7 @@ main {
   cursor: default;
   opacity: 0.6;
   white-space: normal;
+  overflow-wrap: anywhere; /* the message carries a path, which has no spaces to wrap at */
 }
 
 .tree-name {
