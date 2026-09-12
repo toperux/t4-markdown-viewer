@@ -244,7 +244,16 @@ enum Placement {
 /// and the single-instance hook — already run *on* that loop, so building
 /// inline deadlocks the app. Reserving the label and stashing `pending` happens
 /// first and synchronously, so the new window's `take_pending` cannot race it.
-fn spawn_window(app: &AppHandle, pending: Option<Value>, place: Placement) -> String {
+///
+/// `source` is the window a torn-off tab came from, if any. That window has
+/// already dropped the tab by the time the build runs, so a failure has to be
+/// reported back to it or the tab is simply lost.
+fn spawn_window(
+    app: &AppHandle,
+    pending: Option<Value>,
+    place: Placement,
+    source: Option<String>,
+) -> String {
     let state = app.state::<AppState>();
     let n = state.next_window.fetch_add(1, Ordering::Relaxed) + 1;
     let label = format!("w{n}");
@@ -275,8 +284,20 @@ fn spawn_window(app: &AppHandle, pending: Option<Value>, place: Placement) -> St
             Err(e) => {
                 eprintln!("window {target} failed to open: {e}");
                 let state = app.state::<AppState>();
-                state.pending.lock().unwrap().remove(&target);
+                let mut stashed = state.pending.lock().unwrap().remove(&target);
                 state.sessions.lock().unwrap().remove(&target);
+                // Give a torn-off tab back to the window that let it go. The
+                // other spawn paths have nothing to hand back, and a lost
+                // `eprintln!` is all a windowless build can offer them.
+                if let Some(source) = source {
+                    if let Some(tab) = stashed
+                        .as_mut()
+                        .and_then(|p| p.get_mut("tab"))
+                        .map(Value::take)
+                    {
+                        let _ = app.emit_to(&source, "tab-spawn-failed", json!({ "tab": tab }));
+                    }
+                }
             }
         }
     });
@@ -591,7 +612,7 @@ fn watch_files(app: AppHandle, state: State<AppState>, window: Window, paths: Ve
 #[tauri::command]
 fn open_window(app: AppHandle, path: Option<String>) -> String {
     let pending = path.map(|p| json!({ "kind": "path", "path": p }));
-    spawn_window(&app, pending, Placement::Default)
+    spawn_window(&app, pending, Placement::Default, None)
 }
 
 /// A window answering `update-installing` with what it has open, so the
@@ -700,6 +721,7 @@ fn drop_tab(
                 &app,
                 Some(json!({ "kind": "tab", "tab": tab })),
                 Placement::Cursor(x, y),
+                Some(window.label().to_string()),
             );
             Ok("detached".into())
         }
@@ -803,7 +825,7 @@ fn open_path(app: &AppHandle, path: &Path) {
         }
     }
 
-    spawn_window(app, Some(payload), Placement::Default);
+    spawn_window(app, Some(payload), Placement::Default, None);
 }
 
 /// Put back what an update restart took down: one window per saved window,
@@ -820,6 +842,7 @@ fn restore_session(app: &AppHandle, windows: Vec<session::WindowSession>) {
             app,
             Some(pending),
             w.frame.map_or(Placement::Default, Placement::Frame),
+            None,
         );
     };
     let mut windows = windows.into_iter();

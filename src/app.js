@@ -566,10 +566,9 @@ async function showActive(scrollY) {
       // `scrollY` is a document position and means nothing here; the picture
       // restores its own zoom and pan from the entry.
       //
-      // Nothing was watching this file, so the copy the webview holds may be
-      // stale: Back and Forward, a reopened tab, and a picture opened in its
-      // own tab after being embedded all land here and refetch.
-      if (!isWatched(asset.path)) bumpAsset(asset.path);
+      // Always refetched: the webview may be holding bytes from before the
+      // file changed, and re-reading a local picture costs next to nothing.
+      bumpAsset(asset.path);
       await showImage(asset, entry, token);
       if (token !== renderToken) return;
     } else {
@@ -738,11 +737,16 @@ async function activateTab(id) {
 async function removeTab(id) {
   const i = tabs.findIndex((t) => t.id === id);
   if (i < 0) return null;
-  if (id === activeId) rememberScroll();
+  const wasActive = id === activeId;
+  if (wasActive) rememberScroll();
   const [gone] = tabs.splice(i, 1);
-  if (activeId === id) activeId = (tabs[i] ?? tabs[i - 1])?.id ?? null;
+  if (wasActive) activeId = (tabs[i] ?? tabs[i - 1])?.id ?? null;
   syncWatch();
-  await showActive();
+  // Losing a background tab changes nothing about what is on screen, and
+  // re-rendering would reload the active document and drop the reader back at
+  // its last recorded position rather than where they actually are.
+  if (wasActive) await showActive();
+  else updateChrome();
   return gone;
 }
 
@@ -807,8 +811,12 @@ async function adoptTab(data, at) {
 
 /** Put back every tab an update restart carried over, in order. */
 async function restoreTabs(list, active) {
-  tabs = list.map(rebuildTab).filter(Boolean);
-  activeId = (tabs[active] ?? tabs[0])?.id ?? null;
+  const rebuilt = list.map(rebuildTab);
+  tabs = rebuilt.filter(Boolean);
+  // `active` counts the list as it was saved. A tab that names nothing any
+  // more rebuilds to null and shifts everything after it, so the one to
+  // activate is picked before the filter, not after.
+  activeId = (rebuilt[active] ?? tabs[0])?.id ?? null;
   syncWatch();
   await showActive();
 }
@@ -1111,6 +1119,10 @@ function decodeId(raw) {
  */
 function jumpToAnchor(id) {
   if (!document.getElementById(id)) return false;
+  // Assigning the fragment the URL already carries is not a change, so the
+  // browser does nothing and a second click on the same link goes nowhere.
+  // Dropping it first makes every jump a jump, at no cost in history.
+  clearHash();
   location.hash = id;
   return true;
 }
@@ -1287,6 +1299,8 @@ const STRIP_SLACK = 24; // vertical grace before a drag counts as leaving
 
 let drag = null;
 let ghostEl = null;
+/** Where the last torn-off tab sat, so a window that fails to build can give it back. */
+let tornOffIndex = 0;
 
 /**
  * Pointer position as a physical screen point, from the window's own origin and
@@ -1369,10 +1383,17 @@ function beginDrag(event, id) {
     pointerId: event.pointerId,
     startX: event.clientX,
     startY: event.clientY,
+    // Where the tab sat before the drag, so a cancel can put it back.
+    startIndex: tabs.findIndex((t) => t.id === id),
     moved: false,
     detached: false,
     lastProbe: 0,
     origin: null,
+    // Every drag message to Rust is chained onto this, so they arrive in the
+    // order they were issued. A fire-and-forget `drag_over` landing after the
+    // `drag_cancel` that should have ended it leaves the other window with a
+    // caret nothing will clear.
+    ipc: Promise.resolve(),
   };
   // Fetched rather than derived in JS so the screen mapping is exact; it lands
   // before the pointer has moved far enough to count as a drag.
@@ -1431,7 +1452,7 @@ function onDragMove(event) {
   if (inStrip) {
     if (drag.detached) {
       drag.detached = false;
-      invoke("drag_cancel").catch(() => {});
+      drag.ipc = drag.ipc.then(() => invoke("drag_cancel")).catch(() => {});
     }
     reorderTo(insertionIndex(event.clientX));
     paintDrag();
@@ -1452,11 +1473,15 @@ function onDragMove(event) {
   if (now - drag.lastProbe < PROBE_MS) return;
   drag.lastProbe = now;
   const { x, y } = screenPoint(event, drag.origin);
-  invoke("drag_over", { x, y }).catch(console.error);
+  drag.ipc = drag.ipc.then(() => invoke("drag_over", { x, y })).catch(console.error);
 }
 
 async function onDragEnd(event) {
   if (!drag || event.pointerId !== drag.pointerId) return;
+  // `packTab` below copies the entries as they stand, and a tab leaving for
+  // another window is serialised before `removeTab` would record the spot;
+  // without this it arrives there at the top of the document.
+  rememberScroll();
   const d = drag;
   drag = null;
   try {
@@ -1487,21 +1512,29 @@ async function onDragEnd(event) {
     { x: 0, y: 0, scale: window.devicePixelRatio, exact: false };
   const { x, y } = screenPoint(event, origin);
   try {
-    const outcome = await invoke("drop_tab", {
-      x,
-      y,
-      tab: packTab(tab),
-      // The last tab already has a window to itself: tearing it off would only
-      // swap this window for a new one and leave an empty shell behind.
-      tearOff: tabs.length > 1,
-    });
+    d.ipc = d.ipc.then(() =>
+      invoke("drop_tab", {
+        x,
+        y,
+        tab: packTab(tab),
+        // The last tab already has a window to itself: tearing it off would only
+        // swap this window for a new one and leave an empty shell behind.
+        tearOff: tabs.length > 1,
+      }),
+    );
+    const outcome = await d.ipc;
     // "adopted" — another window took it. "detached" — it became a new window.
     // "cancelled" — nowhere to go; the tab stays put.
     if (outcome === "cancelled") {
       renderTabs();
       return;
     }
-    if (outcome === "adopted" || outcome === "detached") await removeTab(d.id);
+    if (outcome === "adopted" || outcome === "detached") {
+      // The new window is still being built and can yet fail; remember the slot
+      // in case Rust hands the tab back.
+      tornOffIndex = tabs.findIndex((t) => t.id === d.id);
+      await removeTab(d.id);
+    }
     // Handing the last tab to another window leaves nothing here worth keeping;
     // the user is already looking at the target, so close the empty shell.
     if (outcome === "adopted" && tabs.length === 0) await appWindow.close();
@@ -1512,11 +1545,18 @@ async function onDragEnd(event) {
 
 function onDragCancel() {
   if (!drag) return;
-  const detached = drag.detached;
+  const d = drag;
   drag = null;
   hideGhost();
   paintDrag();
-  if (detached) invoke("drag_cancel").catch(() => {});
+  if (d.detached) d.ipc = d.ipc.then(() => invoke("drag_cancel")).catch(() => {});
+  // A cancelled drag should leave nothing behind, and dragging through the
+  // strip has already moved the tab; put it back where it was picked up.
+  const from = tabs.findIndex((t) => t.id === d.id);
+  if (from >= 0 && d.startIndex >= 0 && from !== d.startIndex) {
+    const [moved] = tabs.splice(from, 1);
+    tabs.splice(Math.min(d.startIndex, tabs.length), 0, moved);
+  }
   renderTabs();
 }
 
@@ -2222,9 +2262,18 @@ async function main() {
   });
   await listenHere("tab-drag-out", () => setCaret(-1));
   await listenHere("tab-adopt", async (e) => {
-    const at = dropCaret >= 0 ? dropCaret : tabs.length;
+    // Rust clears the drag before it hands the tab over, so the caret is
+    // already gone and cannot say where this lands. The slot comes from where
+    // the tab was dropped, the same way the caret was placed while it hovered
+    // — measured with the caret taken out, so it does not shift the tabs.
     setCaret(-1);
-    await adoptTab(e.payload.tab, at);
+    await adoptTab(e.payload.tab, tabs.length > 1 ? insertionIndex(e.payload.x) : tabs.length);
+  });
+  // The window a torn-off tab was on its way to never opened, so the tab comes
+  // back rather than disappearing with it.
+  await listenHere("tab-spawn-failed", async (e) => {
+    await adoptTab(e.payload.tab, tornOffIndex);
+    toast("That tab could not be given a window of its own.");
   });
 
   // Whatever this window was created to show: a file-association open, a tab
