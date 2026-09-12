@@ -66,6 +66,15 @@ fn attribute<'a>(attrs: &'a str, key: &str) -> Option<&'a str> {
                         }
                     }
                 }
+                // HTML lets the value go unquoted, in which case it runs to the
+                // first whitespace or to the tag itself. `is_safe_id` still has
+                // the last word on what such a value may contain.
+                let end = value
+                    .find(|c: char| c.is_whitespace() || c == '>' || c == '/')
+                    .unwrap_or(value.len());
+                if end > 0 {
+                    return Some(&value[..end]);
+                }
             }
         }
         from = start + key.len();
@@ -120,10 +129,18 @@ pub fn render(md: &str) -> String {
     // Raw-HTML nodes in document order, which is the order comrak drops them.
     let targets: Vec<Option<String>> = root
         .descendants()
-        .filter_map(|node| match &node.data.borrow().value {
-            NodeValue::HtmlInline(raw) => Some(anchor_target(raw)),
-            NodeValue::HtmlBlock(block) => Some(anchor_target(&block.literal)),
-            _ => None,
+        .filter_map(|node| {
+            let target = match &node.data.borrow().value {
+                NodeValue::HtmlInline(raw) => anchor_target(raw),
+                NodeValue::HtmlBlock(block) => anchor_target(&block.literal),
+                _ => return None,
+            };
+            // An image's children are its alt text: comrak renders them rather
+            // than dropping them, so this tag leaves no placeholder. Counting
+            // it would push every later anchor onto the wrong one.
+            node.ancestors()
+                .all(|a| !matches!(a.data.borrow().value, NodeValue::Image(_)))
+                .then_some(target)
         })
         .collect();
 
@@ -265,50 +282,33 @@ fn line_start(md: &str, line: usize) -> Option<usize> {
 
 /// First ATX/setext heading in the document, used as the window title.
 ///
-/// Frontmatter is skipped using comrak's parse, so what counts as frontmatter
-/// here is exactly what `render` hides — a `---` fence is otherwise a setext
-/// underline, and the title would become `title: Foo`.
+/// Same reasoning as `toggle_task` and `section`: comrak decides what a
+/// heading is, with the same options `render` used, so the title is a heading
+/// the reader can actually see. Frontmatter is metadata rather than a setext
+/// underline, `#hashtag` is a word, an indented `#` is code, and the text
+/// comes out of the heading's own nodes rather than off the raw line.
 pub fn first_heading(md: &str) -> Option<String> {
     let arena = Arena::new();
     let root = parse_document(&arena, md, &options());
-    let md = match root
-        .first_child()
-        .map(|node| node.data.borrow().value.clone())
-    {
-        Some(NodeValue::FrontMatter(fm)) => md.strip_prefix(fm.as_str()).unwrap_or(md),
-        _ => md,
-    };
-
-    let mut in_fence = false;
-    let mut prev: Option<&str> = None;
-    for line in md.lines() {
-        let t = line.trim();
-        if t.starts_with("```") || t.starts_with("~~~") {
-            in_fence = !in_fence;
-            prev = None;
-            continue;
+    root.descendants().find_map(|node| {
+        if !matches!(node.data.borrow().value, NodeValue::Heading(_)) {
+            return None;
         }
-        if in_fence {
-            continue;
-        }
-        if let Some(rest) = t.strip_prefix('#') {
-            let text = rest.trim_start_matches('#').trim();
-            if !text.is_empty() {
-                return Some(text.trim_end_matches('#').trim().to_string());
+        // Inline markup contributes what it says, not how it is spelled. The
+        // walk goes through an image too, so a heading holding nothing but a
+        // picture is titled by its alt text — the one piece of that image the
+        // author already wrote for somewhere it cannot be shown.
+        let mut text = String::new();
+        for inner in node.descendants() {
+            match &inner.data.borrow().value {
+                NodeValue::Text(t) => text.push_str(t),
+                NodeValue::Code(c) => text.push_str(&c.literal),
+                _ => {}
             }
         }
-        // setext: a line of === or --- underlining the previous non-empty line
-        if let Some(p) = prev {
-            if !p.is_empty()
-                && t.len() >= 2
-                && (t.chars().all(|c| c == '=') || t.chars().all(|c| c == '-'))
-            {
-                return Some(p.to_string());
-            }
-        }
-        prev = Some(t);
-    }
-    None
+        let text = text.trim();
+        (!text.is_empty()).then(|| text.to_string())
+    })
 }
 
 #[cfg(test)]
@@ -404,6 +404,17 @@ fn main() {}
         assert!(html.contains("id=\"old-style\""), "{html}");
     }
 
+    /// HTML lets an attribute value go unquoted, and documents in the wild
+    /// write anchors that way; the value ends at whitespace or the tag.
+    #[test]
+    fn unquoted_attribute_anchors_work() {
+        let html = render("<a id=f5></a>text\n");
+        assert!(html.contains("<span id=\"f5\"></span>"), "{html}");
+        // The unquoted value is still held to `is_safe_id`.
+        let html = render("<a id=a+b></a>text\n");
+        assert!(!html.contains("<span"), "unsafe id was reproduced: {html}");
+    }
+
     /// Only the name is carried over; everything else about the original tag is
     /// discarded, because the replacement is generated rather than passed through.
     #[test]
@@ -469,6 +480,43 @@ fn main() {}
             bold < anchor,
             "anchor drifted above unrelated markup: {html}"
         );
+        assert!(anchor < target, "anchor landed after its text: {html}");
+    }
+
+    /// An image's alt children are rendered as plain text rather than dropped,
+    /// so raw HTML in there leaves no placeholder. Counting it as a target
+    /// would shift every later anchor onto the wrong one and lose the last.
+    #[test]
+    fn raw_html_in_image_alt_does_not_shift_later_anchors() {
+        let html =
+            render("![a <a id=\"ghost\"></a> b](i.png)\n\n<b>x</b>\n\n<a id=\"real\"></a>target\n");
+        assert!(
+            !html.contains("id=\"ghost\""),
+            "alt-text tag became an anchor: {html}"
+        );
+        let anchor = html.find("id=\"real\"").expect("anchor missing");
+        let target = html.find("target").expect("text missing");
+        assert!(anchor < target, "anchor landed after its text: {html}");
+    }
+
+    /// The same risk from the other direction: a footnote nothing refers to is
+    /// not rendered, so raw HTML inside it would leave no placeholder either.
+    /// It does not desync anything today because comrak detaches the unused
+    /// definition from the tree, so the walk never counts the tag in the first
+    /// place — pinned here in case a comrak upgrade starts leaving it in.
+    #[test]
+    fn raw_html_in_an_unreferenced_footnote_does_not_shift_later_anchors() {
+        let html = render("[^unused]: note <a id=\"ghost\"></a>\n\n<a id=\"real\"></a>target\n");
+        assert!(
+            !html.contains("note"),
+            "the unused footnote was rendered: {html}"
+        );
+        assert!(
+            !html.contains("id=\"ghost\""),
+            "footnote tag became an anchor: {html}"
+        );
+        let anchor = html.find("id=\"real\"").expect("anchor missing");
+        let target = html.find("target").expect("text missing");
         assert!(anchor < target, "anchor landed after its text: {html}");
     }
 
@@ -614,6 +662,32 @@ fn main() {}
         let md = "---\ntitle: Foo\ntags: x\n---\n\n# Real\n";
         assert_eq!(first_heading(md), Some("Real".into()));
         assert_eq!(first_heading("---\ntitle: Foo\n---\n\ntext\n"), None);
+    }
+
+    /// comrak decides what a heading is, so the window title agrees with the
+    /// page: a `#` with no space is a word, an indented `#` is code, and a
+    /// `---` under a list is a rule rather than an underline.
+    #[test]
+    fn first_heading_ignores_what_comrak_does_not_call_a_heading() {
+        assert_eq!(first_heading("#hashtag not a heading\n"), None);
+        assert_eq!(first_heading("#hashtag\n\n# Real\n"), Some("Real".into()));
+        assert_eq!(first_heading("    # indented code\n"), None);
+        assert_eq!(first_heading("- item\n---\n"), None);
+    }
+
+    /// The text comes off the parsed heading, so inline markup inside it
+    /// contributes what it says rather than how it is spelled.
+    #[test]
+    fn first_heading_reads_through_inline_markup() {
+        assert_eq!(
+            first_heading("# `code` in heading\n"),
+            Some("code in heading".into())
+        );
+        assert_eq!(
+            first_heading("# **bold** title\n"),
+            Some("bold title".into())
+        );
+        assert_eq!(first_heading("# ![Logo](logo.png)\n"), Some("Logo".into()));
     }
 
     /// Frontmatter is metadata, not content: the opening fence is not a rule

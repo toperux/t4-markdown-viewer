@@ -108,6 +108,9 @@ struct Settings {
     /// This build's version. The webview has no other way to know it, and
     /// Settings shows it beside the update controls.
     version: String,
+    /// The theme to fall back to when the saved one will not load. The webview
+    /// would otherwise have to hard-code a name this side owns.
+    default_theme: String,
 }
 
 #[derive(Serialize)]
@@ -792,6 +795,7 @@ fn get_settings(app: AppHandle) -> Settings {
         cross_window_drag: cfg!(windows),
         case_insensitive_paths: cfg!(any(windows, target_os = "macos")),
         version: app.package_info().version.to_string(),
+        default_theme: config::DEFAULT_THEME.to_string(),
     }
 }
 

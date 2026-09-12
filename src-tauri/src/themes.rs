@@ -99,6 +99,11 @@ fn group_key_for(stem: &str) -> String {
 /// CSS with `/* … */` comments blanked out, so a scan cannot be fooled by prose.
 /// Every bundled theme writes the words `color-scheme` in a comment, and the
 /// themes README writes it with a colon.
+///
+/// String literals are not tracked, so a `/*` inside quotes — `content: "/*"` —
+/// opens a comment here that the author never wrote. The only thing that reads
+/// this is the light/dark classification, so the worst it costs a theme is the
+/// wrong side of the toggle.
 fn strip_comments(css: &str) -> String {
     let mut out = String::with_capacity(css.len());
     let mut rest = css;
@@ -130,6 +135,9 @@ fn mode_from_css(css: &str) -> Option<Mode> {
 
     for (i, c) in cleaned.char_indices() {
         match c {
+            // Quotes are not tracked here either, so a brace inside a string —
+            // `--x: "}"` — moves the depth. Same limited cost as above: the
+            // theme can come out classified on the wrong side.
             '{' => depth += 1,
             '}' => depth = depth.saturating_sub(1),
             'c' if depth == 1 && cleaned[i..].starts_with(PROP) => {
@@ -280,10 +288,18 @@ pub fn list(app: &AppHandle) -> Vec<ThemeInfo> {
     out
 }
 
+/// Theme names `path_for` will resolve. A dot is not one of the things worth
+/// refusing: `scan` lists `my.theme.css` as a theme, so rejecting the name
+/// here would leave the app with no stylesheet at all every launch. What must
+/// still go is anything that could name a file outside the theme directories,
+/// and the `_`-prefixed authoring aids `scan` already hides.
+fn valid_name(name: &str) -> bool {
+    !name.is_empty() && !name.contains(['/', '\\', ':']) && !name.starts_with('_')
+}
+
 /// Resolve a theme name to a file, user directory taking precedence.
 pub fn path_for(app: &AppHandle, name: &str) -> Option<PathBuf> {
-    // Guard against `../` and absolute paths arriving from the frontend.
-    if name.is_empty() || name.contains(['/', '\\', ':', '.']) {
+    if !valid_name(name) {
         return None;
     }
     let file = format!("{name}.css");
@@ -317,6 +333,15 @@ pub fn watch_dirs(app: &AppHandle) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn valid_name_allows_dots_and_refuses_paths() {
+        assert!(valid_name("my.theme"));
+        assert!(valid_name(config::DEFAULT_THEME));
+        for bad in ["", "../x", "a/b", "a\\b", "C:x", "_template"] {
+            assert!(!valid_name(bad), "{bad:?} should not resolve");
+        }
+    }
 
     fn theme(name: &str, mode: Mode) -> ThemeInfo {
         ThemeInfo {

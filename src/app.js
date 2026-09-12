@@ -78,6 +78,11 @@ const state = {
    */
   crossWindowDrag: false,
   caseInsensitivePaths: false,
+  /**
+   * The theme `applyTheme` falls back to when the chosen one will not load,
+   * from `get_settings` at boot. Rust owns the name.
+   */
+  defaultTheme: null,
   /** The release `check_for_update` found, or null while there is none. */
   update: null,
   /** Root of the folder in the sidebar, or null while it is closed. */
@@ -1601,14 +1606,27 @@ async function applyTheme(name) {
     state.theme = name;
     els.picker.value = currentTheme()?.group ?? "";
     updateThemeToggle();
+    return true;
   } catch (err) {
-    console.error("theme load failed", name, err);
+    /*
+     * A theme that will not load leaves the window wearing base.css alone,
+     * which reads as the app being broken rather than as one bad file. Say
+     * which file it was and put the default up instead — but do not save the
+     * default over the reader's choice, so a theme they are in the middle of
+     * editing is tried again next launch rather than quietly given up on.
+     */
+    toast(String(err));
+    if (name !== state.defaultTheme) await applyTheme(state.defaultTheme);
+    // Still the reader's pick: the theme watcher retries `state.theme`, so a
+    // file being fixed under the editor comes back on its next save.
+    state.theme = name;
+    return false;
   }
 }
 
 async function selectTheme(name) {
-  await applyTheme(name);
-  await invoke("set_theme", { name });
+  // Only a theme that actually loaded is worth remembering for next launch.
+  if (await applyTheme(name)) await invoke("set_theme", { name });
 }
 
 async function loadThemeList() {
@@ -2197,6 +2215,7 @@ async function main() {
   const settings = await invoke("get_settings");
   state.crossWindowDrag = settings.cross_window_drag === true;
   state.caseInsensitivePaths = settings.case_insensitive_paths === true;
+  state.defaultTheme = settings.default_theme;
   els.autoUpdate.checked = settings.auto_update_check !== false;
   els.appVersion.textContent = settings.version ?? "";
   showOpenMode(settings.open_mode ?? "tab");
