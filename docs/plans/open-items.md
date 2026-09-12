@@ -82,6 +82,12 @@ Tick items as they close. Move this file to `done/` once every box is ticked.
   the first signed-to-signed update. CI proves both carry the cert (SHA-1 `53effb03…`). Only a
   Mac updating 1.5.8 → 1.5.9 without a new Documents/Desktop/Downloads prompt proves 929fe3a
   did its job.
+- [ ] **`.json` / `.jsonc` file registration** (added 2026-09-12, see `done/json-viewer.md`).
+  Only an installed build proves it: on Windows, Explorer's *Open with* on a `.json` lists
+  the viewer and the Type column reads "JSON Document" (its own ProgID,
+  `T4MarkdownViewer.Json`); on macOS, Finder's *Open With* offers it; on a deb/rpm install,
+  `xdg-mime query filetype x.jsonc` gives `application/json` and *Open With* lists the app.
+  Check at the next release smoke.
 - [ ] **Dependabot `ci:` prefix (2bace27).** The release-notes filter (`release.yml`, "Build the
   release notes") drops `ci: Bump …`, checked locally; a plain `Bump …` still gets through.
   Confirm the next weekly Dependabot PR is titled `ci: …`.
