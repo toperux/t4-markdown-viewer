@@ -162,7 +162,9 @@ pub fn decode(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
-/// Flip the task box on 1-based `line`, or say why that line has none.
+/// Where the task box on 1-based `line` sits in `md`, or why that line has
+/// none. The byte at the offset is the box character itself, so the caller can
+/// write the new one over it without rebuilding the document.
 ///
 /// comrak decides what a task item is, with the same options `render` used,
 /// so the line the webview sends back — read off a `data-sourcepos` comrak
@@ -170,7 +172,7 @@ pub fn decode(bytes: &[u8]) -> String {
 /// second definition of "task item": one that counts lines differently (comrak
 /// ends a line on a bare `\r` too) and takes `- [ ]` inside a code block at
 /// face value.
-pub fn toggle_task(md: &str, line: usize, checked: bool) -> Result<String, String> {
+pub fn toggle_task(md: &str, line: usize) -> Result<usize, String> {
     let arena = Arena::new();
     let root = parse_document(&arena, md, &options());
     let symbol = root
@@ -187,16 +189,10 @@ pub fn toggle_task(md: &str, line: usize, checked: bool) -> Result<String, Strin
         .ok_or_else(|| format!("Line {line} is not a task item"))?;
 
     // Columns are 1-based bytes; the symbol is one ASCII byte between the brackets.
-    let at = line_start(md, symbol.line)
+    line_start(md, symbol.line)
         .map(|start| start + symbol.column - 1)
         .filter(|&at| matches!(md.as_bytes().get(at), Some(b' ' | b'x' | b'X')))
-        .ok_or_else(|| format!("Line {line} does not hold the box comrak saw"))?;
-
-    let mut out = String::with_capacity(md.len());
-    out.push_str(&md[..at]);
-    out.push(if checked { 'x' } else { ' ' });
-    out.push_str(&md[at + 1..]);
-    Ok(out)
+        .ok_or_else(|| format!("Line {line} does not hold the box comrak saw"))
 }
 
 /// The Markdown behind the heading on 1-based `line`: the heading itself and
@@ -502,21 +498,36 @@ fn main() {}
         assert_eq!(decode(b"# Hi"), "# Hi");
     }
 
-    #[test]
-    fn toggle_task_ticks_and_unticks() {
-        assert_eq!(toggle_task("- [ ] a\n", 1, true).unwrap(), "- [x] a\n");
-        assert_eq!(toggle_task("- [x] a\n", 1, false).unwrap(), "- [ ] a\n");
-        // Uppercase is accepted on the way in, and normalised on the way out.
-        assert_eq!(toggle_task("- [X] a\n", 1, false).unwrap(), "- [ ] a\n");
+    /// What the `toggle_task` command does with the offset: write one byte over
+    /// the box. Asserting on the text it produces pins the offset down to the
+    /// byte, which is all the command trusts it for.
+    fn flip(md: &str, line: usize, checked: bool) -> Result<String, String> {
+        let at = toggle_task(md, line)?;
+        assert!(
+            matches!(md.as_bytes()[at], b' ' | b'x' | b'X'),
+            "offset {at} is not a box in {md:?}"
+        );
+        let mut out = md.to_string();
+        out.replace_range(at..at + 1, if checked { "x" } else { " " });
+        Ok(out)
     }
 
-    /// The edit is a three-byte swap on one line of the original text, so the
+    #[test]
+    fn toggle_task_ticks_and_unticks() {
+        assert_eq!(toggle_task("- [ ] a\n", 1).unwrap(), 3);
+        assert_eq!(flip("- [ ] a\n", 1, true).unwrap(), "- [x] a\n");
+        assert_eq!(flip("- [x] a\n", 1, false).unwrap(), "- [ ] a\n");
+        // Uppercase is accepted on the way in, and normalised on the way out.
+        assert_eq!(flip("- [X] a\n", 1, false).unwrap(), "- [ ] a\n");
+    }
+
+    /// The edit is one byte written over the box in the original file, so the
     /// file's line endings — CRLF here — come through untouched.
     #[test]
     fn toggle_task_leaves_the_rest_of_the_file_alone() {
         let md = "# Title\r\n\r\n- [ ] one\r\n- [ ] two\r\n";
         assert_eq!(
-            toggle_task(md, 3, true).unwrap(),
+            flip(md, 3, true).unwrap(),
             "# Title\r\n\r\n- [x] one\r\n- [ ] two\r\n"
         );
     }
@@ -524,14 +535,14 @@ fn main() {}
     #[test]
     fn toggle_task_finds_the_marker_in_every_list_shape() {
         assert_eq!(
-            toggle_task("- [ ] a\n    - [ ] b\n", 2, true).unwrap(),
+            flip("- [ ] a\n    - [ ] b\n", 2, true).unwrap(),
             "- [ ] a\n    - [x] b\n"
         );
-        assert_eq!(toggle_task("1. [ ] a\n", 1, true).unwrap(), "1. [x] a\n");
-        assert_eq!(toggle_task("1) [ ] a\n", 1, true).unwrap(), "1) [x] a\n");
-        assert_eq!(toggle_task("+ [ ] a\n", 1, true).unwrap(), "+ [x] a\n");
-        assert_eq!(toggle_task("* [ ] a\n", 1, true).unwrap(), "* [x] a\n");
-        assert_eq!(toggle_task("> - [ ] a\n", 1, true).unwrap(), "> - [x] a\n");
+        assert_eq!(flip("1. [ ] a\n", 1, true).unwrap(), "1. [x] a\n");
+        assert_eq!(flip("1) [ ] a\n", 1, true).unwrap(), "1) [x] a\n");
+        assert_eq!(flip("+ [ ] a\n", 1, true).unwrap(), "+ [x] a\n");
+        assert_eq!(flip("* [ ] a\n", 1, true).unwrap(), "* [x] a\n");
+        assert_eq!(flip("> - [ ] a\n", 1, true).unwrap(), "> - [x] a\n");
     }
 
     /// The line the frontend sends is checked against the file rather than
@@ -548,13 +559,13 @@ fn main() {}
             "# [ ] heading\n",
             "\n",
         ] {
-            assert!(toggle_task(line, 1, true).is_err(), "{line:?}");
+            assert!(toggle_task(line, 1).is_err(), "{line:?}");
         }
     }
 
     #[test]
     fn toggle_task_refuses_a_line_past_the_end() {
-        assert!(toggle_task("- [ ] a\n", 9, true).is_err());
+        assert!(toggle_task("- [ ] a\n", 9).is_err());
     }
 
     /// A bare `\r` ends a line for comrak, so the line it puts on the `<li>`
@@ -562,22 +573,16 @@ fn main() {}
     #[test]
     fn toggle_task_counts_lines_like_comrak() {
         let md = "# T\r\n\r- [ ] a\n- [ ] b\n";
-        assert_eq!(
-            toggle_task(md, 3, true).unwrap(),
-            "# T\r\n\r- [x] a\n- [ ] b\n"
-        );
-        assert_eq!(
-            toggle_task(md, 4, true).unwrap(),
-            "# T\r\n\r- [ ] a\n- [x] b\n"
-        );
+        assert_eq!(flip(md, 3, true).unwrap(), "# T\r\n\r- [x] a\n- [ ] b\n");
+        assert_eq!(flip(md, 4, true).unwrap(), "# T\r\n\r- [ ] a\n- [x] b\n");
     }
 
     /// Inside a code block `- [ ]` is content on the page, not a checkbox, so
     /// there is nothing there to flip.
     #[test]
     fn toggle_task_ignores_boxes_in_code() {
-        assert!(toggle_task("```\n- [ ] x\n```\n", 2, true).is_err());
-        assert!(toggle_task("    - [ ] x\n", 1, true).is_err());
+        assert!(toggle_task("```\n- [ ] x\n```\n", 2).is_err());
+        assert!(toggle_task("    - [ ] x\n", 1).is_err());
     }
 
     #[test]
@@ -634,7 +639,7 @@ fn main() {}
                 "task item is not carrying its file line: {html}"
             );
             assert_eq!(
-                toggle_task(&md, 6, true).unwrap(),
+                flip(&md, 6, true).unwrap(),
                 md.replace("- [ ] t", "- [x] t")
             );
             assert_eq!(section(&md, 5).unwrap(), format!("# A{eol}- [ ] t{eol}"));

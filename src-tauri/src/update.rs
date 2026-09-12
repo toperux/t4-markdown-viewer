@@ -48,20 +48,24 @@ fn release_url() -> String {
 
 /// Ask whether a newer version exists.
 ///
-/// Answered from cache after the first call, so opening three windows costs one
-/// request rather than three. `force` is the Settings button, which asks even
-/// when the automatic check is switched off.
+/// Answered from cache after the first check, so opening three windows costs
+/// one request rather than three — "nothing found" is cached as well, since
+/// that is the answer almost every launch gets. `force` is the Settings button:
+/// it asks even when the automatic check is switched off, and never takes the
+/// cached answer, because a user pressing "Check now" is asking about this
+/// moment rather than about the one the app started in.
 #[tauri::command]
 pub async fn check_for_update(app: AppHandle, force: bool) -> Result<Option<UpdateInfo>, String> {
-    // Scoped so the guard is gone before the first await: holding a std Mutex
-    // across one is how an async deadlock gets written by accident.
-    let cached = app.state::<AppState>().update.lock().unwrap().clone();
-    if cached.is_some() {
-        return Ok(cached);
-    }
-
-    if !force && !crate::config::load().auto_update_check {
-        return Ok(None);
+    if !force {
+        // Scoped so the guard is gone before the first await: holding a std
+        // Mutex across one is how an async deadlock gets written by accident.
+        let cached = app.state::<AppState>().update.lock().unwrap().clone();
+        if let Some(cached) = cached {
+            return Ok(cached);
+        }
+        if !crate::config::load().auto_update_check {
+            return Ok(None);
+        }
     }
 
     let found = app
@@ -71,19 +75,15 @@ pub async fn check_for_update(app: AppHandle, force: bool) -> Result<Option<Upda
         .await
         .map_err(|e| e.to_string())?;
 
-    let Some(update) = found else {
-        return Ok(None);
-    };
-
-    let info = UpdateInfo {
+    let info = found.map(|update| UpdateInfo {
         version: update.version.clone(),
         notes: update.body.clone().unwrap_or_default(),
         installable: installable(),
         release_url: release_url(),
-    };
+    });
 
     *app.state::<AppState>().update.lock().unwrap() = Some(info.clone());
-    Ok(Some(info))
+    Ok(info)
 }
 
 /// Download the update, install it, and restart into it. Does not return: the

@@ -141,7 +141,7 @@ fn file() -> PathBuf {
 /// reported, or what it was created to open if it never has.
 pub async fn snapshot(app: &AppHandle, version: String) {
     let state = app.state::<AppState>();
-    let ready = state.ready.lock().unwrap().clone();
+    let ready = state.boot.lock().unwrap().ready.clone();
     *state.awaiting.lock().unwrap() = ready;
     let _ = app.emit("update-installing", ());
 

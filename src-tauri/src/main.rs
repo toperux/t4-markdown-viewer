@@ -10,6 +10,7 @@ mod watch;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex};
@@ -28,13 +29,32 @@ const IMG_EXTS: &[&str] = &[
     "svg", "png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico",
 ];
 
+/// How big a document `load_file` will read. `.txt` is in `MD_EXTS`, so the
+/// sidebar happily offers a multi-gigabyte log, and reading, decoding and
+/// rendering it all happen before the command returns — the window is frozen
+/// for as long as that takes. Images are deliberately not capped: `load_asset`
+/// hands the webview a path rather than bytes, so a 40 MB photo costs nothing
+/// here.
+const MAX_DOCUMENT_BYTES: u64 = 32 * 1024 * 1024;
+
+/// How far each window has got through starting up. One struct behind one lock
+/// because the two halves are read against each other — see `open_path`.
 #[derive(Default)]
-struct AppState {
+struct Boot {
     /// What a freshly created window should open once its webview asks:
     /// `{kind:"path"}` from a file-association open, `{kind:"tab"}` from a
     /// torn-off tab, or `{kind:"session"}` after an update restart. Keyed by
     /// window label.
-    pending: Mutex<HashMap<String, Value>>,
+    pending: HashMap<String, Value>,
+    /// Windows whose webview has asked for its pending payload, and so is live
+    /// enough to receive events. A window not in here is still booting, which is
+    /// the normal state when the OS hands us a file during startup.
+    ready: HashSet<String>,
+}
+
+#[derive(Default)]
+struct AppState {
+    boot: Mutex<Boot>,
     /// What each window has open, as it last reported — or, until it has, what
     /// it was created to open. Only read when an update is about to replace
     /// the process — see `session`.
@@ -43,10 +63,6 @@ struct AppState {
     /// each answer rings. See `session::snapshot`.
     awaiting: Mutex<HashSet<String>>,
     reported: Condvar,
-    /// Windows whose webview has asked for its pending payload, and so is live
-    /// enough to receive events. A window not in here is still booting, which is
-    /// the normal state when the OS hands us a file during startup.
-    ready: Mutex<HashSet<String>>,
     /// One watcher per window, covering every directory that window has a tab in.
     watches: Mutex<HashMap<String, watch::Handle>>,
     /// App-wide, unlike `watches`: a theme edit restyles every window.
@@ -59,9 +75,11 @@ struct AppState {
     focus_order: Mutex<Vec<String>>,
     /// Window currently showing a drop caret, so it can be told to clear it.
     drag_target: Mutex<Option<String>>,
-    /// The release found by the first update check, reused by every window that
-    /// asks afterwards. One launch, one request.
-    update: Mutex<Option<update::UpdateInfo>>,
+    /// What the first update check found, reused by every window that asks
+    /// afterwards: `None` until something has checked, `Some(None)` once a
+    /// check came back with nothing. One launch, one request — except the
+    /// Settings button, which asks again every time it is pressed.
+    update: Mutex<Option<Option<update::UpdateInfo>>>,
     next_window: AtomicUsize,
 }
 
@@ -208,21 +226,23 @@ fn focus_window(app: &AppHandle, label: &str) {
 /// window's session report until it makes one, so a snapshot taken while it
 /// boots still counts it.
 fn claim_pending(state: &AppState, label: &str, payload: Value) -> bool {
-    let open = session::OpenTabs::from_pending(&payload);
-    {
-        let mut pending = state.pending.lock().unwrap();
-        if pending.contains_key(label) {
-            return false;
-        }
-        pending.insert(label.to_string(), payload);
+    claim_in(state, &mut state.boot.lock().unwrap(), label, payload)
+}
+
+/// The same claim for a caller already holding `boot`, because what it decided
+/// under that lock must still hold when the payload goes in — see `open_path`.
+fn claim_in(state: &AppState, boot: &mut Boot, label: &str, payload: Value) -> bool {
+    if boot.pending.contains_key(label) {
+        return false;
     }
-    if let Some(open) = open {
+    if let Some(open) = session::OpenTabs::from_pending(&payload) {
         state
             .sessions
             .lock()
             .unwrap()
             .insert(label.to_string(), open);
     }
+    boot.pending.insert(label.to_string(), payload);
     true
 }
 
@@ -230,8 +250,9 @@ fn claim_pending(state: &AppState, label: &str, payload: Value) -> bool {
 enum Placement {
     /// Wherever the OS puts it.
     Default,
-    /// A physical screen point taken straight off a pointer event; the window
-    /// is offset so the cursor lands near its tab strip.
+    /// A physical screen point the window's top-left goes to. The caller has
+    /// already stepped it back from the cursor, in its own pixels, so the
+    /// pointer lands near the new window's tab strip.
     Cursor(f64, f64),
     /// Exactly where a window stood before an update restart.
     Frame(session::Frame),
@@ -274,17 +295,15 @@ fn spawn_window(
             Ok(win) => match place {
                 Placement::Default => {}
                 Placement::Cursor(x, y) => {
-                    let _ = win.set_position(PhysicalPosition::new(
-                        (x - 140.0).round() as i32,
-                        (y - 24.0).round() as i32,
-                    ));
+                    let _ =
+                        win.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32));
                 }
                 Placement::Frame(frame) => frame.apply(&win),
             },
             Err(e) => {
                 eprintln!("window {target} failed to open: {e}");
                 let state = app.state::<AppState>();
-                let mut stashed = state.pending.lock().unwrap().remove(&target);
+                let mut stashed = state.boot.lock().unwrap().pending.remove(&target);
                 state.sessions.lock().unwrap().remove(&target);
                 // Give a torn-off tab back to the window that let it go. The
                 // other spawn paths have nothing to hand back, and a lost
@@ -381,8 +400,9 @@ fn clear_drag(app: &AppHandle, state: &AppState) {
 #[tauri::command]
 fn take_pending(state: State<AppState>, window: Window) -> Option<Value> {
     let label = window.label().to_string();
-    state.ready.lock().unwrap().insert(label.clone());
-    state.pending.lock().unwrap().remove(&label)
+    let mut boot = state.boot.lock().unwrap();
+    boot.ready.insert(label.clone());
+    boot.pending.remove(&label)
 }
 
 /// Resolve a path the frontend handed over and split off its parent, or say why
@@ -405,6 +425,18 @@ fn locate(path: String) -> Result<(PathBuf, PathBuf), String> {
 #[tauri::command]
 fn load_file(app: AppHandle, path: String) -> Result<Document, String> {
     let (path, dir) = locate(path)?;
+
+    let size = std::fs::metadata(&path)
+        .map_err(|e| format!("{}: {e}", path.display()))?
+        .len();
+    if size > MAX_DOCUMENT_BYTES {
+        return Err(format!(
+            "{} is too big to open: {} MB, and the limit is {} MB.",
+            strip_unc(&path),
+            size / (1024 * 1024),
+            MAX_DOCUMENT_BYTES / (1024 * 1024)
+        ));
+    }
 
     let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let editable = std::str::from_utf8(&bytes).is_ok();
@@ -432,9 +464,13 @@ fn load_file(app: AppHandle, path: String) -> Result<Document, String> {
 /// Write a ticked or unticked box back to the document. The watcher sees the
 /// save and the window re-renders from disk, so nothing is updated here.
 ///
-/// This is the app's only write to a document, and it is confined to swapping
-/// the three-byte marker on a line that already holds one — `toggle_task`
-/// refuses anything else — so the webview cannot use it to write content.
+/// This is the app's only write to a document, and it is one byte written over
+/// the box on a line that already holds one — `render::toggle_task` refuses
+/// anything else — so the webview cannot use it to write content. Seeking into
+/// the file rather than rewriting it also means there is no moment at which the
+/// document is truncated, and it stays the same file: whatever else holds it
+/// open keeps its handle, and its creation date, permissions and hard links are
+/// untouched.
 #[tauri::command]
 fn toggle_task(path: String, line: usize, checked: bool) -> Result<(), String> {
     let (path, _) = locate(path)?;
@@ -447,10 +483,17 @@ fn toggle_task(path: String, line: usize, checked: bool) -> Result<(), String> {
     };
     let text =
         std::str::from_utf8(body).map_err(|_| format!("{shown}: not UTF-8, leaving it alone"))?;
-    let out = render::toggle_task(text, line, checked)?;
-    let mut buf = bom.to_vec();
-    buf.extend_from_slice(out.as_bytes());
-    std::fs::write(&path, buf).map_err(|e| format!("{shown}: {e}"))
+    // The offset is into the text after the BOM, and the file still has it.
+    let at = (bom.len() + render::toggle_task(text, line)?) as u64;
+
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .map_err(|e| format!("{shown}: {e}"))?;
+    file.seek(SeekFrom::Start(at))
+        .map_err(|e| format!("{shown}: {e}"))?;
+    file.write_all(&[if checked { b'x' } else { b' ' }])
+        .map_err(|e| format!("{shown}: {e}"))
 }
 
 /// The Markdown behind one heading, for the copy button the webview puts on
@@ -717,10 +760,14 @@ fn drop_tab(
         }
         None if !tear_off => Ok("cancelled".into()),
         None => {
+            // The offset that puts the cursor on the new window's tab strip is
+            // measured in CSS pixels, and `x`/`y` are physical: on a 150%
+            // display an unscaled step back lands two thirds of the way there.
+            let scale = window.scale_factor().unwrap_or(1.0);
             spawn_window(
                 &app,
                 Some(json!({ "kind": "tab", "tab": tab })),
-                Placement::Cursor(x, y),
+                Placement::Cursor(x - 140.0 * scale, y - 24.0 * scale),
                 Some(window.label().to_string()),
             );
             Ok("detached".into())
@@ -806,22 +853,32 @@ fn open_path(app: &AppHandle, path: &Path) {
     }
 
     if let Some(label) = last_focused(app) {
-        // `ready` is read before `pending` is taken rather than nested inside
-        // it: every other holder of these locks takes one at a time, and this
-        // keeps it that way, so there is no lock order to get wrong later.
-        let ready = state.ready.lock().unwrap().contains(&label);
-        if !ready {
-            if claim_pending(&state, &label, payload.clone()) {
+        // `ready` and `pending` live behind one lock because the question asked
+        // here and the answer `take_pending` gives are the same two facts: the
+        // check and the claim have to be one step, or a file arriving in the
+        // instant a window finishes booting is stashed in a slot that window
+        // has already drained. It would come forward showing nothing, and the
+        // document would never open.
+        let mut boot = state.boot.lock().unwrap();
+        if !boot.ready.contains(&label) {
+            let claimed = claim_in(&state, &mut boot, &label, payload.clone());
+            drop(boot);
+            if claimed {
                 focus_window(app, &label);
                 return;
             }
             // Booting with something already on the way in — a torn-off tab
             // or a restored session. An event now would reach a webview with
             // no listeners yet, so the file gets a window of its own instead.
-        } else if config::load().open_mode != "window" {
-            let _ = app.emit_to(&label, "file-opened", path);
-            focus_window(app, &label);
-            return;
+        } else {
+            // Dropped before `load`: the config is a file read, and no lock
+            // should be held across one.
+            drop(boot);
+            if config::load().open_mode != "window" {
+                let _ = app.emit_to(&label, "file-opened", path);
+                focus_window(app, &label);
+                return;
+            }
         }
     }
 
@@ -992,9 +1049,12 @@ fn main() {
                     let label = window.label();
                     state.watches.lock().unwrap().remove(label);
                     state.folder_watches.lock().unwrap().remove(label);
-                    state.pending.lock().unwrap().remove(label);
+                    {
+                        let mut boot = state.boot.lock().unwrap();
+                        boot.pending.remove(label);
+                        boot.ready.remove(label);
+                    }
                     state.sessions.lock().unwrap().remove(label);
-                    state.ready.lock().unwrap().remove(label);
                     state.focus_order.lock().unwrap().retain(|l| l != label);
                     session::reported(&state, label);
                 }
