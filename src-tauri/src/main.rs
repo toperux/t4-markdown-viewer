@@ -447,6 +447,11 @@ fn load_file(app: AppHandle, path: String) -> Result<Document, String> {
     let html = render::render(&text);
 
     // Let the webview load images and other assets sitting next to the document.
+    // Recursive on purpose: documents reference `images/foo.png`, and the scope
+    // is the only thing that lets those load. The cost is that the whole subtree
+    // stays readable to the webview for the rest of the session; comrak's
+    // `unsafe_` being off and the CSP are what keep that from mattering, since
+    // no document can talk the webview into fetching anything from it.
     app.asset_protocol_scope().allow_directory(&dir, true).ok();
 
     let file_name = path
@@ -568,6 +573,7 @@ fn set_watch(
 #[tauri::command]
 fn load_asset(app: AppHandle, path: String) -> Result<Asset, String> {
     let (path, dir) = locate(path)?;
+    // Recursive for the same reasoning as `load_file`.
     app.asset_protocol_scope().allow_directory(&dir, true).ok();
     Ok(Asset {
         path: strip_unc(&path),

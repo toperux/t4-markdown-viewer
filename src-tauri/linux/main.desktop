@@ -1,15 +1,18 @@
 # Tauri's own template writes `Exec={{exec}}` with no field code, so a desktop
 # environment launching us for a double-clicked file passes no path at all and
-# the app opens on its empty state. `%F` is the only reason this file exists —
-# everything else is a copy of the upstream template, and should be diffed
-# against it when upgrading Tauri:
+# the app opens on its empty state. `%f` is the only reason this file exists.
+# It is `%f` rather than `%F` because we only ever read the first path handed to
+# us: the desktop environment starts one process per selected file, and the
+# single-instance hook turns each of those into a tab in the window already
+# running. Everything else here is a copy of the upstream template, and should
+# be diffed against it when upgrading Tauri:
 # crates/tauri-bundler/src/bundle/linux/freedesktop/main.desktop
 [Desktop Entry]
 Categories={{categories}}
 {{#if comment}}
 Comment={{comment}}
 {{/if}}
-Exec={{exec}} %F
+Exec={{exec}} %f
 StartupWMClass={{exec}}
 Icon={{icon}}
 Name={{name}}

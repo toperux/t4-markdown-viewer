@@ -33,6 +33,15 @@ jobs:
         run: |
           set -euo pipefail
           crate=$(grep -m1 '^version = ' src-tauri/Cargo.toml | cut -d'"' -f2)
+          # The builds run `--locked`, so a Cargo.lock left behind by a bump
+          # fails all three legs after the tag is already public. Catch it here,
+          # where the only cost is a red check on a tag nobody has downloaded.
+          lock=$(grep -A1 '^name = "t4-markdown-viewer"$' src-tauri/Cargo.lock \
+            | grep -m1 '^version = ' | cut -d'"' -f2)
+          if [[ "$lock" != "$crate" ]]; then
+            echo "Cargo.lock version $lock does not match Cargo.toml version $crate" >&2
+            exit 1
+          fi
           # workflow_dispatch has no tag, so there is nothing to compare
           # against, and it is allowed to build whatever version the tree has —
           # packaging can then be checked in the middle of a bump.

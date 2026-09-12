@@ -1,11 +1,20 @@
 name: CI
 
+# Runs on pushes to main and on the pull requests that target it, so a branch
+# is checked before it lands rather than only afterwards.
+#
+# A docs-only change has nothing here to check, hence the `paths-ignore` on
+# both; mixed commits still run. This cannot let a tagged commit through
+# unchecked: release.yml calls checks.yml on every tag, whatever paths the
+# commit touched.
 on:
   push:
     branches: [main]
-    # A docs-only push has nothing here to check. Mixed commits still run.
-    # This cannot let a tagged commit through unchecked: release.yml calls
-    # checks.yml on every tag, whatever paths the commit touched.
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  pull_request:
+    branches: [main]
     paths-ignore:
       - "docs/**"
       - "**/*.md"

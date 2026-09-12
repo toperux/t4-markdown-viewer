@@ -55,6 +55,14 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo fmt --check
 
+      # The frontend has no other gate - no bundler, no linter, no tests - so a
+      # syntax error in app.js would otherwise ship and only show up as a blank
+      # window. The runners have Node already, and parsing is platform-
+      # independent, so this runs once on the cheapest one.
+      - name: Frontend syntax
+        if: runner.os == 'Linux'
+        run: node --check ../src/app.js
+
       # `-D warnings` goes after `--`, not in RUSTFLAGS: as an env var it also
       # applies to every dependency, so one warning in a crate we do not own
       # turns the build red.

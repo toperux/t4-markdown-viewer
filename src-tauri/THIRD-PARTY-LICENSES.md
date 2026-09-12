@@ -53,9 +53,9 @@ excluded. Every crate declares an SPDX license; none relies on a bare
 | `Apache-2.0` only | 1 — `tao` | preserve `NOTICE`, patent grant |
 
 Direct dependencies: `tauri`, `tauri-build`, `tauri-plugin-dialog`,
-`tauri-plugin-opener`, `tauri-plugin-single-instance` (Apache-2.0 OR MIT),
-`serde`, `serde_json`, `dirs`, `windows-sys` (MIT OR Apache-2.0),
-`comrak` (BSD-2-Clause), `notify` (CC0-1.0).
+`tauri-plugin-opener`, `tauri-plugin-single-instance`, `tauri-plugin-updater`
+(Apache-2.0 OR MIT), `serde`, `serde_json`, `dirs`, `windows-sys`
+(MIT OR Apache-2.0), `comrak` (BSD-2-Clause), `notify` (CC0-1.0).
 
 ### The MPL-2.0 crates
 

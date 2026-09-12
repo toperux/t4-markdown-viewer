@@ -9,3 +9,20 @@ updates:
     # subjects and drops that prefix. Dependabot adds the colon itself.
     commit-message:
       prefix: ci
+
+  # The Rust tree is the whole app; without this it never gets bumped and a
+  # security advisory against a transitive crate goes unnoticed.
+  - package-ecosystem: cargo
+    directory: /src-tauri
+    schedule:
+      interval: weekly
+    # `chore:` is dropped from the release page for the same reason as `ci:`
+    # above. Dependabot adds the colon itself.
+    commit-message:
+      prefix: chore
+    # One PR for the lot: these bumps share a Cargo.lock, so separate PRs would
+    # conflict with each other and each need a rebase to go green.
+    groups:
+      cargo:
+        patterns:
+          - "*"

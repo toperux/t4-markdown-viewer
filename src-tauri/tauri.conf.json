@@ -67,12 +67,13 @@
       }
     },
     "macOS": {
-      "minimumSystemVersion": "10.15"
+      "minimumSystemVersion": "13.0"
     },
     "linux": {
       "deb": {
         "desktopTemplate": "./linux/main.desktop",
         "postInstallScript": "./linux/postinst.sh",
+        "postRemoveScript": "./linux/postrm.sh",
         "files": {
           "/usr/share/mime/packages/t4-markdown-viewer.xml": "./linux/t4-markdown-viewer.xml"
         }
@@ -80,6 +81,7 @@
       "rpm": {
         "desktopTemplate": "./linux/main.desktop",
         "postInstallScript": "./linux/postinst.sh",
+        "postRemoveScript": "./linux/postrm.sh",
         "files": {
           "/usr/share/mime/packages/t4-markdown-viewer.xml": "./linux/t4-markdown-viewer.xml"
         }
