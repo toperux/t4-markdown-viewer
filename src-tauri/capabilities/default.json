@@ -2,6 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Permissions for the viewer windows.",
+  "//urls": "allow-open-url on its own grants nothing: the opener's URL scope starts empty and an empty allow list rejects every URL, so each openUrl failed with ForbiddenUrl. allow-default-urls is the plugin's own scope — http, https, mailto, tel.",
   "//": "Windows opened at runtime are labelled w1, w2, ... — without them here, plugin calls like event.listen and window.show are denied and the new window never finishes booting.",
   "windows": ["main", "w*"],
   "permissions": [
@@ -13,6 +14,7 @@
     "core:window:allow-maximize",
     "core:event:default",
     "dialog:allow-open",
-    "opener:allow-open-url"
+    "opener:allow-open-url",
+    "opener:allow-default-urls"
   ]
 }

@@ -107,16 +107,24 @@ function resolvePath(dir, rel) {
   } catch {
     /* malformed escapes: use the raw text */
   }
-  const parts = `${dir}/${decoded}`.replace(/\\/g, "/").split("/");
+  const joined = `${dir}/${decoded}`.replace(/\\/g, "/");
+  // A network path is `//server/share/...`: both leading slashes belong to the
+  // root, and the server and share are part of it too — `..` climbing past them
+  // would leave a path no longer pointing at any machine. Only `dir` can say
+  // so; the joined string starts `//` for the POSIX root as well, since the
+  // separator lands right behind its own leading slash.
+  const unc = dir.replace(/\\/g, "/").startsWith("//");
+  const floor = unc ? 4 : 1; // ["", "", server, share], or one leading segment
+  const parts = joined.split("/");
   const out = [];
   for (let i = 0; i < parts.length; i++) {
     const p = parts[i];
     if (p === "" || p === ".") {
-      if (i === 0) out.push(p); // keep a leading empty for UNC-ish roots
+      if (i === 0 || (unc && i === 1)) out.push(p); // keep the leading empties for UNC-ish roots
       continue;
     }
     if (p === "..") {
-      if (out.length > 1) out.pop();
+      if (out.length > floor) out.pop();
       continue;
     }
     out.push(p);
@@ -1228,7 +1236,7 @@ async function runUpdate() {
   if (!info) return;
 
   if (!info.installable) {
-    openUrl(info.release_url).catch(console.error);
+    openUrl(info.release_url).catch(toast);
     return;
   }
 
@@ -1385,7 +1393,7 @@ function onTabPointerDown(event) {
 
   if (event.button === 1) {
     event.preventDefault(); // no autoscroll
-    closeTab(id);
+    closeTab(id).catch(toast);
     return;
   }
   if (event.button !== 0 || event.target.closest(".tab-close")) return;
@@ -1516,7 +1524,7 @@ function onTabClick(event) {
   const close = event.target.closest(".tab-close");
   if (!close) return;
   const el = close.closest(".tab");
-  if (el) closeTab(Number(el.dataset.id));
+  if (el) closeTab(Number(el.dataset.id)).catch(toast);
 }
 
 /* ---------------- themes ---------------- */
@@ -1613,7 +1621,7 @@ function toggleThemeMode() {
   const other = themeIn(current.group, current.mode === "dark" ? "light" : "dark");
   if (other === current) return; // single-sided family: the button reads as off
   state.themeMode = other.mode;
-  selectTheme(other.name);
+  selectTheme(other.name).catch(toast);
 }
 
 /** F8 walks the families, keeping the light/dark side you chose. */
@@ -1622,7 +1630,7 @@ function cycleTheme(step) {
   if (!groups.length) return;
   const i = groups.findIndex((t) => t.group === currentTheme()?.group);
   const next = groups[(i + step + groups.length) % groups.length];
-  selectTheme(themeIn(next.group, state.themeMode).name);
+  selectTheme(themeIn(next.group, state.themeMode).name).catch(toast);
 }
 
 /* ---------------- interactions ---------------- */
@@ -1731,12 +1739,16 @@ function onLinkClick(event) {
       // thing you were reading, and closing the tab is how you get back to it.
       openTab(target).catch(console.error);
     } else {
-      openUrl(convertFileSrc(target)).catch(console.error);
+      // Neither a document nor a picture, so there is nothing to show. Reveal
+      // it in the file manager rather than launching it: the link comes from a
+      // file the user did not write, and `[setup](../tools/setup.bat)` must not
+      // run on a click.
+      invoke("reveal_path", { path: target }).catch(toast);
     }
     return;
   }
 
-  openUrl(href).catch(console.error);
+  openUrl(href).catch(toast);
 }
 
 /**
@@ -2098,12 +2110,12 @@ async function main() {
   });
   els.updateNow.addEventListener("click", runUpdate);
   els.updateNotesBtn.addEventListener("click", () => {
-    if (state.update) openUrl(state.update.release_url).catch(console.error);
+    if (state.update) openUrl(state.update.release_url).catch(toast);
   });
 
   // The picker's value is a family, not a theme: keep the side you chose.
   els.picker.addEventListener("change", (e) => {
-    selectTheme(themeIn(e.target.value, state.themeMode).name);
+    selectTheme(themeIn(e.target.value, state.themeMode).name).catch(toast);
   });
   els.themeToggle.addEventListener("click", toggleThemeMode);
   els.content.addEventListener("click", onCopySection);
@@ -2132,7 +2144,9 @@ async function main() {
   els.bar.addEventListener("pointercancel", onDragCancel);
   els.tabs.addEventListener("click", onTabClick);
 
-  document.addEventListener("keydown", onKeydown);
+  // onKeydown is async, so a failed open or close comes back as a rejected
+  // promise no listener would ever look at: a shortcut would just do nothing.
+  document.addEventListener("keydown", (e) => onKeydown(e).catch(toast));
   document.addEventListener("mouseup", onMouseUp);
   // Chromium fires auxclick for the thumb buttons too; swallow it so the
   // default "navigate" behaviour cannot fight our own handling.

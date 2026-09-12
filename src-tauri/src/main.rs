@@ -17,6 +17,7 @@ use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindowBuilder, Window,
     WindowEvent,
 };
+use tauri_plugin_opener::OpenerExt;
 
 /// Extensions accepted from the command line. A CLI argument is untrusted
 /// input, so an unrecognised path is ignored rather than opened.
@@ -742,6 +743,17 @@ fn set_open_mode(app: AppHandle, mode: String) {
     let _ = app.emit("open-mode-changed", mode);
 }
 
+/// Show a file in the file manager, for links the viewer cannot render itself.
+/// Deliberately not "open it with its default application": the link comes from
+/// a document the user did not write, so `[setup](../tools/setup.bat)` would be
+/// one click away from running. Revealing it leaves that choice with the user.
+#[tauri::command]
+fn reveal_path(app: AppHandle, path: String) -> Result<(), String> {
+    app.opener()
+        .reveal_item_in_dir(path)
+        .map_err(|e| e.to_string())
+}
+
 /* ---------------- app ---------------- */
 
 /// Show a file. Every way a document can arrive — argv at startup, a second
@@ -944,6 +956,7 @@ fn main() {
             get_settings,
             set_theme,
             set_open_mode,
+            reveal_path,
             update::check_for_update,
             update::install_update,
             update::set_auto_update_check,
