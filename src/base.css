@@ -1206,6 +1206,65 @@ html.image-mode {
   line-height: 1.5;
 }
 
+/*
+ * The two controls of a rendered JSON document: the fold marker and the
+ * "… 12 MB more" link. Unstyled buttons — base.css has no global `button`
+ * rule, only `#bar button`, so nothing leaks in. No opacity on either: the
+ * theme's code colour is the one already checked for contrast.
+ */
+.fold,
+.more {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+}
+
+.fold:focus-visible,
+.more:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}
+
+.fold {
+  display: inline-block;
+  width: 1em;
+}
+
+/* A bracket that opens its line hangs its marker in the `pre` padding, so
+   the indentation it heads stays aligned. Rust decides which brackets those
+   are; the rest take their own width and paint over nothing. */
+.fold.gutter {
+  margin-left: -1em;
+}
+
+.fold::before {
+  content: "▾";
+}
+
+.fold[aria-expanded="false"]::before {
+  content: "▸";
+}
+
+/* A collapsed body puts its brackets on one line; this is what goes between. */
+.fold-body[hidden] + .hljs-punctuation::before {
+  content: " … ";
+}
+
+.more {
+  text-decoration: underline dotted;
+}
+
+.more:hover {
+  text-decoration: underline;
+}
+
+.more:disabled {
+  cursor: default;
+}
+
 .markdown-body .table-scroll {
   overflow-x: auto;
   max-width: 100%;

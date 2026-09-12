@@ -4,9 +4,12 @@
   not the older spellings. Without these the file manager has no MIME type to
   match against our MimeType= line, so "Open With" never offers the viewer.
 
-  text/markdown only. The app also accepts .txt from the command line, but
-  claiming text/plain here would put it forward as a handler for every text
-  file on the system, which is not what a Markdown viewer is for.
+  Same for .jsonc: application/json and *.json are in the system database
+  already, the commented spelling is not.
+
+  text/markdown and application/json only. The app also accepts .txt from the
+  command line, but claiming text/plain here would put it forward as a handler
+  for every text file on the system, which is not what a Markdown viewer is for.
 -->
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
   <mime-type type="text/markdown">
@@ -17,5 +20,9 @@
     <glob pattern="*.mdwn"/>
     <glob pattern="*.mdtext"/>
     <glob pattern="*.mdtxt"/>
+  </mime-type>
+  <mime-type type="application/json">
+    <comment>JSON document</comment>
+    <glob pattern="*.jsonc"/>
   </mime-type>
 </mime-info>

@@ -15,26 +15,29 @@
 ; until they change it themselves. The point of the keys below is to make sure
 ; the app is actually *offered* when they go to change it.
 
-; Must match bundle.fileAssociations[].name in tauri.conf.json.
+; Must match bundle.fileAssociations[].name in tauri.conf.json. One ProgID per
+; association, so Explorer's Type column does not call a .json file a Markdown
+; document.
 !define T4_PROGID "T4MarkdownViewer.Document"
+!define T4_JSON_PROGID "T4MarkdownViewer.Json"
 !define T4_CAPKEY "Software\T4MarkdownViewer\Capabilities"
 
 ; SHCNE_ASSOCCHANGED — tell Explorer to re-read associations so the change
 ; shows up without a sign-out.
 !define T4_SHCNE_ASSOCCHANGED 0x08000000
 
-!macro T4_REGISTER_EXT EXT
+!macro T4_REGISTER_EXT EXT PROGID
   ; Offer this app in the "Open with" list for the extension.
-  WriteRegStr SHELL_CONTEXT "Software\Classes\.${EXT}\OpenWithProgids" "${T4_PROGID}" ""
+  WriteRegStr SHELL_CONTEXT "Software\Classes\.${EXT}\OpenWithProgids" "${PROGID}" ""
   ; Declare support on the Applications entry as well; Explorer consults both.
   WriteRegStr SHELL_CONTEXT \
     "Software\Classes\Applications\${MAINBINARYNAME}.exe\SupportedTypes" ".${EXT}" ""
   ; Advertise the association for Settings > Default apps.
-  WriteRegStr SHELL_CONTEXT "${T4_CAPKEY}\FileAssociations" ".${EXT}" "${T4_PROGID}"
+  WriteRegStr SHELL_CONTEXT "${T4_CAPKEY}\FileAssociations" ".${EXT}" "${PROGID}"
 !macroend
 
-!macro T4_UNREGISTER_EXT EXT
-  DeleteRegValue SHELL_CONTEXT "Software\Classes\.${EXT}\OpenWithProgids" "${T4_PROGID}"
+!macro T4_UNREGISTER_EXT EXT PROGID
+  DeleteRegValue SHELL_CONTEXT "Software\Classes\.${EXT}\OpenWithProgids" "${PROGID}"
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
@@ -48,15 +51,19 @@
     "Software\Classes\Applications\${MAINBINARYNAME}.exe\DefaultIcon" "" \
     "$INSTDIR\${MAINBINARYNAME}.exe,0"
 
-  ; A friendly type name so Explorer's Type column reads well.
+  ; Friendly type names so Explorer's Type column reads well.
   WriteRegStr SHELL_CONTEXT "Software\Classes\${T4_PROGID}" "FriendlyTypeName" "Markdown Document"
+  WriteRegStr SHELL_CONTEXT "Software\Classes\${T4_JSON_PROGID}" "FriendlyTypeName" "JSON Document"
 
-  ; --- Per-extension registration. Keep in sync with tauri.conf.json. ---
-  !insertmacro T4_REGISTER_EXT "md"
-  !insertmacro T4_REGISTER_EXT "markdown"
-  !insertmacro T4_REGISTER_EXT "mdown"
-  !insertmacro T4_REGISTER_EXT "mkd"
-  !insertmacro T4_REGISTER_EXT "mdtext"
+  ; --- Per-extension registration. Keep each extension and the ProgID it is
+  ; registered under in sync with bundle.fileAssociations in tauri.conf.json. ---
+  !insertmacro T4_REGISTER_EXT "md" "${T4_PROGID}"
+  !insertmacro T4_REGISTER_EXT "markdown" "${T4_PROGID}"
+  !insertmacro T4_REGISTER_EXT "mdown" "${T4_PROGID}"
+  !insertmacro T4_REGISTER_EXT "mkd" "${T4_PROGID}"
+  !insertmacro T4_REGISTER_EXT "mdtext" "${T4_PROGID}"
+  !insertmacro T4_REGISTER_EXT "json" "${T4_JSON_PROGID}"
+  !insertmacro T4_REGISTER_EXT "jsonc" "${T4_JSON_PROGID}"
 
   ; --- Capabilities: required to appear in Settings > Default apps. ---
   WriteRegStr SHELL_CONTEXT "${T4_CAPKEY}" "ApplicationName" "${PRODUCTNAME}"
@@ -68,11 +75,13 @@
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
-  !insertmacro T4_UNREGISTER_EXT "md"
-  !insertmacro T4_UNREGISTER_EXT "markdown"
-  !insertmacro T4_UNREGISTER_EXT "mdown"
-  !insertmacro T4_UNREGISTER_EXT "mkd"
-  !insertmacro T4_UNREGISTER_EXT "mdtext"
+  !insertmacro T4_UNREGISTER_EXT "md" "${T4_PROGID}"
+  !insertmacro T4_UNREGISTER_EXT "markdown" "${T4_PROGID}"
+  !insertmacro T4_UNREGISTER_EXT "mdown" "${T4_PROGID}"
+  !insertmacro T4_UNREGISTER_EXT "mkd" "${T4_PROGID}"
+  !insertmacro T4_UNREGISTER_EXT "mdtext" "${T4_PROGID}"
+  !insertmacro T4_UNREGISTER_EXT "json" "${T4_JSON_PROGID}"
+  !insertmacro T4_UNREGISTER_EXT "jsonc" "${T4_JSON_PROGID}"
 
   DeleteRegKey SHELL_CONTEXT "Software\Classes\Applications\${MAINBINARYNAME}.exe"
   DeleteRegValue SHELL_CONTEXT "Software\RegisteredApplications" "${PRODUCTNAME}"

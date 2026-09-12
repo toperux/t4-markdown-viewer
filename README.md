@@ -14,8 +14,8 @@ Electron build starts around 150 MB.
 
 ## Features
 
-- **Open by double-click.** `.md`, `.markdown`, `.mdown`, `.mkd`, `.mdtext`
-  are registered by the installer.
+- **Open by double-click.** `.md`, `.markdown`, `.mdown`, `.mkd`, `.mdtext`,
+  `.json`, `.jsonc` are registered by the installer.
 - **Open a folder.** The folder icon beside Back/Forward shows the current
   file's folder as a tree in a sidebar (or asks for one when nothing is open),
   and hides it again on a second press. Clicking the folder's name at the top
@@ -38,6 +38,10 @@ Electron build starts around 150 MB.
   tab of its own, with zoom and pan — a wide ERD is unreadable at column width.
   Clicking a picture embedded in a document opens the same view.
 - **Syntax highlighting** for fenced code blocks.
+- **JSON and JSONC open as documents,** shown as written — comments, key order
+  and formatting kept — highlighted, with every `{…}` and `[…]` foldable. A
+  file on one long line is reflowed first so it can be read, and a very large
+  one loads in chunks: a `… more` at the end of each fetches the next.
 - **GFM**: tables, task lists, footnotes, strikethrough, autolinks,
   definition lists.
 
@@ -179,7 +183,8 @@ What the installer *does* do is make sure the app is actually offered:
 
 - `Software\Classes\Applications\t4-markdown-viewer.exe` with `FriendlyAppName`,
   `DefaultIcon` and `SupportedTypes` — populates "Open with"
-- `.<ext>\OpenWithProgids` → `T4MarkdownViewer.Document` for all five extensions
+- `.<ext>\OpenWithProgids` → `T4MarkdownViewer.Document` for the five Markdown
+  extensions, `T4MarkdownViewer.Json` for `.json` and `.jsonc` — seven in all
 - `Software\T4MarkdownViewer\Capabilities` + a `RegisteredApplications` entry —
   makes it appear in Settings → Default apps
 
@@ -191,8 +196,8 @@ app** → **T4 Markdown Viewer** → tick **Always use this app to open .md file
 **From Settings** — Settings → Apps → Default apps → search *T4 Markdown
 Viewer* → click the `.md` tile → select it.
 
-Repeat per extension if you want `.markdown`, `.mdown`, `.mkd`, `.mdtext` too;
-Windows tracks each one separately.
+Repeat per extension if you want `.markdown`, `.mdown`, `.mkd`, `.mdtext`,
+`.json`, `.jsonc` too; Windows tracks each one separately.
 
 ## Keyboard
 
@@ -394,6 +399,9 @@ instead would have been one line, but it also switches raw URLs back on — the
 Rust's `syntect`. `syntect` bakes colors into inline `style` attributes, which
 CSS themes cannot override — that would defeat the point of CSS theming. The
 cost is that a very large, code-heavy document highlights on the UI thread.
+JSON is the one exception: it is tokenised in Rust into the same `hljs-*`
+classes highlight.js would emit, so every theme already styles it and a 30 MB
+file opens without the UI thread highlighting a line of it.
 
 Blocks with no declared language are *not* auto-detected. Detection is often
 wrong and costs real time; they get the theme's plain code background instead.
@@ -470,6 +478,7 @@ src-tauri/
   src/
     main.rs           windows, file-open routing, drag hit-testing, commands
     render.rs         comrak: Markdown -> HTML
+    json.rs           JSON -> highlighted, foldable, chunked HTML
     themes.rs         theme discovery
     watch.rs          debounced per-window file + theme watching
     config.rs         persisted settings

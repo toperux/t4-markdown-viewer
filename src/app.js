@@ -89,7 +89,13 @@ const state = {
   folder: null,
 };
 
-const MD_LINK = /\.(md|markdown|mdown|mkd|mdtext|mdtxt|mdwn|mkdn)$/i;
+// What opens as a document, by kind. The Open dialog's filters are built
+// from these too, so the two cannot drift apart. Rust's `MD_EXTS` also takes
+// `.txt` from the command line and the sidebar; that is deliberately not
+// offered here — see the note in `linux/t4-markdown-viewer.xml`.
+const MD_EXTS = ["md", "markdown", "mdown", "mkd", "mdtext", "mdtxt", "mdwn", "mkdn"];
+const JSON_EXTS = ["json", "jsonc"];
+const DOC_LINK = new RegExp(`\\.(${[...MD_EXTS, ...JSON_EXTS].join("|")})$`, "i");
 const IMG_LINK = /\.(svg|png|jpe?g|gif|webp|avif|bmp|ico)$/i;
 const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 
@@ -577,7 +583,9 @@ async function showActive(scrollY) {
       await showImage(asset, entry, token);
       if (token !== renderToken) return;
     } else {
-      const doc = await invoke("load_file", { path: entry.path });
+      // `extent` is how far a JSON document had been loaded — undefined on
+      // everything else, which Tauri drops from the call as `None`.
+      const doc = await invoke("load_file", { path: entry.path, extent: entry.extent });
       if (token !== renderToken) return; // a newer switch already won
       entry.path = doc.path;
       tab.path = doc.path;
@@ -1726,8 +1734,12 @@ async function openDialog(options) {
 async function pickFile() {
   const picked = await openDialog({
     multiple: false,
+    // Windows and GTK show only the first filter until the user changes it,
+    // so the first one has to cover everything that opens as a document.
     filters: [
-      { name: "Markdown", extensions: ["md", "markdown", "mdown", "mkd", "mdtext", "mdwn", "mdtxt", "mkdn"] },
+      { name: "Documents", extensions: [...MD_EXTS, ...JSON_EXTS] },
+      { name: "Markdown", extensions: MD_EXTS },
+      { name: "JSON", extensions: JSON_EXTS },
       { name: "Images", extensions: ["svg", "png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico"] },
       { name: "All files", extensions: ["*"] },
     ],
@@ -1799,7 +1811,7 @@ function onLinkClick(event) {
   if (isRelative(href)) {
     const [pathPart, ...rest] = href.split("#");
     const target = resolvePath(activeTab()?.dir ?? "", pathPart);
-    if (MD_LINK.test(pathPart)) {
+    if (DOC_LINK.test(pathPart)) {
       // `notes.md#fc-29` is one link, not two: the file to load and the place
       // in it to land. Dropping the fragment would open every cross-file
       // reference at the top of its document.
@@ -1874,6 +1886,62 @@ function onCopySection(event) {
     // error; the message worth showing is the backend's own.
     .catch((err) => md.then(() => toast(err), toast))
     .finally(() => (btn.disabled = false));
+}
+
+/**
+ * The two controls a rendered JSON document carries. Rust emits both as plain
+ * buttons inside the `<pre>`, so one delegated handler covers every one of them,
+ * including those spliced in later by a `more`.
+ */
+function onJsonClick(event) {
+  const fold = event.target.closest("button.fold");
+  if (fold) {
+    const open = fold.getAttribute("aria-expanded") === "true";
+    fold.setAttribute("aria-expanded", String(!open));
+    // The body is the button's next sibling but one: the opening bracket sits
+    // between them, and the closing one after, which is what the `…` hangs off.
+    const body = fold.nextElementSibling?.nextElementSibling;
+    if (body) body.hidden = open;
+    return;
+  }
+
+  const btn = event.target.closest("button.more");
+  if (!btn) return;
+  // As in `onCopySection`: a second click while the first is in flight would
+  // splice the same region in twice.
+  if (btn.disabled) return;
+  btn.disabled = true;
+  const [start, end] = btn.dataset.range.split(":").map(Number);
+  // As in `onTaskToggle`: the range belongs to the document in the DOM, so the
+  // path has to come from there too, not from a tab entry that may have moved on.
+  const path = els.content.dataset.path;
+  invoke("json_region", { path, start, end })
+    .then((html) => {
+      // The chunk goes where the button was, and may itself end in another one.
+      btn.insertAdjacentHTML("beforebegin", html);
+      btn.remove();
+      // How far the document is now loaded, for the next render of it. The
+      // innermost button left always has the smallest start, so everything
+      // before it is here; with none left the whole document is. A re-render
+      // can only restore a prefix, which is exactly what a budget is.
+      // With none left, the chunk just fetched ran to the end of its range,
+      // which for the last button is the end of the document. `reduce`, not
+      // a spread: a deeply nested cut leaves one button per open container.
+      const loaded = [...els.content.querySelectorAll("button.more")]
+        .map((b) => Number(b.dataset.range.split(":")[0]))
+        .reduce((a, b) => Math.min(a, b), end);
+      // Only if this is still the document on screen: a navigation during
+      // the fetch would otherwise stamp the count on whatever replaced it.
+      const entry = currentEntry(activeTab());
+      if (entry && els.content.dataset.path === path)
+        entry.extent = loaded;
+    })
+    .catch((err) => {
+      // The file has changed under the range — say so in place rather than in a
+      // toast that would be gone before the watcher's re-render lands.
+      btn.textContent = String(err);
+      btn.disabled = false;
+    });
 }
 
 /*
@@ -2190,6 +2258,7 @@ async function main() {
   els.themeToggle.addEventListener("click", toggleThemeMode);
   els.content.addEventListener("click", onCopySection);
   els.content.addEventListener("click", onLinkClick);
+  els.content.addEventListener("click", onJsonClick);
   els.content.addEventListener("change", onTaskToggle);
   els.toast.addEventListener("click", () => (els.toast.hidden = true));
   els.back.addEventListener("click", () => go(-1));

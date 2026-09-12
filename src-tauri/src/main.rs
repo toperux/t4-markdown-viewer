@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod config;
+mod json;
 mod render;
 mod session;
 mod themes;
@@ -28,6 +29,9 @@ const MD_EXTS: &[&str] = &[
 const IMG_EXTS: &[&str] = &[
     "svg", "png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico",
 ];
+/// Shown as highlighted source rather than rendered — see `json.rs`. The
+/// installers register these for Open With, never as the default handler.
+const JSON_EXTS: &[&str] = &["json", "jsonc"];
 
 /// How big a document `load_file` will read. `.txt` is in `MD_EXTS`, so the
 /// sidebar happily offers a multi-gigabyte log, and reading, decoding and
@@ -163,6 +167,17 @@ fn is_markdown(path: &Path) -> bool {
     has_ext(path, MD_EXTS)
 }
 
+fn is_json(path: &Path) -> bool {
+    has_ext(path, JSON_EXTS)
+}
+
+/// What this viewer will open in a document tab, however it is asked — the
+/// command line, the sidebar, a link, a double-click. Mirrors `DOC_LINK` in
+/// app.js.
+fn is_document(path: &Path) -> bool {
+    is_markdown(path) || is_json(path)
+}
+
 /// Mirrors `IMG_LINK` in app.js: what the viewer can show in a tab of its own.
 fn is_image(path: &Path) -> bool {
     has_ext(path, IMG_EXTS)
@@ -183,7 +198,7 @@ fn file_from_args<S: AsRef<str>>(args: &[S]) -> Option<PathBuf> {
     args.iter()
         .skip(1)
         .map(|a| PathBuf::from(a.as_ref()))
-        .find(|p| p.is_file() && is_markdown(p))
+        .find(|p| p.is_file() && is_document(p))
 }
 
 /// `canonicalize` on Windows returns `\\?\C:\...`; the asset protocol and the
@@ -425,26 +440,44 @@ fn locate(path: String) -> Result<(PathBuf, PathBuf), String> {
     Ok((path, dir))
 }
 
-#[tauri::command]
-fn load_file(app: AppHandle, path: String) -> Result<Document, String> {
-    let (path, dir) = locate(path)?;
-
-    let size = std::fs::metadata(&path)
+/// Refuse a file this side would have to read, decode and render whole. Shared
+/// by `load_file` and `json_region` so that a file too big to open is also too
+/// big to fetch a chunk of.
+fn check_size(path: &Path) -> Result<(), String> {
+    let size = std::fs::metadata(path)
         .map_err(|e| format!("{}: {e}", path.display()))?
         .len();
     if size > MAX_DOCUMENT_BYTES {
         return Err(format!(
             "{} is too big to open: {} MB, and the limit is {} MB.",
-            strip_unc(&path),
+            strip_unc(path),
             size / (1024 * 1024),
             MAX_DOCUMENT_BYTES / (1024 * 1024)
         ));
     }
+    Ok(())
+}
+
+/// `extent` is how far a JSON document had been loaded when it was last on
+/// screen — the frontend's count, handed back so a re-render (a tab switched
+/// back to, a live reload, F5) does not drop every chunk a `more` button had
+/// fetched. Omitted by every other caller, and ignored by everything but JSON.
+#[tauri::command]
+fn load_file(app: AppHandle, path: String, extent: Option<usize>) -> Result<Document, String> {
+    let (path, dir) = locate(path)?;
+    check_size(&path)?;
 
     let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let editable = std::str::from_utf8(&bytes).is_ok();
     let text = render::decode(&bytes);
-    let html = render::render(&text);
+    // JSON is shown as source rather than rendered, and highlighted here rather
+    // than in the webview — see `json.rs`.
+    let as_json = is_json(&path);
+    let html = if as_json {
+        json::render_to(&json::source(&text), extent.unwrap_or(0))
+    } else {
+        render::render(&text)
+    };
 
     // Let the webview load images and other assets sitting next to the document.
     // Recursive on purpose: documents reference `images/foo.png`, and the scope
@@ -458,7 +491,13 @@ fn load_file(app: AppHandle, path: String) -> Result<Document, String> {
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let title = render::first_heading(&text).unwrap_or_else(|| file_name.clone());
+    // A JSON document has no headings to be titled by, and the file name is
+    // what the reader went looking for anyway.
+    let title = if as_json {
+        file_name.clone()
+    } else {
+        render::first_heading(&text).unwrap_or_else(|| file_name.clone())
+    };
 
     Ok(Document {
         path: strip_unc(&path),
@@ -517,6 +556,24 @@ fn section_source(path: String, line: usize) -> Result<String, String> {
     let shown = strip_unc(&path);
     let bytes = std::fs::read(&path).map_err(|e| format!("{shown}: {e}"))?;
     render::section(&render::decode(&bytes), line)
+}
+
+/// The next chunk of a large JSON document, for the `… more` button `json.rs`
+/// left at the end of the last one.
+///
+/// The file is read and re-derived rather than kept from the render, for the
+/// same reason `section_source` re-reads: the render is not state this side
+/// owns, and a document can change under it. `render_slice` refuses a range the
+/// derived source no longer has, so a stale button reports an error and the
+/// watcher's re-render replaces the page moments later.
+// ponytail: a one-line 30 MB file is reflowed again on every click (~0.3 s);
+// cache the derived source per path in a `Mutex<HashMap>` if that becomes felt.
+#[tauri::command]
+fn json_region(path: String, start: usize, end: usize) -> Result<String, String> {
+    let (path, _) = locate(path)?;
+    check_size(&path)?;
+    let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", strip_unc(&path)))?;
+    json::render_slice(&json::source(&render::decode(&bytes)), start, end)
 }
 
 /// Point this window's sidebar watcher at exactly the folders on show — the
@@ -603,7 +660,7 @@ fn list_dir(path: String) -> Result<Listing, String> {
             let name = entry.file_name().to_string_lossy().into_owned();
             // `is_dir` follows symlinks, so a linked folder shows as a folder.
             let is_dir = path.is_dir();
-            if !is_dir && !is_markdown(&path) && !is_image(&path) {
+            if !is_dir && !is_document(&path) && !is_image(&path) {
                 return None;
             }
             Some(DirEntry {
@@ -1031,6 +1088,7 @@ fn main() {
             load_file,
             toggle_task,
             section_source,
+            json_region,
             load_asset,
             list_dir,
             watch_files,
@@ -1130,7 +1188,7 @@ fn main() {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = &_event {
                 for path in urls.iter().filter_map(|u| u.to_file_path().ok()) {
-                    if path.is_file() && is_markdown(&path) {
+                    if path.is_file() && is_document(&path) {
                         open_path(_app, &path);
                     }
                 }
@@ -1152,12 +1210,31 @@ mod tests {
     }
 
     #[test]
+    fn json_extensions_recognised() {
+        assert!(is_json(Path::new("a.json")));
+        assert!(is_json(Path::new("a.JSONC")));
+        assert!(!is_json(Path::new("a.json5")));
+        assert!(!is_json(Path::new("a.md")));
+        // Every gate that used to ask for Markdown now asks for this.
+        assert!(is_document(Path::new("a.json")));
+        assert!(is_document(Path::new("a.md")));
+        assert!(!is_document(Path::new("a.png")));
+    }
+
+    #[test]
     fn list_dir_keeps_folders_and_openable_files_in_order() {
         let root = std::env::temp_dir().join(format!("t4-list-dir-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("sub")).unwrap();
         std::fs::create_dir_all(root.join(".hidden")).unwrap();
-        for f in ["a.md", "B.png", "notes.txt", "x.exe", ".dotfile.md"] {
+        for f in [
+            "a.md",
+            "B.png",
+            "c.json",
+            "notes.txt",
+            "x.exe",
+            ".dotfile.md",
+        ] {
             std::fs::write(root.join(f), b"").unwrap();
         }
 
@@ -1175,6 +1252,7 @@ mod tests {
                 ("sub".to_string(), true),
                 ("a.md".to_string(), false),
                 ("B.png".to_string(), false),
+                ("c.json".to_string(), false),
                 ("notes.txt".to_string(), false),
             ]
         );

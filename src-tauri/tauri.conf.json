@@ -58,6 +58,13 @@
         "description": "Markdown Document",
         "role": "Viewer",
         "mimeType": "text/markdown"
+      },
+      {
+        "ext": ["json", "jsonc"],
+        "name": "T4MarkdownViewer.Json",
+        "description": "JSON Document",
+        "role": "Viewer",
+        "mimeType": "application/json"
       }
     ],
     "windows": {
