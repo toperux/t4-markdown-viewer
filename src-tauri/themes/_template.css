@@ -50,6 +50,11 @@
   color-scheme: light;
 }
 
+/*
+ * The page background, and required: the active tab fills itself with it, so it
+ * has to be here on `body` (not only on :root) and distinct from --ui-bg, or
+ * the active tab vanishes into the tab strip.
+ */
 body {
   background: #ffffff;
 }

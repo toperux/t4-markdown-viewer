@@ -71,6 +71,12 @@ Settings dialog — all of which sit outside the document:
 }
 ```
 
+A theme must also paint `body { background }` — on `body`, not only on `:root`
+— in a color distinct from `--ui-bg`. The active tab fills itself with the page
+background so it reads as the front of the document, and a theme that leaves
+`body` alone, or matches it to `--ui-bg`, makes the active tab disappear into
+the strip.
+
 Three more are optional. base.css supplies defaults — `--ui-on-accent` is
 white, `--ui-accent-text` follows `--ui-accent`, `--ui-fg-muted` is `--ui-fg`
 at 75% — so set one only where its default falls short on contrast in your

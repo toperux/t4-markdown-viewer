@@ -413,7 +413,7 @@ main {
   white-space: nowrap;
 }
 
-.tree-row:hover {
+.tree-row:not(.error):hover {
   box-shadow: inset 0 0 0 1px var(--ui-accent);
 }
 
@@ -447,7 +447,7 @@ main {
   transition: transform 0.1s;
 }
 
-.tree-row[aria-expanded="true"] .tree-twist {
+li[aria-expanded="true"] > .tree-row .tree-twist {
   transform: rotate(90deg);
 }
 
@@ -777,7 +777,8 @@ select option {
 }
 
 .tab.active {
-  background: var(--page-bg);
+  /* The fallback covers a theme that failed to load and never set --page-bg. */
+  background: var(--page-bg, rgba(128, 128, 128, 0.22));
   box-shadow: 0 0 6px color-mix(in srgb, var(--ui-fg) 35%, transparent);
   border-bottom-color: var(--ui-accent);
 }
@@ -806,7 +807,7 @@ select option {
 
 #tabs .tab-close:hover {
   color: var(--ui-fg);
-  background: rgba(128, 128, 128, 0.3);
+  box-shadow: inset 0 0 0 1px var(--ui-accent);
 }
 
 /* While being reordered inside the strip the tab stays put and recedes; the
@@ -1279,16 +1280,4 @@ html.image-mode {
    comes from measureBar(), since the bar grows when the tab strip shows. */
 .markdown-body :target {
   scroll-margin-top: calc(var(--bar-h, 3rem) + 0.5rem);
-}
-
-/* Engines without color-mix() (Safari 15, macOS 10.15) can't resolve
-   --ui-fg-muted, so the muted text falls back to the old dimming. Last in the
-   file so it wins over the equal-specificity rules above. The placeholder is
-   its own rule: one unsupported selector drops a whole selector list. */
-@supports not (color: color-mix(in srgb, red, blue)) {
-  #doc-name, .tree-row.error, #settings-dialog .hint, #update-status, #update-dialog .hint {
-    color: var(--ui-fg);
-    opacity: 0.75;
-  }
-  #tree-filter::placeholder { color: var(--ui-fg); opacity: 0.75; }
 }

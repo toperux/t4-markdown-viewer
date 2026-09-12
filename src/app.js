@@ -648,9 +648,13 @@ function renderTabs() {
   tabs.forEach((t, i) => {
     if (i === dropCaret) nodes.push(caretElement());
     const el = document.createElement("div");
-    el.className = "tab" + (t.id === activeId ? " active" : "");
+    const active = t.id === activeId;
+    el.className = "tab" + (active ? " active" : "");
     el.dataset.id = String(t.id);
     el.setAttribute("role", "tab");
+    el.setAttribute("aria-selected", String(active));
+    // Only the active tab is in the tab order, as a tablist should be.
+    el.tabIndex = active ? 0 : -1;
     el.title = t.heading && t.heading !== t.label ? `${t.heading}\n${t.path}` : t.path;
 
     const label = document.createElement("span");
@@ -867,12 +871,13 @@ async function renderTree(ul, dir) {
   treeListings.set(ul, signature);
 
   const expanded = new Set(
-    [...ul.querySelectorAll(':scope > li > .tree-row[aria-expanded="true"]')].map((r) => r.dataset.path),
+    [...ul.querySelectorAll(':scope > li[aria-expanded="true"] > .tree-row')].map((r) => r.dataset.path),
   );
 
   const nodes = entries.map((e) => {
     const li = document.createElement("li");
     li.setAttribute("role", "treeitem");
+    li.tabIndex = -1; // markTreeSelection puts the selected row in the tab order
 
     const row = document.createElement("div");
     row.className = "tree-row";
@@ -888,7 +893,7 @@ async function renderTree(ul, dir) {
       path.setAttribute("d", "M6 3.5 L10.5 8 L6 12.5");
       twist.append(path);
       row.dataset.dir = "1";
-      row.setAttribute("aria-expanded", "false");
+      li.setAttribute("aria-expanded", "false"); // belongs on the treeitem, not the row inside it
     }
 
     const name = document.createElement("span");
@@ -940,7 +945,7 @@ function applyTreeFilter() {
 
 /** Open or close a folder row. Leaves the watcher alone — see syncFolderWatch. */
 async function expandRow(row, open) {
-  row.setAttribute("aria-expanded", String(open));
+  row.parentElement.setAttribute("aria-expanded", String(open));
   const children = row.nextElementSibling;
   children.hidden = !open;
   if (open) await renderTree(children, row.dataset.path);
@@ -960,7 +965,7 @@ function syncFolderWatch() {
   const dirs = [];
   if (state.folder !== null) {
     dirs.push(state.folder);
-    for (const row of els.tree.querySelectorAll('.tree-row[aria-expanded="true"]')) {
+    for (const row of els.tree.querySelectorAll('li[aria-expanded="true"] > .tree-row')) {
       if (!row.closest("ul[hidden]")) dirs.push(row.dataset.path);
     }
   }
@@ -1017,7 +1022,14 @@ function markTreeSelection() {
   if (state.folder === null) return;
   const path = currentEntry(activeTab())?.path;
   for (const row of els.tree.querySelectorAll(".tree-row[data-path]")) {
-    row.classList.toggle("active", !!path && !row.dataset.dir && samePath(row.dataset.path, path));
+    const on = !!path && !row.dataset.dir && samePath(row.dataset.path, path);
+    row.classList.toggle("active", on);
+    // The state is the treeitem's, not the row's, and the selected one is the
+    // single stop the tab order needs in a tree.
+    const li = row.parentElement;
+    if (on) li.setAttribute("aria-selected", "true");
+    else li.removeAttribute("aria-selected");
+    li.tabIndex = on ? 0 : -1;
   }
 }
 
@@ -1027,7 +1039,7 @@ async function onTreeClick(event) {
   const path = row.dataset.path;
 
   if (row.dataset.dir) {
-    await expandRow(row, row.getAttribute("aria-expanded") !== "true");
+    await expandRow(row, row.parentElement.getAttribute("aria-expanded") !== "true");
     syncFolderWatch();
     return;
   }
