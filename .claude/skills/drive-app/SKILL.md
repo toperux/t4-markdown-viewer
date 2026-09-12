@@ -150,3 +150,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/drive-app/scr
   that catch and log fail silently.
 - **Several windows.** `cdp.mjs` drives the first tauri page in `/json/list`.
   Edit its `find` to target another.
+- **One CDP call at a time.** Two Bash calls driving the app in parallel race
+  on the active tab and on native dialogs: an `#open-btn` click during another
+  call's `openTab` loop opened nothing. Chain dependent steps in one call.
+- **`state.themes` holds objects**, not names — loop `applyTheme(t.name)`.
+- **JSON documents** (`json.rs`): `button.fold` toggles `aria-expanded`, its
+  body is `nextElementSibling.nextElementSibling`; `button.more[data-range]`
+  fetches a chunk. Scroll the button into view before `click` — it sits at
+  the end of a long line and the `pre` scrolls sideways.
