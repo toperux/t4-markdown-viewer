@@ -55,8 +55,10 @@ Tick items as they close. Move this file to `done/` once every box is ticked.
     underline; hovered sidebar rows, the folder name and Open-menu items get a thin accent
     outline instead. The tab close × uses the dimmed text colour instead of 55% opacity (which was
     about 2.1:1).*
-  - *macOS 10.15's WebKit has no `color-mix()`, so there the dimmed text falls back to the old
-    75% opacity.*
+  - *The `@supports not (color-mix)` fallback for macOS 10.15's WebKit is gone as of 2026-09-12:
+    it set `color` and `opacity` on a hand-maintained list of elements, which clobbered the
+    opaque `--ui-fg-muted` that Sakura and Solarized define and already missed `.tab-close`.
+    `minimumSystemVersion` is 13.0 now, so every supported WebKit has `color-mix()`.*
   - *Left failing on purpose, because they're upstream colours:*
     - *Solarized's document and syntax colours (light body text is 4.13).*
     - *Solarized's dimmed text is nearly as strong as its normal UI text (4.61 vs 4.63),
