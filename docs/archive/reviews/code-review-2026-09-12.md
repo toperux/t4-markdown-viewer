@@ -1,5 +1,11 @@
 # Full codebase review — 2026-09-12
 
+> **Status (2026-09-13):** closed. Every item is `done` or `wontfix`; the fixes landed on
+> `main` as the six commits de57f40 through 643776a and shipped in 1.5.11. Not driven in
+> the app: #5, #7, #15 (CDP cannot cross windows) and #2 (no UNC share on the test machine;
+> traced by hand). The three limits parked by ruling under *Implementation* are listed in
+> `../../open-items.md` so they are not rediscovered.
+
 Reviewed at `b9c7fc6` (Release 1.5.10). Four parallel reviewers (Rust IPC/backend,
 renderer/themes/updater, frontend, packaging/CI) plus a diff review of the last
 two commits. High and most medium findings were re-verified by hand against the

@@ -1,7 +1,9 @@
 # CI/CD alignment plan — t4-markdown-viewer (mdv)
 
 > **Status (2026-09-11):** shipped. The boxes below were never ticked. Round 2
-> (`ci-alignment-round-2.md`) replaced parts of it, Dependabot among them.
+> (`ci-alignment-round-2.md`, beside this file) replaced parts of it, Dependabot among them;
+> the "Dependabot branches get CI" amendment below went with it (d00b06b), and the gap it
+> covered was closed again by a `pull_request` trigger in 9910b77.
 
 ## Context
 

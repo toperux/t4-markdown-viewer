@@ -1,8 +1,10 @@
 # View .json / .jsonc files — highlighted, foldable, any size
 
-> **Status (2026-09-12):** shipped, in one squashed commit on `main`. Two review rounds
-> ran on top of the first implementation; what they found and changed is in *Outcome* at
-> the end. One thing is left to prove on an installed build — see `../open-items.md`.
+> **Status (2026-09-12):** shipped as 1.6.0, in one squashed commit on `main` (e3c6af3).
+> Two review rounds ran on top of the first implementation; what they found and changed
+> is in *Outcome* at the end. One thing is left to prove on an installed build — the file
+> registration on macOS and deb/rpm (Windows proven 2026-09-13) — see
+> `../../open-items.md`.
 
 ## Context
 

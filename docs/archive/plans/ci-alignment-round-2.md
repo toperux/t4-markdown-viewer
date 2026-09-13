@@ -1,15 +1,17 @@
 # CI/CD alignment, round 2 — t4-markdown-viewer (mdv)
 
-> **Status (2026-09-11):** shipped. The boxes below were never ticked. D10 has since been
-> partly reversed: `.github/dependabot.yml` is back for GitHub Actions updates (with a `ci:`
-> commit prefix since 2bace27), and Dependabot security updates (`automated-security-fixes`)
-> are now on, though this plan left them off on purpose. See `../open-items.md`.
+> **Status (2026-09-11, updated 2026-09-13):** shipped. The boxes below were never ticked.
+> D10 has since been reversed: `.github/dependabot.yml` is back for GitHub Actions *and*
+> cargo (weekly, grouped, `ci:` / `chore:` prefixes; 2bace27, 9910b77), and Dependabot
+> security updates (`automated-security-fixes`) are on. The hole D10 worried about — PRs
+> arriving unchecked — closed when `ci.yml` gained a `pull_request` trigger (9910b77).
+> See `../../open-items.md`.
 
 ## Context
 
 This repo is one of three t4 projects (with `t4-claude-session-browser` and `t4-git-ui`) whose
 GitHub Actions workflows are kept to a single shared shape. Round 1 landed here in commits
-`0290e08`, `9bad897`, `520a385` and `da45f30`; `docs/plans/done/ci-alignment.md` is its record and
+`0290e08`, `9bad897`, `520a385` and `da45f30`; `ci-alignment.md` beside this file is its record and
 stays as-is.
 
 Round 1 worked, but each of the three repos was executed by someone who could not see the
