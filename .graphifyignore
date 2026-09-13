@@ -1,0 +1,15 @@
+# What graphify should not index. It already honours .gitignore (target/,
+# gen/, graphify-out/), so this lists only tracked files that add nothing to
+# the graph or would cost API calls to describe.
+
+# Images: icons and screenshots are pixels, not architecture.
+src-tauri/icons/
+docs/screenshots/
+examples/img/
+app-icon.svg
+
+# Generated or third-party text.
+src-tauri/Cargo.lock
+src-tauri/THIRD-PARTY-LICENSES.md
+src/vendor/
+LICENSE
