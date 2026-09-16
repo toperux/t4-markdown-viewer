@@ -991,7 +991,16 @@ async function openFolder(path) {
   els.sidebar.dataset.tree = ""; // the last folder's error or emptiness is not this one's
   await renderTree(els.tree, path);
   // Canonical from here on, so it compares with what the watcher reports.
-  if (state.folder === path) state.folder = els.tree.dataset.dir;
+  if (state.folder === path) {
+    state.folder = els.tree.dataset.dir;
+    // Fire-and-forget, like `reportSession`: nothing on screen waits for it.
+    // Not when the listing failed, because `dataset.dir` is then still the path
+    // that failed — recording an unplugged drive would lose the folder that
+    // works, and leave the next picker opening in home instead.
+    if (state.folder && els.sidebar.dataset.tree !== "error") {
+      invoke("set_last_folder", { path: state.folder }).catch(console.error);
+    }
+  }
   els.sidebarNameText.textContent = baseName(state.folder);
   els.sidebarName.title = `${state.folder}\nClick to show a different folder`;
   syncFolderWatch();
@@ -1731,9 +1740,16 @@ async function openDialog(options) {
   }
 }
 
+/** Where a picker should open. Rust decides — it can check the path is still there. */
+async function startDir() {
+  return invoke("picker_dir", { dir: activeDir() }).catch(() => "");
+}
+
 async function pickFile() {
+  const dir = await startDir();
   const picked = await openDialog({
     multiple: false,
+    defaultPath: dir || undefined,
     // Windows and GTK show only the first filter until the user changes it,
     // so the first one has to cover everything that opens as a document.
     filters: [
@@ -1748,7 +1764,8 @@ async function pickFile() {
 }
 
 async function pickFolder() {
-  const picked = await openDialog({ directory: true, multiple: false });
+  const dir = await startDir();
+  const picked = await openDialog({ directory: true, multiple: false, defaultPath: dir || undefined });
   return typeof picked === "string" ? picked : null;
 }
 

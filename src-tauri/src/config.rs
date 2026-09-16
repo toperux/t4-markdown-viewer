@@ -19,6 +19,9 @@ pub struct Config {
     /// default: an unsigned app that never mentions its own updates is how
     /// people end up running a year-old build.
     pub auto_update_check: bool,
+    /// Where a picker starts when no document is open. Written whenever a
+    /// folder opens in the sidebar.
+    pub last_folder: String,
 }
 
 impl Default for Config {
@@ -27,8 +30,29 @@ impl Default for Config {
             theme: DEFAULT_THEME.to_string(),
             open_mode: DEFAULT_OPEN_MODE.to_string(),
             auto_update_check: true,
+            last_folder: String::new(),
         }
     }
+}
+
+/// Where a picker should open: the caller's candidate, else the folder last
+/// opened, else home. Each is checked because a picker given a path that has
+/// gone opens its *parent* with the name pre-filled, and either candidate can
+/// have been renamed or unplugged since it was recorded.
+///
+/// The check is a blocking stat, so a saved folder on a share that has gone
+/// away holds the picker for as long as the share takes to answer. Accepted:
+/// the alternative is handing the dialog a path it would open the *parent* of,
+/// and the same stat is what every folder this app lists already pays.
+pub fn start_dir(candidate: &str, saved: &str) -> String {
+    for dir in [candidate, saved] {
+        if !dir.is_empty() && Path::new(dir).is_dir() {
+            return dir.to_string();
+        }
+    }
+    dirs::home_dir()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 /// `%APPDATA%\t4-markdown-viewer`
@@ -102,6 +126,49 @@ mod tests {
         assert_eq!(c.theme, "dracula");
         assert_eq!(c.open_mode, "window");
         assert!(c.auto_update_check);
+    }
+
+    /// And once more for `last_folder`: a config from before pickers remembered
+    /// anything must load with an empty folder, not parse to nothing and take
+    /// the user's theme down with it.
+    #[test]
+    fn config_without_last_folder_still_loads() {
+        let c: Config = serde_json::from_str(
+            r#"{"theme":"dracula","open_mode":"window","auto_update_check":false}"#,
+        )
+        .unwrap();
+        assert_eq!(c.theme, "dracula");
+        assert_eq!(c.open_mode, "window");
+        assert!(!c.auto_update_check);
+        assert_eq!(c.last_folder, "");
+    }
+
+    /// The candidate wins when it is a real directory: the folder of what is on
+    /// screen is a better guess than anything saved earlier.
+    #[test]
+    fn start_dir_prefers_a_real_candidate() {
+        let real = env!("CARGO_MANIFEST_DIR");
+        assert_eq!(start_dir(real, "Z:\\nope"), real);
+    }
+
+    /// Empty or gone, the candidate falls through to the saved folder rather
+    /// than being handed to a dialog that would open its parent.
+    #[test]
+    fn start_dir_falls_back_to_saved() {
+        let real = env!("CARGO_MANIFEST_DIR");
+        assert_eq!(start_dir("", real), real);
+        assert_eq!(start_dir("Z:\\nope", real), real);
+    }
+
+    /// With neither candidate standing, home is the one place always worth
+    /// opening in.
+    #[test]
+    fn start_dir_falls_back_to_home() {
+        let home = dirs::home_dir()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        assert_eq!(start_dir("", ""), home);
+        assert_eq!(start_dir("Z:\\nope", "Z:\\gone"), home);
     }
 
     #[test]

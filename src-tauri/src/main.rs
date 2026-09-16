@@ -879,6 +879,24 @@ fn set_open_mode(app: AppHandle, mode: String) {
     let _ = app.emit("open-mode-changed", mode);
 }
 
+/// Where a picker should open, given what the window has on screen.
+#[tauri::command]
+fn picker_dir(dir: String) -> String {
+    config::start_dir(&dir, &config::load().last_folder)
+}
+
+#[tauri::command]
+fn set_last_folder(path: String) {
+    let mut cfg = config::load();
+    // Toggling the sidebar re-opens the same folder; no reason to rewrite the
+    // file — or to widen the window in which a concurrent theme save is lost.
+    if cfg.last_folder == path {
+        return;
+    }
+    cfg.last_folder = path;
+    config::save(&cfg);
+}
+
 /// Show a file in the file manager, for links the viewer cannot render itself.
 /// Deliberately not "open it with its default application": the link comes from
 /// a document the user did not write, so `[setup](../tools/setup.bat)` would be
@@ -1104,6 +1122,8 @@ fn main() {
             get_settings,
             set_theme,
             set_open_mode,
+            picker_dir,
+            set_last_folder,
             reveal_path,
             update::check_for_update,
             update::install_update,
