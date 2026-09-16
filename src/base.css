@@ -261,6 +261,37 @@ main {
   min-width: 0;
 }
 
+/*
+ * A document flows under the sticky bar, which slices whatever line is passing
+ * clean in half. This fades it into the page colour over the last 3.5rem.
+ * Sticky rather than fixed so it takes `main`'s width and leaves the sidebar
+ * alone; the negative margin keeps it out of the layout. Only for a document —
+ * the image panel has its own scroll box and nothing to fade.
+ */
+main:has(#content:not([hidden]))::before {
+  content: "";
+  display: block;
+  position: sticky;
+  top: var(--bar-h, 0px);
+  z-index: 5;
+  height: 3.5rem;
+  margin-bottom: -3.5rem;
+  /* A plain two-stop gradient still has slope where it ends, and the eye reads
+     that as a line across the page. These stops trace a cosine curve, which
+     arrives at transparent flat, so the band has no bottom edge to see. */
+  background: linear-gradient(
+    var(--page-bg) 0%,
+    color-mix(in srgb, var(--page-bg) 95%, transparent) 15%,
+    color-mix(in srgb, var(--page-bg) 79%, transparent) 30%,
+    color-mix(in srgb, var(--page-bg) 50%, transparent) 50%,
+    color-mix(in srgb, var(--page-bg) 21%, transparent) 70%,
+    color-mix(in srgb, var(--page-bg) 5%, transparent) 85%,
+    color-mix(in srgb, var(--page-bg) 1%, transparent) 95%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
 #sidebar {
   flex: none;
   width: 16rem;
@@ -755,6 +786,17 @@ select option {
   display: none;
 }
 
+/* The active tab's glow, continued inward along the rest of the bar's bottom
+   edge, so the whole edge the document meets is lit the same way. Only with a
+   strip to continue from; on a lone document there is no glow to match. */
+#bar:has(#tabs:not([hidden])) {
+  box-shadow: inset 0 -6px 6px -6px color-mix(in srgb, var(--ui-fg) 35%, transparent);
+  /* The glow is the divider now. The border has to go entirely, not just turn
+     transparent: the bar's own background shows through it, leaving a hairline
+     of bar colour under the active tab and cutting it off from the document. */
+  border-bottom-width: 0;
+}
+
 .tab {
   display: flex;
   align-items: center;
@@ -780,7 +822,9 @@ select option {
   /* The fallback covers a theme that failed to load and never set --page-bg. */
   background: var(--page-bg, rgba(128, 128, 128, 0.22));
   box-shadow: 0 0 6px color-mix(in srgb, var(--ui-fg) 35%, transparent);
-  border-bottom-color: var(--ui-accent);
+  /* No underline: the page colour and the glow already say which tab is live,
+     and this also keeps the hover preview off the active tab. */
+  border-bottom-color: transparent;
 }
 
 .tab-label {
