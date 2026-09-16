@@ -38,6 +38,18 @@ plans and reviews live in `archive/plans/` and `archive/reviews/`.
   *Settled by the code review (9910b77, 1.5.11): `ci.yml` now runs on `pull_request` too, so
   Dependabot PRs get the full matrix before merge. Security updates stay on. Proof: PR #3's
   checks ran (and failed, see Bugs).*
+- [ ] **The `ubuntu-22.04` runner — one choice for all three t4 repos** (added 2026-09-16).
+  `checks.yml` (matrix) and `release.yml` (the bundle leg) pin it on purpose: the `.deb` links
+  against the builder's glibc, so building on the oldest supported runner reaches the most
+  distros. GitHub deprecates the image on 2026-09-17, which is a label warning, not a break; the
+  first hard failure is the brownout on 2027-03-23 (then -03-30, -04-06, -04-13, each
+  14:00–00:00 UTC), and it's unsupported on 2027-04-17 (`actions/runner-images#14254`). Options,
+  unchanged from `archive/plans/ci-alignment.md`: bump to `ubuntu-24.04` (raises the glibc floor
+  and quietly drops older distros), keep 22.04 via `container: ubuntu:22.04`, or `cargo-zigbuild`.
+  If the Linux leg moves into a container, check rustfmt is in the image — `Format` runs on that
+  leg only. Listed here because both `ci-alignment.md` and `ci-alignment-round-2.md` deferred it
+  and are now archived, so it was invisible. t4-git-ui carries the same item in its
+  `docs/plans/open-items.md` §K.
 
 ## Bugs
 
