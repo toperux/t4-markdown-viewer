@@ -4,8 +4,8 @@
 
 Collected on 2026-09-11, after v1.5.9. Sources: a review of history since v1.5.0, CI and
 GitHub state, and a smoke run of the debug build using the `drive-app` skill. Last swept on
-2026-09-13, after v1.6.0 (1.5.10 contrast, 1.5.11 review fixes, 1.6.0 JSON viewer). Nothing
-here blocks a release.
+2026-09-17, after v1.6.3 (1.5.10 contrast, 1.5.11 review fixes, 1.6.0 JSON viewer, 1.6.1–1.6.2
+tab chrome, 1.6.3 session restore). Nothing here blocks a release.
 
 Tick items as they close. Move this file to `archive/` once every box is ticked. Finished
 plans and reviews live in `archive/plans/` and `archive/reviews/`.
@@ -50,9 +50,23 @@ plans and reviews live in `archive/plans/` and `archive/reviews/`.
   leg only. Listed here because both `ci-alignment.md` and `ci-alignment-round-2.md` deferred it
   and are now archived, so it was invisible. t4-git-ui carries the same item in its
   `docs/plans/open-items.md` §K.
+- [ ] **A stale Reopen offer can outlive the session it describes** (added 2026-09-17, 1.6.3).
+  With **Ask me each time**: ignore the offer, open a file, then close that tab. The empty
+  screen comes back with the Reopen button still on it, and pressing it restores the session
+  Rust is still holding in memory — even though `session.json` was overwritten by the file you
+  opened seconds earlier. Arguably a courtesy rather than a fault: the stash is intact and
+  nothing else can reach it. Options: leave it, or hide the button the first time this window
+  opens anything.
 
 ## Bugs
 
+- [ ] **A restored scroll position degraded once, unreproduced** (added 2026-09-17, 1.6.3).
+  During the 1.6.3 drive run a tab recorded `scrollY: 1500`, and some minutes later the same
+  entry read 500 with nothing having touched that window. Two later runs round-tripped 3000
+  exactly, cold restore included, so it is not the obvious suspect (a render clamping the
+  offset while the document is still short, which the scroll listener would then write back).
+  No theory. Reopen with a reproduction; the cost if real is landing in the wrong place once,
+  after which the wrong value sticks.
 - [ ] **Dependabot's cargo PR #3 fails all three CI legs** (opened 2026-09-12, seen 2026-09-13).
   The group bumps seven crates; `comrak` 0.54 → 0.55 deprecates
   `Extension::tagfilter` (removed in 0.56), and clippy's `-D warnings` turns the deprecation
@@ -133,6 +147,13 @@ plans and reviews live in `archive/plans/` and `archive/reviews/`.
   - *That button closed Settings and opened the update dialog: summary, release-notes link,
     restart warning, Update now. Later closed it.*
   - *Installing was not exercised.*
+- [ ] **An update restart still restores the session** (added 2026-09-17, 1.6.3). `snapshot`
+  claims `session.json` for the restart and sets `AppState.installing`, which stands ordinary
+  saves down until the install lands or fails, and the `restart` flag makes the session come
+  back whatever **Reopening** says. All of it is verified by reading the code and by the
+  `session.rs` tests; none of it has survived a real install, which needs a published release
+  to update from. The next in-app update is the proof: tabs, windows and scroll positions
+  should all return, even with **Start fresh** selected.
 
 ## Accepted limits
 
@@ -144,6 +165,18 @@ Parked by ruling in the 2026-09-12 review (`archive/reviews/code-review-2026-09-
 - `check_for_update` sends one request per window when several boot together; the negative
   cache only helps windows that open later.
 - Two concurrent config saves are each atomic, but the pair is last-writer-wins.
+
+Session restore (1.6.3) adds four, each ruled on while planning it and stated in the README so
+a reader meets them before they surprise anyone:
+
+- A window's frame is only as fresh as its last report. Move a window and quit without
+  touching a tab or scrolling, and it comes back where it was before the move.
+- The report is debounced by 500 ms, so quitting inside that window loses the last change.
+- `session.json` is a record of a moment, not a log: close one window and read on in another,
+  and the closed one is gone from the record. Closing every window comes back whole.
+- A manual reinstall of a *different* version drops the saved session once, because the file
+  records the version that wrote it. An in-app update does not — its own snapshot rewrites the
+  file with the version being installed.
 
 ## Housekeeping
 
