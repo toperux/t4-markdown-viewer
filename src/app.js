@@ -2220,6 +2220,12 @@ async function onKeydown(event) {
   } else if (key === "r") {
     event.preventDefault();
     refresh();
+  } else if (key === ",") {
+    // Cmd+, is the Mac idiom for preferences, and the editors copied it onto
+    // the other two platforms. Same door as the gear.
+    event.preventDefault();
+    showOpenMenu(false);
+    els.settings.showModal();
   }
 }
 

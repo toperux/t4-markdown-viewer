@@ -217,6 +217,7 @@ On macOS, read `Cmd` for every `Ctrl` below.
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab |
 | `F5` / `Ctrl+R` | Re-read the current file, keeping your scroll position |
 | `F8` | Next theme (`Shift+F8` for previous) |
+| `Ctrl+,` | Settings |
 | `Ctrl++` / `Ctrl+-` / `Ctrl+0` | Zoom in / out / fit — while a picture is open |
 
 Mouse thumb buttons work for back/forward, and middle-click closes a tab. In
