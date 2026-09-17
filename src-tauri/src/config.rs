@@ -10,6 +10,12 @@ pub const DEFAULT_THEME: &str = "azure-devops-dark";
 /// `"window"` for one window per document.
 pub const DEFAULT_OPEN_MODE: &str = "tab";
 
+/// What a launch does with the windows the last one left behind: `"restore"`
+/// to bring them straight back, `"ask"` to offer them on the empty screen, or
+/// `"off"` to keep no session at all. Asking is the default because coming
+/// back with windows nobody asked for is the more startling of the two.
+pub const DEFAULT_REOPEN: &str = "ask";
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct Config {
@@ -22,6 +28,9 @@ pub struct Config {
     /// Where a picker starts when no document is open. Written whenever a
     /// folder opens in the sidebar.
     pub last_folder: String,
+    /// What to do at startup with the session the last run left behind — see
+    /// `DEFAULT_REOPEN`.
+    pub reopen: String,
 }
 
 impl Default for Config {
@@ -31,6 +40,7 @@ impl Default for Config {
             open_mode: DEFAULT_OPEN_MODE.to_string(),
             auto_update_check: true,
             last_folder: String::new(),
+            reopen: DEFAULT_REOPEN.to_string(),
         }
     }
 }
@@ -141,6 +151,20 @@ mod tests {
         assert_eq!(c.open_mode, "window");
         assert!(!c.auto_update_check);
         assert_eq!(c.last_folder, "");
+    }
+
+    /// And once more for `reopen`: every config written before sessions were
+    /// kept must arrive on the default, not parse to nothing and take the
+    /// user's theme down with it.
+    #[test]
+    fn config_without_reopen_still_loads() {
+        let c: Config = serde_json::from_str(
+            r#"{"theme":"dracula","open_mode":"window","auto_update_check":false,"last_folder":"C:\\notes"}"#,
+        )
+        .unwrap();
+        assert_eq!(c.theme, "dracula");
+        assert_eq!(c.last_folder, "C:\\notes");
+        assert_eq!(c.reopen, DEFAULT_REOPEN);
     }
 
     /// The candidate wins when it is a real directory: the folder of what is on

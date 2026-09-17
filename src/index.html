@@ -116,6 +116,12 @@
           <p class="hint-empty">This folder has no Markdown files or images. Click its name in the sidebar to pick another.</p>
           <p class="hint-error">Couldn’t read this folder. Click its name in the sidebar to pick another.</p>
         </div>
+
+        <!-- Outside both blocks above: the offer belongs to the window, not to
+             whether a folder is open, and those two are swapped by CSS.
+             Unhidden only when a session is waiting and Settings says to ask.
+             Its label counts what is in the session, so the frontend writes it. -->
+        <button id="empty-reopen-btn" type="button" hidden><svg aria-hidden="true"><use href="#icon-file" /></svg><span id="empty-reopen-label"></span></button>
       </section>
 
       <section id="error" hidden>
@@ -165,6 +171,21 @@
           <p class="hint">
             <kbd>Ctrl</kbd>+<kbd>T</kbd>, <kbd>Ctrl</kbd>+<kbd>N</kbd> and the arrow beside
             <b>Open</b> override this for a single file.
+          </p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Reopening</legend>
+          <p class="hint">
+            What to do at startup with the tabs and windows you had open last time. They are written
+            down as you work, so a crash or a power cut costs no more than a quit does.
+          </p>
+          <label><input type="radio" name="reopen" value="restore" /> Restore my tabs and windows</label>
+          <label><input type="radio" name="reopen" value="ask" /> Ask me each time</label>
+          <label><input type="radio" name="reopen" value="off" /> Start fresh</label>
+          <p class="hint">
+            <b>Ask me each time</b> puts a <b>Reopen</b> button on the empty screen.
+            <b>Start fresh</b> keeps nothing at all, and forgets what is saved right away.
           </p>
         </fieldset>
 

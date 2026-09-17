@@ -133,7 +133,12 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
     crate::session::snapshot(&app, update.version.clone()).await;
 
     update.install(bytes).map_err(|e| {
+        // The restart is off, so the file it was for goes, and the ordinary
+        // saves the snapshot had stopped start again.
         crate::session::discard();
+        app.state::<crate::AppState>()
+            .installing
+            .store(false, std::sync::atomic::Ordering::SeqCst);
         e.to_string()
     })?;
 

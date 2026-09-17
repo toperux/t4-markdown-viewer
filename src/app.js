@@ -30,6 +30,7 @@ const els = {
   settingsBtn: document.getElementById("settings-btn"),
   settings: document.getElementById("settings-dialog"),
   modeRadios: document.querySelectorAll('#settings-dialog input[name="open-mode"]'),
+  reopenRadios: document.querySelectorAll('#settings-dialog input[name="reopen"]'),
   autoUpdate: document.getElementById("auto-update"),
   checkNow: document.getElementById("check-now"),
   updateStatus: document.getElementById("update-status"),
@@ -46,6 +47,8 @@ const els = {
   updateNow: document.getElementById("update-now"),
   emptyOpenBtn: document.getElementById("empty-open-btn"),
   emptyFolderBtn: document.getElementById("empty-folder-btn"),
+  emptyReopenBtn: document.getElementById("empty-reopen-btn"),
+  emptyReopenLabel: document.getElementById("empty-reopen-label"),
   content: document.getElementById("content"),
   empty: document.getElementById("empty"),
   image: document.getElementById("image"),
@@ -190,6 +193,9 @@ let nextTabId = 1;
 /** Closed tabs for Ctrl+Shift+T, most recent last. */
 const closedTabs = [];
 const CLOSED_LIMIT = 20;
+
+/** Where Ctrl+click is a right-click and Cmd is the modifier that opens tabs. */
+const isMac = navigator.userAgent.includes("Macintosh");
 
 /** Guards against a slow load painting over a newer tab switch. */
 let renderToken = 0;
@@ -626,6 +632,10 @@ function updateChrome() {
     .setTitle(tab ? `${tab.label} — Markdown Viewer` : "Markdown Viewer")
     .catch(() => {});
   renderTabs();
+  // The funnel every tab change already reaches: opening, activating, closing
+  // and navigating all end up here, so the saved session follows them without
+  // each of them having to remember to say so.
+  scheduleReport();
 }
 
 /**
@@ -725,14 +735,29 @@ function isWatched(file) {
 }
 
 /**
- * Answer Rust's `update-installing` with what this window has open, so the
- * restart can bring it back. The same shape a tab travels in between windows.
+ * Tell Rust what this window has open — which it writes down, so that both an
+ * update restart and an ordinary launch can bring it back. The same shape a
+ * tab travels in between windows.
  */
 function reportSession() {
   return invoke("set_session", {
     tabs: tabs.map(packTab),
     active: Math.max(0, tabs.findIndex((t) => t.id === activeId)),
   }).catch(console.error);
+}
+
+/** How long the reports wait, so a burst of tab changes costs one write. */
+const REPORT_DELAY = 500;
+let reportTimer = null;
+
+/**
+ * Report a moment after things settle. Nothing fires as the last window goes,
+ * so what is on disk when the app quits is whatever the last of these wrote —
+ * which is why they are frequent rather than tidy.
+ */
+function scheduleReport() {
+  clearTimeout(reportTimer);
+  reportTimer = setTimeout(reportSession, REPORT_DELAY);
 }
 
 async function openTab(path) {
@@ -1064,9 +1089,11 @@ async function onTreeClick(event) {
 
   // Ctrl+click opens beside the current document rather than in its place, and
   // Shift+click gives it a window of its own, as in a browser. Plain click
-  // walks the active tab's history like a link.
+  // walks the active tab's history like a link. On the Mac the tab modifier is
+  // Cmd alone: Ctrl+click there is the right-click that raises the menu, and a
+  // webview that sends the click as well would otherwise do both.
   if (event.shiftKey) await invoke("open_window", { path });
-  else if (event.ctrlKey || event.metaKey) await openTab(path);
+  else if (event.metaKey || (event.ctrlKey && !isMac)) await openTab(path);
   else await loadPath(path);
 }
 
@@ -1293,6 +1320,40 @@ function showOpenMode(mode) {
 function setOpenMode(mode) {
   showOpenMode(mode);
   invoke("set_open_mode", { mode }).catch(console.error);
+}
+
+/* ---------------- reopening ---------------- */
+
+/**
+ * Reflect the setting in the dialog. There is no broadcast to answer, unlike
+ * the open mode: nothing but the next launch reads this one.
+ */
+function showReopen(mode) {
+  for (const radio of els.reopenRadios) radio.checked = radio.value === mode;
+}
+
+/** "3 tabs", "1 tab" — the offer counts two things and either can be one. */
+function plural(n, thing) {
+  return `${n} ${thing}${n === 1 ? "" : "s"}`;
+}
+
+/** What the last run left behind, offered rather than simply brought back. */
+function showOffer(windows, tabs) {
+  els.emptyReopenLabel.textContent =
+    `Reopen ${plural(tabs, "tab")} in ${plural(windows, "window")}`;
+  els.emptyReopenBtn.hidden = false;
+}
+
+async function reopenSession() {
+  // The offer goes whatever happens next: Rust hands the session over once,
+  // and pressing twice would ask for a session that is no longer there.
+  els.emptyReopenBtn.hidden = true;
+  const session = await invoke("restore_offered_session");
+  if (!session) return;
+  // The other windows are already being built, each with its own tabs; this
+  // one takes the first, the same three steps the boot arm for a restart runs.
+  await restoreTabs(session.tabs, session.active);
+  if (session.maximized) await appWindow.maximize().catch(() => {});
 }
 
 /* ---------------- updates ---------------- */
@@ -2098,7 +2159,15 @@ async function onKeydown(event) {
   // Any keystroke but a bare modifier dismisses the tree's menu. It floats over
   // the document rather than inside the tree, so a shortcut that hides the
   // sidebar would otherwise leave it pointing at a row that is no longer there.
-  if (!els.treeMenu.hidden && !["Shift", "Control", "Alt", "Meta"].includes(event.key)) {
+  // Not the keys the menu itself is listening for, though: dismissing on Enter
+  // would take the row away before the item it activates could read it.
+  const forMenu =
+    els.treeMenu.contains(document.activeElement) && ["Enter", " ", "Tab"].includes(event.key);
+  if (
+    !els.treeMenu.hidden &&
+    !forMenu &&
+    !["Shift", "Control", "Alt", "Meta"].includes(event.key)
+  ) {
     const li = menuRow?.parentElement;
     showTreeMenu(null);
     li?.focus();
@@ -2253,6 +2322,7 @@ async function main() {
     if (p) await openDocument(p);
   });
   els.emptyFolderBtn.addEventListener("click", chooseFolder);
+  els.emptyReopenBtn.addEventListener("click", () => reopenSession().catch(toast));
 
   els.folderBtn.addEventListener("click", async () => {
     showOpenMenu(false);
@@ -2291,7 +2361,7 @@ async function main() {
   // The tree answers metaKey as well as ctrlKey; on the Mac only one of those
   // is the one people reach for, and Ctrl+click is the right-click that opened
   // this menu in the first place.
-  if (navigator.userAgent.includes("Macintosh"))
+  if (isMac)
     for (const key of els.treeMenu.querySelectorAll(".menu-key"))
       key.textContent = key.textContent.replace("Ctrl", "⌘");
 
@@ -2327,6 +2397,15 @@ async function main() {
   for (const radio of els.modeRadios) {
     radio.addEventListener("change", () => {
       if (radio.checked) setOpenMode(radio.value);
+    });
+  }
+  for (const radio of els.reopenRadios) {
+    radio.addEventListener("change", () => {
+      if (!radio.checked) return;
+      // "Start fresh" throws the saved session away there and then, so an
+      // offer still standing behind the dialog is now for nothing.
+      if (radio.value === "off") els.emptyReopenBtn.hidden = true;
+      invoke("set_reopen", { mode: radio.value }).catch(console.error);
     });
   }
 
@@ -2400,6 +2479,22 @@ async function main() {
   // promise no listener would ever look at: a shortcut would just do nothing.
   document.addEventListener("keydown", (e) => onKeydown(e).catch(toast));
   document.addEventListener("mouseup", onMouseUp);
+  // The one change `updateChrome` never hears about, and the reading position
+  // is otherwise only banked on the way out of a tab — so quitting after a
+  // scroll would come back at the top of the document. Recording it here and
+  // not in the report itself is deliberate: a render puts the page back at the
+  // top before restoring the saved offset, and a timer firing in that gap
+  // would write the zero over the position it is about to restore. On a real
+  // scroll the current offset is by definition the right answer, and the
+  // restore fires one of its own, so the last write is the correct one.
+  window.addEventListener(
+    "scroll",
+    () => {
+      rememberScroll();
+      scheduleReport();
+    },
+    { passive: true },
+  );
   // Chromium fires auxclick for the thumb buttons too; swallow it so the
   // default "navigate" behaviour cannot fight our own handling.
   document.addEventListener("auxclick", (e) => {
@@ -2413,6 +2508,7 @@ async function main() {
   els.autoUpdate.checked = settings.auto_update_check !== false;
   els.appVersion.textContent = settings.version ?? "";
   showOpenMode(settings.open_mode ?? "tab");
+  showReopen(settings.reopen ?? "ask");
   await loadThemeList();
   await applyTheme(settings.theme);
   // The saved theme is the side the reader last chose, so start from it.
@@ -2501,6 +2597,9 @@ async function main() {
   } else {
     show("empty");
     updateChrome();
+    // Nothing to open, but something waiting to be: the empty screen grows a
+    // button offering the session the last run left behind.
+    if (pending?.kind === "offer") showOffer(pending.windows, pending.tabs);
   }
 
   // Window starts hidden so the first frame is already themed and painted. A

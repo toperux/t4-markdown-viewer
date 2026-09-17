@@ -994,6 +994,19 @@ html.dragging-tab * {
   cursor: pointer;
 }
 
+/* The `display` above outranks the browser's own `[hidden]` rule, so the
+   Reopen button — there only when a session is waiting — needs saying
+   explicitly. */
+#empty button[hidden] {
+  display: none;
+}
+
+/* Sits under whichever of the two blocks above is on show, rather than in a
+   row with the open buttons, so it reads as a separate offer. */
+#empty-reopen-btn {
+  margin-top: 1.5rem;
+}
+
 /* A folder on show means the way in is the sidebar, not the open buttons —
    unless its listing failed or came back empty (`data-tree`, set by
    renderTree and reset by openFolder). */

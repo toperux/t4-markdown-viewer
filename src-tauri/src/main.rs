@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex};
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindowBuilder, Window,
@@ -60,9 +60,18 @@ struct Boot {
 struct AppState {
     boot: Mutex<Boot>,
     /// What each window has open, as it last reported — or, until it has, what
-    /// it was created to open. Only read when an update is about to replace
-    /// the process — see `session`.
+    /// it was created to open. What gets written down for the next launch,
+    /// whether that follows an update or an ordinary quit — see `session`.
     sessions: Mutex<HashMap<String, session::OpenTabs>>,
+    /// The session waiting to be offered back, held from boot until the
+    /// reader presses the button on the empty screen. Only filled when the
+    /// setting is `ask`; `restore` puts its windows up there and then.
+    offered: Mutex<Option<session::Session>>,
+    /// Set the moment an update snapshot begins, and never cleared unless the
+    /// install fails. What a snapshot writes is the whole point of the restart
+    /// that follows, so no ordinary save may overwrite it — and the installer
+    /// is slow enough for a debounced report to land in the middle of it.
+    installing: AtomicBool,
     /// Windows a session snapshot is still waiting to hear from, and the bell
     /// each answer rings. See `session::snapshot`.
     awaiting: Mutex<HashSet<String>>,
@@ -724,9 +733,13 @@ fn open_window(app: AppHandle, path: Option<String>) -> String {
     spawn_window(&app, pending, Placement::Default, None)
 }
 
-/// A window answering `update-installing` with what it has open, so the
-/// restart can bring it back. `tabs` is the frontend's own shape, kept opaque
+/// A window saying what it has open: while it works, and once more when
+/// `update-installing` asks. `tabs` is the frontend's own shape, kept opaque
 /// here.
+///
+/// Each report also goes to disk, which is what makes an ordinary quit
+/// recoverable — there is no event for the last window going, so the file has
+/// to be current before it does.
 #[tauri::command]
 fn set_session(state: State<AppState>, window: Window, tabs: Vec<Value>, active: usize) {
     let label = window.label();
@@ -735,6 +748,11 @@ fn set_session(state: State<AppState>, window: Window, tabs: Vec<Value>, active:
         .lock()
         .unwrap()
         .insert(label.to_string(), session::OpenTabs { tabs, active });
+    // Written before the answer is rung in: `reported` is what releases a
+    // waiting snapshot, and the save it then makes is the one that has to
+    // survive. Both write the same file, and the loser of that race would be
+    // the restart the reader is waiting on.
+    session::remember(window.app_handle());
     session::reported(&state, label);
 }
 
@@ -879,6 +897,47 @@ fn set_open_mode(app: AppHandle, mode: String) {
     let _ = app.emit("open-mode-changed", mode);
 }
 
+/// Not broadcast, unlike the open mode: this one is only ever read at boot, so
+/// two open Settings dialogs disagreeing about it until one of them is
+/// reopened costs nothing.
+#[tauri::command]
+fn set_reopen(state: State<AppState>, mode: String) {
+    // Turning it off is meant to be felt now rather than at the next launch:
+    // the file on disk is exactly what the reader has just said not to keep,
+    // and so is the offer any window is still holding out.
+    if mode == "off" {
+        session::discard();
+        *state.offered.lock().unwrap() = None;
+    }
+    let mut cfg = config::load();
+    cfg.reopen = mode;
+    config::save(&cfg);
+}
+
+/// The waiting session, put back because the reader asked for it. The window
+/// that asked takes the first saved window's place — it is the empty one the
+/// button was on — and the rest get windows of their own, exactly as
+/// `restore_session` gives them.
+#[tauri::command]
+fn restore_offered_session(app: AppHandle, window: Window) -> Option<Value> {
+    let session = app.state::<AppState>().offered.lock().unwrap().take()?;
+    let mut windows = session.windows.into_iter();
+    let first = windows.next()?;
+
+    if let (Some(frame), Some(w)) = (&first.frame, app.get_webview_window(window.label())) {
+        frame.apply(&w);
+    }
+    for w in windows {
+        spawn_window(
+            &app,
+            Some(session_payload(&w)),
+            w.frame.map_or(Placement::Default, Placement::Frame),
+            None,
+        );
+    }
+    Some(session_payload(&first))
+}
+
 /// Where a picker should open, given what the window has on screen.
 #[tauri::command]
 fn picker_dir(dir: String) -> String {
@@ -1012,6 +1071,30 @@ fn session_payload(w: &session::WindowSession) -> Value {
     })
 }
 
+/// Hold the saved session back and tell the boot window how much of it is
+/// waiting, so it can offer it as a button on its empty screen rather than
+/// bringing back windows nobody asked for.
+///
+/// A file from the command line has claimed `main` already, and there is then
+/// no empty screen to put the button on, so no offer is made. Starting the app
+/// on a file is starting a session of its own: what that window opens is
+/// written over the old session within the moment, and it is what the next
+/// launch offers. Only `restore` brings the old windows up beside it.
+fn offer_session(state: &AppState, session: session::Session) {
+    let tabs: usize = session.windows.iter().map(|w| w.open.tabs.len()).sum();
+    if tabs == 0 {
+        return;
+    }
+    let payload = json!({
+        "kind": "offer",
+        "windows": session.windows.len(),
+        "tabs": tabs,
+    });
+    if claim_pending(state, "main", payload) {
+        *state.offered.lock().unwrap() = Some(session);
+    }
+}
+
 /// Menu id for the one item that is not predefined.
 #[cfg(target_os = "macos")]
 const CLOSE_WINDOW: &str = "close-window";
@@ -1122,6 +1205,8 @@ fn main() {
             get_settings,
             set_theme,
             set_open_mode,
+            set_reopen,
+            restore_offered_session,
             picker_dir,
             set_last_folder,
             reveal_path,
@@ -1145,6 +1230,12 @@ fn main() {
                     state.sessions.lock().unwrap().remove(label);
                     state.focus_order.lock().unwrap().retain(|l| l != label);
                     session::reported(&state, label);
+                    // Nothing is written here. Quitting is every window
+                    // closing one after another, and a window that has gone
+                    // looks the same either way — so recording what is left
+                    // would whittle the saved session down to whichever
+                    // window happened to close last. The windows that remain
+                    // write the file again at their next change instead.
                 }
                 _ => {}
             }
@@ -1154,11 +1245,31 @@ fn main() {
             let state = app.state::<AppState>();
             touch_focus(&state, "main");
 
+            let reopen = config::load().reopen;
+            let saved = session::read(app.handle());
+            // An update restart is the one case the setting has no say in: the
+            // app promised to come back as it was, and the reader pressed
+            // Update rather than Quit. Only an ordinary session is theirs to
+            // decide about.
+            let restart = saved.as_ref().is_some_and(|s| s.restart);
+            let offering = reopen == "ask" && !restart;
+            // An offer may never be taken, so its file stays where it is — and
+            // needs no cleaning up, since the first thing this run opens writes
+            // over it. Everything else consumes what it found.
+            if !offering {
+                session::discard();
+            }
+            let session = saved.filter(|_| restart || reopen != "off");
+
             // An update restart repeats the old process's argv, so the file it
             // was once double-clicked on would come back even if it had since
             // been closed. That echo is skipped; the session says what is open.
-            let session = session::take(app.handle());
-            let echoed = session.as_ref().is_some_and(|s| s.argv[..] == args[1..]);
+            // Only an update snapshot records an argv to echo: were an ordinary
+            // save to record one, someone who always opens the same file would
+            // find it ignored on every launch after the first.
+            let echoed = session
+                .as_ref()
+                .is_some_and(|s| !s.argv.is_empty() && s.argv[..] == args[1..]);
 
             // Windows and Linux never fire RunEvent::Opened; a cold
             // file-association open arrives as argv. `main` exists by now but
@@ -1168,7 +1279,11 @@ fn main() {
             }
 
             if let Some(s) = session {
-                restore_session(app.handle(), s.windows);
+                if offering {
+                    offer_session(&state, s);
+                } else {
+                    restore_session(app.handle(), s.windows);
+                }
             }
 
             // Broadcast: a theme edit restyles every open window at once.

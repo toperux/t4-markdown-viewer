@@ -30,6 +30,10 @@ Electron build starts around 150 MB.
   whether an opened file lands in a new tab or its own window. Tabs drag to
   reorder, and out onto the desktop to become their own window. Dragging one
   *into* another window is Windows-only — see [Platforms](#platforms).
+- **Pick up where you left off.** What you had open is written down as you work,
+  so the next launch can bring the whole lot back — every window where it stood,
+  every tab with its history and its reading position. It asks first by default;
+  Settings offers restoring outright or keeping nothing at all.
 - **Themes are CSS files.** Fifteen bundled, and you can drop your own into a
   folder. The default is Azure DevOps Dark.
 - **Live reload.** Edit in another editor; the view updates on save and keeps
@@ -308,6 +312,39 @@ leaving this one empty.
 
 Closing the last tab leaves the window empty rather than destroying it; a window
 disappearing from under you is a worse surprise than an empty one.
+
+### Picking up where you left off
+
+Which windows are open, where they stand, what each has in its tabs and how far
+down each document you are: all of it goes to `session.json`, beside
+`config.json`, **as you work** rather than at quit. Nothing tells the app which
+moment is its last, so writing as it goes is also what makes a crash, a power
+cut or a `taskkill` cost no more than a proper quit does.
+
+**Settings → Reopening** decides what the next launch makes of it:
+
+- **Restore my tabs and windows** — everything comes back on its own. A file you
+  double-clicked to start the app opens in the main window, with the saved
+  windows returning alongside it.
+- **Ask me each time** (the default) — the empty screen grows a **Reopen 3 tabs
+  in 2 windows** button. Ignore it and it waits until the next launch; open
+  something instead and that becomes what is saved. Starting the app *by*
+  double-clicking a file skips the offer, since there is no empty screen to put
+  it on, and the file you opened takes the saved session's place.
+- **Start fresh** — nothing is kept, and whatever is already saved is deleted
+  the moment you choose it.
+
+It is a record of a moment, not a log: the last window to report wins. Quitting
+by closing every window comes back whole, but close one window and then read on
+in another and the closed one is gone from the record — while closing one and
+quitting straight after brings it back with the rest.
+
+Installing an update uses the same file, and that one restart always comes back
+as it was whatever the setting says — **Start fresh** included. You pressed
+Update, not Quit, and an app that replaces itself mid-read owes you the page you
+were on. Reinstalling a *different* version by hand drops the saved session
+once: the file records the version that wrote it, and one from another build is
+a leftover rather than something to restore.
 
 ## Themes
 

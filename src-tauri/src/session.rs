@@ -6,11 +6,17 @@
 //! once the update is downloaded every window is asked what it has open, and
 //! the moment before the installer takes over that is written to disk for the
 //! next launch to pick up.
+//!
+//! The same file now also tracks ordinary use — `remember` rewrites it as tabs
+//! come and go — so an ordinary launch has something to come back to as well.
+//! There is no hook that fires as the last window goes, so the only way to
+//! know what was open at the end is to have been writing it all along.
 
 use crate::{config, AppState};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, Monitor, PhysicalPosition, PhysicalSize, WebviewWindow};
 
@@ -39,6 +45,11 @@ impl OpenTabs {
                 tabs: vec![payload.get("tab")?.clone()],
                 active: 0,
             }),
+            // An offer opens nothing: the window shows the empty screen with a
+            // button on it. Spelled out rather than left to the catch-all,
+            // which would otherwise be free to read the counts as a tab list
+            // and have the window report the offer back as its own.
+            "offer" => None,
             _ => serde_json::from_value(payload.clone()).ok(),
         }
     }
@@ -122,8 +133,17 @@ pub struct Session {
     pub version: String,
     /// The arguments the process was started with, minus the program. The
     /// relaunch repeats them verbatim, and this is how that echo is told apart
-    /// from a genuine file-association open.
+    /// from a genuine file-association open. Empty for everything but an
+    /// update snapshot: nothing else is followed by a relaunch that repeats
+    /// them, and recording them would have the launch after this one mistake a
+    /// freshly double-clicked file for the echo and ignore it.
     pub argv: Vec<String>,
+    /// Written by an update snapshot, and by nothing else. A restart is the
+    /// app coming back mid-read rather than a new launch, so it restores
+    /// whatever the reopen setting says about ordinary ones — the reader
+    /// pressed Update, not Quit.
+    #[serde(default)]
+    pub restart: bool,
     /// Least-recently-focused first. Restoring in that order is the intent;
     /// each window still comes forward as its own document finishes loading.
     pub windows: Vec<WindowSession>,
@@ -141,6 +161,10 @@ fn file() -> PathBuf {
 /// reported, or what it was created to open if it never has.
 pub async fn snapshot(app: &AppHandle, version: String) {
     let state = app.state::<AppState>();
+    // From here on the file belongs to the restart. The windows carry on
+    // reporting — `sessions` wants to be current when the save comes — but
+    // none of those reports may write.
+    state.installing.store(true, Ordering::SeqCst);
     let ready = state.boot.lock().unwrap().ready.clone();
     *state.awaiting.lock().unwrap() = ready;
     let _ = app.emit("update-installing", ());
@@ -159,7 +183,34 @@ pub async fn snapshot(app: &AppHandle, version: String) {
     })
     .await;
 
-    save(app, version);
+    save(app, version, std::env::args().skip(1).collect(), true);
+}
+
+/// Write down what is open right now, for an ordinary launch to come back to.
+/// Called whenever a window reports a change, because nothing fires as the app
+/// quits — the last report before the end is what comes back.
+///
+/// Nothing is written when every window is empty: the reader closing their
+/// last tab, or the last window going, must leave the waiting session where it
+/// is rather than replacing it with the nothing that follows it.
+pub fn remember(app: &AppHandle) {
+    if config::load().reopen == "off" {
+        return;
+    }
+    let state = app.state::<AppState>();
+    if state.installing.load(Ordering::SeqCst) {
+        return;
+    }
+    let nothing_open = state
+        .sessions
+        .lock()
+        .unwrap()
+        .values()
+        .all(|open| open.tabs.is_empty());
+    if nothing_open {
+        return;
+    }
+    save(app, app.package_info().version.to_string(), vec![], false);
 }
 
 /// A window has answered `snapshot` — or gone away, which is as much of an
@@ -170,7 +221,7 @@ pub fn reported(state: &AppState, label: &str) {
 }
 
 /// Write out every window that has something open.
-fn save(app: &AppHandle, version: String) {
+fn save(app: &AppHandle, version: String, argv: Vec<String>, restart: bool) {
     let state = app.state::<AppState>();
     let order = state.focus_order.lock().unwrap().clone();
     let open = state.sessions.lock().unwrap().clone();
@@ -195,30 +246,35 @@ fn save(app: &AppHandle, version: String) {
 
     let session = Session {
         version,
-        argv: std::env::args().skip(1).collect(),
+        argv,
+        restart,
         windows,
     };
     config::write_json(&file(), &session);
 }
 
-/// The session the previous process left behind, if this launch is the update
-/// restart it was written for. Consumed either way: a session is for the one
-/// launch that follows an update, and must not come back on every start after
-/// it.
-pub fn take(app: &AppHandle) -> Option<Session> {
-    take_from(&file(), &app.package_info().version.to_string())
+/// What the previous process left behind, if this build is the one it was
+/// written for. Left on disk: whether it is consumed depends on what the
+/// reader has asked for, and an offer they never take has to still be there
+/// at the next launch. Nothing has to clean that up either — the first thing
+/// this run opens writes over it.
+pub fn read(app: &AppHandle) -> Option<Session> {
+    read_from(&file(), &app.package_info().version.to_string())
 }
 
-/// An install that failed after the snapshot leaves the app running, and the
-/// file it wrote must not ambush some later, ordinary launch.
+/// Used up, or thrown away: a restored session must not come back on every
+/// launch after this one, and an install that failed after the snapshot must
+/// not ambush some later, ordinary launch with the file it left.
 pub fn discard() {
-    let _ = std::fs::remove_file(file());
+    discard_at(&file());
 }
 
-fn take_from(path: &Path, current: &str) -> Option<Session> {
-    let text = std::fs::read_to_string(path).ok()?;
+fn discard_at(path: &Path) {
     let _ = std::fs::remove_file(path);
-    serde_json::from_str::<Session>(&text)
+}
+
+fn read_from(path: &Path, current: &str) -> Option<Session> {
+    serde_json::from_str::<Session>(&std::fs::read_to_string(path).ok()?)
         .ok()
         .filter(|s| s.version == current)
 }
@@ -231,6 +287,7 @@ mod tests {
         Session {
             version: "1.4.6".into(),
             argv: vec![r"C:\notes\a.md".into()],
+            restart: true,
             windows: vec![WindowSession {
                 open: OpenTabs {
                     tabs: vec![json!({ "path": r"C:\notes\a.md", "entries": [], "index": 0 })],
@@ -251,14 +308,15 @@ mod tests {
         std::env::temp_dir().join(format!("t4-session-{tag}-{}.json", std::process::id()))
     }
 
-    /// A session is read back exactly once: the launch after an update picks
-    /// it up, and the launch after that must start clean.
+    /// A session that is restored is read once and then gone: the launch after
+    /// an update picks it up, and the launch after that must start clean.
     #[test]
-    fn take_returns_the_session_once() {
+    fn a_restored_session_does_not_come_back() {
         let path = temp_path("once");
         config::write_json(&path, &sample());
-        assert_eq!(take_from(&path, "1.4.6"), Some(sample()));
-        assert_eq!(take_from(&path, "1.4.6"), None);
+        assert_eq!(read_from(&path, "1.4.6"), Some(sample()));
+        discard_at(&path);
+        assert_eq!(read_from(&path, "1.4.6"), None);
         assert!(!path.exists());
     }
 
@@ -267,11 +325,29 @@ mod tests {
     /// different build installed later — and is thrown away rather than
     /// restored.
     #[test]
-    fn take_drops_a_session_for_another_version() {
+    fn a_session_for_another_version_is_dropped() {
         let path = temp_path("stale");
         config::write_json(&path, &sample());
-        assert_eq!(take_from(&path, "1.4.5"), None);
-        assert!(!path.exists());
+        assert_eq!(read_from(&path, "1.4.5"), None);
+    }
+
+    /// What `remember` writes as the reader works: the same file, with no
+    /// arguments in it, and read back without being consumed — an offer nobody
+    /// accepts has to still be there at the next launch.
+    #[test]
+    fn an_ordinary_save_round_trips_unconsumed() {
+        let ordinary = || Session {
+            argv: vec![],
+            restart: false,
+            ..sample()
+        };
+        let path = temp_path("ordinary");
+        config::write_json(&path, &ordinary());
+
+        assert_eq!(read_from(&path, "1.4.6"), Some(ordinary()));
+        assert_eq!(read_from(&path, "1.4.6"), Some(ordinary()));
+        assert!(path.exists());
+        discard_at(&path);
     }
 
     /// A window that reported before Wayland refused its position still
@@ -302,5 +378,16 @@ mod tests {
         .unwrap();
         assert_eq!(restored.active, 0);
         assert_eq!(OpenTabs::from_pending(&json!({ "kind": "other" })), None);
+    }
+
+    /// Except an offer, which says how much is waiting rather than what to
+    /// open. Counted as open, the boot window would report the offer back as
+    /// its own tabs and the next save would write that out.
+    #[test]
+    fn an_offer_opens_nothing() {
+        assert_eq!(
+            OpenTabs::from_pending(&json!({ "kind": "offer", "windows": 2, "tabs": 3 })),
+            None
+        );
     }
 }
