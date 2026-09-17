@@ -26,6 +26,7 @@ const els = {
   sidebarClose: document.getElementById("sidebar-close"),
   treeFilter: document.getElementById("tree-filter"),
   tree: document.getElementById("tree"),
+  treeMenu: document.getElementById("tree-menu"),
   settingsBtn: document.getElementById("settings-btn"),
   settings: document.getElementById("settings-dialog"),
   modeRadios: document.querySelectorAll('#settings-dialog input[name="open-mode"]'),
@@ -1061,9 +1062,11 @@ async function onTreeClick(event) {
     return;
   }
 
-  // Ctrl+click opens beside the current document rather than in its place, as
-  // in a browser. Plain click walks the active tab's history like a link.
-  if (event.ctrlKey || event.metaKey) await openTab(path);
+  // Ctrl+click opens beside the current document rather than in its place, and
+  // Shift+click gives it a window of its own, as in a browser. Plain click
+  // walks the active tab's history like a link.
+  if (event.shiftKey) await invoke("open_window", { path });
+  else if (event.ctrlKey || event.metaKey) await openTab(path);
   else await loadPath(path);
 }
 
@@ -1074,6 +1077,64 @@ async function onTreeAuxClick(event) {
   if (!row || row.dataset.dir) return;
   event.preventDefault();
   await openTab(row.dataset.path);
+}
+
+/* ---------------- the tree's right-click menu ---------------- */
+
+/** The row the open menu belongs to, so its items know what to act on. */
+let menuRow = null;
+
+/**
+ * Right-click a file for the three ways it can open — the same three the
+ * modifiers give, said out loud. Folders get nothing: the row itself is the
+ * only thing you can do to one.
+ */
+function onTreeContextMenu(event) {
+  // Suppressed for the whole tree, not just the rows we answer: a debug build
+  // would otherwise pop the webview's own menu on the ones we skip.
+  event.preventDefault();
+
+  // The keyboard (Shift+F10, Menu) aims at the focused treeitem rather than at
+  // the row inside it, so start from the item either way.
+  const row = event.target.closest('li[role="treeitem"]')?.querySelector(":scope > .tree-row");
+  if (!row || row.dataset.dir) return showTreeMenu(null);
+
+  showTreeMenu(row);
+
+  // Only measurable once it is on: a hidden menu has no width to keep inside
+  // the window. Shift+F10 and the Menu key carry no point to put it at — and
+  // report no button either, where a real right-click reports 2 — so those fall
+  // back to the row. Testing the coordinates instead would mistake a click on
+  // the window's first pixel column for one of them.
+  const menu = els.treeMenu;
+  const box = row.getBoundingClientRect();
+  const fromKeyboard = event.button !== 2;
+  const x = fromKeyboard ? box.left + 8 : event.clientX;
+  const y = fromKeyboard ? box.bottom : event.clientY;
+  menu.style.left = `${Math.max(4, Math.min(x, window.innerWidth - menu.offsetWidth - 4))}px`;
+  menu.style.top = `${Math.max(4, Math.min(y, window.innerHeight - menu.offsetHeight - 4))}px`;
+
+  menu.querySelector("button").focus();
+}
+
+/** `null` closes it. Hiding the focused item drops focus to the body, so the
+ *  callers that came from the keyboard put it back on the row themselves. */
+function showTreeMenu(row) {
+  menuRow = row;
+  els.treeMenu.hidden = !row;
+}
+
+async function onTreeMenuClick(event) {
+  const item = event.target.closest("button[data-open]");
+  if (!item || !menuRow) return;
+  const path = menuRow.dataset.path;
+  const li = menuRow.parentElement;
+  showTreeMenu(null);
+  li.focus();
+
+  if (item.dataset.open === "window") await invoke("open_window", { path });
+  else if (item.dataset.open === "tab") await openTab(path);
+  else await loadPath(path);
 }
 
 /* ---------------- navigation ---------------- */
@@ -2034,6 +2095,16 @@ function onZoomClick(event) {
 }
 
 async function onKeydown(event) {
+  // Any keystroke but a bare modifier dismisses the tree's menu. It floats over
+  // the document rather than inside the tree, so a shortcut that hides the
+  // sidebar would otherwise leave it pointing at a row that is no longer there.
+  if (!els.treeMenu.hidden && !["Shift", "Control", "Alt", "Meta"].includes(event.key)) {
+    const li = menuRow?.parentElement;
+    showTreeMenu(null);
+    li?.focus();
+    if (event.key === "Escape") return; // dismissing it was the whole instruction
+  }
+
   if (event.key === "F8") {
     event.preventDefault();
     cycleTheme(event.shiftKey ? -1 : 1);
@@ -2199,8 +2270,24 @@ async function main() {
       if (row) await loadPath(row.dataset.path);
     }
   });
-  els.tree.addEventListener("click", (e) => onTreeClick(e).catch(console.error));
+  // Toast, not the console: Shift+click asks Rust for a window, and a failure
+  // there has nothing of its own to show — the other two branches render their
+  // own error page.
+  els.tree.addEventListener("click", (e) => onTreeClick(e).catch(toast));
   els.tree.addEventListener("auxclick", (e) => onTreeAuxClick(e).catch(console.error));
+  els.tree.addEventListener("pointerdown", (e) => {
+    // Autoscroll is the middle button's default action, and it would swallow
+    // the auxclick that opens the tab. Same trick as the tab strip.
+    if (e.button === 1) e.preventDefault();
+  });
+  els.tree.addEventListener("contextmenu", onTreeContextMenu);
+  els.treeMenu.addEventListener("click", (e) => onTreeMenuClick(e).catch(toast));
+  // The tree answers metaKey as well as ctrlKey; on the Mac only one of those
+  // is the one people reach for, and Ctrl+click is the right-click that opened
+  // this menu in the first place.
+  if (navigator.userAgent.includes("Macintosh"))
+    for (const key of els.treeMenu.querySelectorAll(".menu-key"))
+      key.textContent = key.textContent.replace("Ctrl", "⌘");
 
   els.openMore.addEventListener("click", () => showOpenMenu());
   els.openMenu.addEventListener("click", async (e) => {
@@ -2220,6 +2307,9 @@ async function main() {
     "pointerdown",
     (e) => {
       if (!els.openMenu.hidden && !e.target.closest("#open-split")) showOpenMenu(false);
+      // Not the menu itself: hiding it here would leave its own click with
+      // nothing to land on.
+      if (!els.treeMenu.hidden && !e.target.closest("#tree-menu")) showTreeMenu(null);
     },
     true,
   );

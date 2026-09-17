@@ -21,7 +21,8 @@ Electron build starts around 150 MB.
   and hides it again on a second press. Clicking the folder's name at the top
   of the sidebar picks a different folder to show;
   clicking a file there opens it in the current tab, so Back walks through
-  what you have read. `Ctrl`+click or middle-click opens it in a new tab. The
+  what you have read. `Ctrl`+click or middle-click opens it in a new tab,
+  `Shift`+click in a new window, and right-click offers all three. The
   tree follows the folder — files added, renamed or removed show up on their
   own. The box above the tree narrows it to names containing what you type,
   across every folder it has listed so far.
@@ -218,7 +219,9 @@ On macOS, read `Cmd` for every `Ctrl` below.
 | `F8` | Next theme (`Shift+F8` for previous) |
 | `Ctrl++` / `Ctrl+-` / `Ctrl+0` | Zoom in / out / fit — while a picture is open |
 
-Mouse thumb buttons work for back/forward, and middle-click closes a tab.
+Mouse thumb buttons work for back/forward, and middle-click closes a tab. In
+the sidebar the same modifiers work as in a browser: `Ctrl`+click or
+middle-click for a new tab, `Shift`+click for a new window.
 
 In a picture tab, `Ctrl`+wheel zooms about the cursor, dragging pans, and
 double-clicking zooms in on what you pointed at and then back out. Plain and
@@ -267,6 +270,10 @@ To go against the default just this once, use the **arrow beside Open** — it
 offers *Open in new tab* and *Open in new window* directly, and changes nothing
 about the saved setting. `Ctrl+T` and `Ctrl+N` are the same two overrides from
 the keyboard.
+
+A file in the sidebar has the same overrides under the right-click menu —
+*Open*, *Open in new tab*, *Open in new window* — or under `Ctrl`+click and
+`Shift`+click, without opening a picker first.
 
 Everything runs in one process no matter how many windows are open, so a second
 window costs a webview rather than a whole second copy of the app.

@@ -211,7 +211,8 @@ body {
   z-index: 1;
 }
 
-#open-menu {
+#open-menu,
+#tree-menu {
   position: absolute;
   top: calc(100% + 4px);
   right: 0;
@@ -226,12 +227,31 @@ body {
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
 }
 
-#open-menu[hidden] {
+#open-menu[hidden],
+#tree-menu[hidden] {
   display: none;
 }
 
-/* Overrides the generic `#bar button` chrome: menu rows, not buttons. */
-#bar #open-menu button {
+/* Placed in viewport coordinates at the cursor, and outside `#bar`, so it has
+   to declare the chrome `#open-menu` inherits from the bar. */
+#tree-menu {
+  position: fixed;
+  top: 0;
+  right: auto;
+  color: var(--ui-fg);
+  font: 400 0.8125rem/1.4 "Segoe UI", system-ui, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Overrides the generic `#bar button` chrome: menu rows, not buttons. The
+   tree's menu is outside `#bar`, so it also needs what that rule set up. */
+#bar #open-menu button,
+#tree-menu button {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
   border: 0;
   border-radius: 3px;
   padding: 0.3125rem 0.75rem;
@@ -239,8 +259,22 @@ body {
   white-space: nowrap;
 }
 
+/* The accelerator column, as a menu anywhere else shows it: what the row does
+   on the left, the shortcut that does the same on the right. */
+#tree-menu button {
+  display: flex;
+  justify-content: space-between;
+  gap: 1.5rem;
+}
+
+#tree-menu .menu-key {
+  color: var(--ui-fg-muted);
+}
+
 #bar #open-menu button:hover,
-#bar #open-menu button:focus-visible {
+#bar #open-menu button:focus-visible,
+#tree-menu button:hover,
+#tree-menu button:focus-visible {
   box-shadow: inset 0 0 0 1px var(--ui-accent);
   border-color: transparent;
 }

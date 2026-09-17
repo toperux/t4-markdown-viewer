@@ -127,6 +127,18 @@
 
     <div id="toast" role="status" aria-live="polite" hidden></div>
 
+    <!-- The sidebar's right-click menu. Body level and fixed, so the tree's own
+         scrolling cannot clip it. -->
+    <div id="tree-menu" role="menu" aria-label="File" hidden>
+      <button type="button" role="menuitem" data-open="here">Open</button>
+      <button type="button" role="menuitem" data-open="tab">
+        Open in new tab<span class="menu-key">Ctrl+Click</span>
+      </button>
+      <button type="button" role="menuitem" data-open="window">
+        Open in new window<span class="menu-key">Shift+Click</span>
+      </button>
+    </div>
+
     <!-- A dialog rather than a page: settings should not cost you the document
          you were reading, and every window shares these values anyway. -->
     <dialog id="settings-dialog" aria-labelledby="settings-title">
