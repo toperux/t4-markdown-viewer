@@ -134,11 +134,16 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
 
     update.install(bytes).map_err(|e| {
         // The restart is off, so the file it was for goes, and the ordinary
-        // saves the snapshot had stopped start again.
+        // saves the snapshot had stopped start again — beginning with one
+        // now, since the snapshot wrote over the last of them.
         crate::session::discard();
         app.state::<crate::AppState>()
             .installing
             .store(false, std::sync::atomic::Ordering::SeqCst);
+        // This is an async command, so not the main thread — and ordinary
+        // saves only happen there — see `session::remember`.
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || crate::session::remember(&handle));
         e.to_string()
     })?;
 

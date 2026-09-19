@@ -15,6 +15,7 @@ use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex};
+use std::time::Instant;
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindowBuilder, Window,
     WindowEvent,
@@ -67,11 +68,22 @@ struct AppState {
     /// reader presses the button on the empty screen. Only filled when the
     /// setting is `ask`; `restore` puts its windows up there and then.
     offered: Mutex<Option<session::Session>>,
+    /// The reopen setting, kept here because `session::remember` asks on every
+    /// report — every scroll-stop in every window — and the config is a file.
+    /// Filled in `setup`, kept current by `set_reopen`.
+    reopen: Mutex<String>,
     /// Set the moment an update snapshot begins, and never cleared unless the
     /// install fails. What a snapshot writes is the whole point of the restart
     /// that follows, so no ordinary save may overwrite it — and the installer
     /// is slow enough for a debounced report to land in the middle of it.
     installing: AtomicBool,
+    /// Windows that closed within the grace of one another, oldest first, as
+    /// they stood when they went. Written out with the open ones until the
+    /// grace is over — see `session::window_closed`.
+    closed: Mutex<Vec<(Instant, session::WindowSession)>>,
+    /// Where each window last stood. A window that has closed cannot be asked,
+    /// and one that is minimized gives no answer worth keeping.
+    frames: Mutex<HashMap<String, session::Frame>>,
     /// Windows a session snapshot is still waiting to hear from, and the bell
     /// each answer rings. See `session::snapshot`.
     awaiting: Mutex<HashSet<String>>,
@@ -901,17 +913,24 @@ fn set_open_mode(app: AppHandle, mode: String) {
 /// two open Settings dialogs disagreeing about it until one of them is
 /// reopened costs nothing.
 #[tauri::command]
-fn set_reopen(state: State<AppState>, mode: String) {
+fn set_reopen(app: AppHandle, state: State<AppState>, mode: String) {
+    let mode = config::reopen_mode(&mode).to_string();
     // Turning it off is meant to be felt now rather than at the next launch:
     // the file on disk is exactly what the reader has just said not to keep,
     // and so is the offer any window is still holding out.
     if mode == "off" {
         session::discard();
         *state.offered.lock().unwrap() = None;
+        state.closed.lock().unwrap().clear();
     }
     let mut cfg = config::load();
-    cfg.reopen = mode;
+    cfg.reopen = mode.clone();
     config::save(&cfg);
+    *state.reopen.lock().unwrap() = mode;
+    // Turning it back on has to be felt now too. Nothing was written while it
+    // was off, and the next report may never come — the reader can quit from
+    // here without touching a tab.
+    session::remember(&app);
 }
 
 /// The waiting session, put back because the reader asked for it. The window
@@ -930,16 +949,20 @@ fn restore_offered_session(app: AppHandle, window: Window) -> Option<Value> {
     for w in windows {
         spawn_window(
             &app,
-            Some(session_payload(&w)),
+            Some(session_payload(&w, false)),
             w.frame.map_or(Placement::Default, Placement::Frame),
             None,
         );
     }
-    Some(session_payload(&first))
+    Some(session_payload(&first, false))
 }
 
 /// Where a picker should open, given what the window has on screen.
-#[tauri::command]
+///
+/// Async only to get off the main thread: `start_dir` stats a folder that may
+/// be on a share that has gone away, and a synchronous command would hold
+/// every window's event loop for as long as the share takes to answer.
+#[tauri::command(async)]
 fn picker_dir(dir: String) -> String {
     config::start_dir(&dir, &config::load().last_folder)
 }
@@ -1035,10 +1058,25 @@ fn open_path(app: &AppHandle, path: &Path) {
 /// The config-declared `main` window already exists and would otherwise stand
 /// empty, so the first saved window goes there — unless a file-association
 /// open has claimed it first, in which case every saved window gets a new one.
-fn restore_session(app: &AppHandle, windows: Vec<session::WindowSession>) {
+///
+/// When `main` is showing a file the reader opened — its own window, or the
+/// saved one that already had it — every other window stands behind it.
+fn restore_session(app: &AppHandle, windows: Vec<session::WindowSession>, held: bool) {
     let state = app.state::<AppState>();
+    let mut windows = windows.into_iter();
+    let first = windows.next();
+
+    // `main` is the file the reader opened in two cases: a saved window that
+    // already had it was surfaced into first place (`held`), or the file got
+    // there before this did and the claim below fails. Either way the rest
+    // stand behind it.
+    let claimed = first
+        .as_ref()
+        .is_some_and(|w| claim_pending(&state, "main", session_payload(w, false)));
+    let behind_main = held || (first.is_some() && !claimed);
+
     let spawn = |w: session::WindowSession| {
-        let pending = session_payload(&w);
+        let pending = session_payload(&w, behind_main);
         spawn_window(
             app,
             Some(pending),
@@ -1046,10 +1084,9 @@ fn restore_session(app: &AppHandle, windows: Vec<session::WindowSession>) {
             None,
         );
     };
-    let mut windows = windows.into_iter();
 
-    if let Some(w) = windows.next() {
-        if claim_pending(&state, "main", session_payload(&w)) {
+    if let Some(w) = first {
+        if claimed {
             if let (Some(frame), Some(main)) = (&w.frame, app.get_webview_window("main")) {
                 frame.apply(&main);
             }
@@ -1061,14 +1098,21 @@ fn restore_session(app: &AppHandle, windows: Vec<session::WindowSession>) {
 }
 
 /// What a restored window opens with. `maximized` is left to the frontend to
-/// act on once it has shown the window — see `session::Frame::apply`.
-fn session_payload(w: &session::WindowSession) -> Value {
-    json!({
+/// act on once it has shown the window — see `session::Frame::apply`. `behind`
+/// names the window to hand the front back to once this one is up: each
+/// window raises itself as it finishes booting, and one restored beside a file
+/// the reader just opened would otherwise bury it.
+fn session_payload(w: &session::WindowSession, behind_main: bool) -> Value {
+    let mut payload = json!({
         "kind": "session",
         "tabs": w.open.tabs,
         "active": w.open.active,
         "maximized": w.frame.as_ref().is_some_and(|f| f.maximized),
-    })
+    });
+    if behind_main {
+        payload["behind"] = json!("main");
+    }
+    payload
 }
 
 /// Hold the saved session back and tell the boot window how much of it is
@@ -1218,6 +1262,11 @@ fn main() {
             let state = window.app_handle().state::<AppState>();
             match event {
                 WindowEvent::Focused(true) => touch_focus(&state, window.label()),
+                // The last moment the window can say where it stands; by
+                // `Destroyed` it is gone, and the chain needs its frame.
+                WindowEvent::CloseRequested { .. } => {
+                    session::note_frame(window.app_handle(), window.label());
+                }
                 WindowEvent::Destroyed => {
                     let label = window.label();
                     state.watches.lock().unwrap().remove(label);
@@ -1227,15 +1276,11 @@ fn main() {
                         boot.pending.remove(label);
                         boot.ready.remove(label);
                     }
-                    state.sessions.lock().unwrap().remove(label);
+                    // Out of `sessions` and into the chain of recent closes,
+                    // and written down with it still in — see `window_closed`.
+                    session::window_closed(window.app_handle(), label);
                     state.focus_order.lock().unwrap().retain(|l| l != label);
                     session::reported(&state, label);
-                    // Nothing is written here. Quitting is every window
-                    // closing one after another, and a window that has gone
-                    // looks the same either way — so recording what is left
-                    // would whittle the saved session down to whichever
-                    // window happened to close last. The windows that remain
-                    // write the file again at their next change instead.
                 }
                 _ => {}
             }
@@ -1246,6 +1291,7 @@ fn main() {
             touch_focus(&state, "main");
 
             let reopen = config::load().reopen;
+            *state.reopen.lock().unwrap() = reopen.clone();
             let saved = session::read(app.handle());
             // An update restart is the one case the setting has no say in: the
             // app promised to come back as it was, and the reader pressed
@@ -1259,7 +1305,7 @@ fn main() {
             if !offering {
                 session::discard();
             }
-            let session = saved.filter(|_| restart || reopen != "off");
+            let mut session = saved.filter(|_| restart || reopen != "off");
 
             // An update restart repeats the old process's argv, so the file it
             // was once double-clicked on would come back even if it had since
@@ -1274,15 +1320,28 @@ fn main() {
             // Windows and Linux never fire RunEvent::Opened; a cold
             // file-association open arrives as argv. `main` exists by now but
             // its webview does not, so this stashes rather than emits.
-            if let Some(path) = file_from_args(&args).filter(|_| !echoed) {
-                open_path(app.handle(), &path);
+            let file = file_from_args(&args).filter(|_| !echoed);
+            // A file the windows about to come back already have open is
+            // brought forward there instead of being opened a second time.
+            // Compared in the form a tab records: canonical, without the UNC
+            // prefix — see `load_file`.
+            let held = !offering
+                && match (&file, session.as_mut()) {
+                    (Some(path), Some(s)) => {
+                        let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.clone());
+                        session::surface(&mut s.windows, &strip_unc(&path))
+                    }
+                    _ => false,
+                };
+            if let Some(path) = file.as_ref().filter(|_| !held) {
+                open_path(app.handle(), path);
             }
 
             if let Some(s) = session {
                 if offering {
                     offer_session(&state, s);
                 } else {
-                    restore_session(app.handle(), s.windows);
+                    restore_session(app.handle(), s.windows, held);
                 }
             }
 

@@ -634,8 +634,9 @@ function updateChrome() {
   renderTabs();
   // The funnel every tab change already reaches: opening, activating, closing
   // and navigating all end up here, so the saved session follows them without
-  // each of them having to remember to say so.
-  scheduleReport();
+  // each of them having to remember to say so. Without delay when it can be:
+  // the reader can quit inside one.
+  reportSoon();
 }
 
 /**
@@ -734,30 +735,41 @@ function isWatched(file) {
   return watched.has(normPath(file));
 }
 
+/** How long reports are held apart, so a run of changes costs one write. */
+const REPORT_DELAY = 500;
+let reportTimer = null;
+let lastReport = 0;
+
 /**
  * Tell Rust what this window has open — which it writes down, so that both an
  * update restart and an ordinary launch can bring it back. The same shape a
  * tab travels in between windows.
  */
 function reportSession() {
+  clearTimeout(reportTimer);
+  lastReport = Date.now();
   return invoke("set_session", {
     tabs: tabs.map(packTab),
     active: Math.max(0, tabs.findIndex((t) => t.id === activeId)),
   }).catch(console.error);
 }
 
-/** How long the reports wait, so a burst of tab changes costs one write. */
-const REPORT_DELAY = 500;
-let reportTimer = null;
-
-/**
- * Report a moment after things settle. Nothing fires as the last window goes,
- * so what is on disk when the app quits is whatever the last of these wrote —
- * which is why they are frequent rather than tidy.
- */
+/** Report a moment after things settle — for the changes that come in runs. */
 function scheduleReport() {
   clearTimeout(reportTimer);
   reportTimer = setTimeout(reportSession, REPORT_DELAY);
+}
+
+/**
+ * Report now if it has been quiet, and a moment after things settle if it has
+ * not. Nothing fires as the last window goes, so a tab closed just before
+ * quitting has to be on disk already or it comes back — but a document being
+ * rewritten under the reader lands here several times a second, and that must
+ * not become several writes a second.
+ */
+function reportSoon() {
+  if (Date.now() - lastReport >= REPORT_DELAY) reportSession();
+  else scheduleReport();
 }
 
 async function openTab(path) {
@@ -785,6 +797,9 @@ async function removeTab(id) {
   const [gone] = tabs.splice(i, 1);
   if (wasActive) activeId = (tabs[i] ?? tabs[i - 1])?.id ?? null;
   syncWatch();
+  // Said now rather than left to `updateChrome`: for the active tab that waits
+  // on the next document loading, and the reader can quit before it has.
+  reportSoon();
   // Losing a background tab changes nothing about what is on screen, and
   // re-rendering would reload the active document and drop the reader back at
   // its last recorded position rather than where they actually are.
@@ -1692,8 +1707,13 @@ async function onDragEnd(event) {
       await removeTab(d.id);
     }
     // Handing the last tab to another window leaves nothing here worth keeping;
-    // the user is already looking at the target, so close the empty shell.
-    if (outcome === "adopted" && tabs.length === 0) await appWindow.close();
+    // the user is already looking at the target, so close the empty shell —
+    // once Rust has heard it is empty, or it would be written down as a closed
+    // window still holding the tab that has just moved.
+    if (outcome === "adopted" && tabs.length === 0) {
+      await reportSession();
+      await appWindow.close();
+    }
   } catch (err) {
     console.error(err);
   }
@@ -2607,8 +2627,24 @@ async function main() {
   if (pending?.maximized) await appWindow.maximize().catch(() => {});
   await appWindow.show();
   // Showing does not raise a window whose process is in the background, and a
-  // window created for a file the user just opened has to land in front.
-  await appWindow.setFocus().catch(() => {});
+  // window created for a file the user just opened has to land in front. One
+  // restored *beside* such a file says so in `behind`, and raises that window
+  // instead of itself — whichever of the two finishes booting last, the file
+  // the reader asked for ends up on top.
+  const front = pending?.behind
+    ? await window.__TAURI__.window.Window.getByLabel(pending.behind)
+    : null;
+  await (front ?? appWindow).setFocus().catch(() => {});
+
+  // Where the window stands, and which one was in front, are saved with the
+  // tabs, and nothing else notices them changing. Maximize arrives as a
+  // resize; so does minimize, and Rust answers that one with the frame it last
+  // had. Registered only now: a report fired while the tabs are still being
+  // restored would say this window has none, and `Frame::apply` resizes it
+  // before they are.
+  window.addEventListener("resize", scheduleReport);
+  window.addEventListener("focus", scheduleReport);
+  appWindow.onMoved(scheduleReport).catch(console.error);
 
   // Last, and not awaited: the document is already on screen, and a slow or
   // unreachable GitHub must cost the reader nothing.

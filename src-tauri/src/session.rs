@@ -24,6 +24,16 @@ use tauri::{AppHandle, Emitter, Manager, Monitor, PhysicalPosition, PhysicalSize
 /// busy for longer than this keeps whatever it last reported.
 const REPORT_TIMEOUT: Duration = Duration::from_secs(1);
 
+/// How long a closed window stays in the saved session. Quitting is every
+/// window closing one after another, and each close restarts this clock — so
+/// a quit ends with all of them still written down, and a window closed on
+/// purpose while the app carries on drops out once this has passed.
+pub const CLOSE_GRACE: Duration = Duration::from_secs(4);
+
+/// How far past the grace the follow-up save runs, so that it lands on the far
+/// side of `chain_expired`'s comparison rather than on it.
+const GRACE_MARGIN: Duration = Duration::from_millis(50);
+
 /// What one window reports: its tabs in the frontend's own shape — the same
 /// JSON a tab travels in when dragged between windows — and which is active.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -116,6 +126,37 @@ impl Frame {
     }
 }
 
+/// Paths as the frontend compares them: by case only where the filesystem does.
+fn same_path(a: &str, b: &str) -> bool {
+    if cfg!(any(windows, target_os = "macos")) {
+        a.eq_ignore_ascii_case(b)
+    } else {
+        a == b
+    }
+}
+
+/// Bring the saved window showing `path` to the front of the list, with that
+/// tab active. First rather than last because the first saved window is the
+/// one that takes `main`, and `main` is what the others then stand behind —
+/// see `restore_session`. False, and nothing moved, when no tab has it.
+pub fn surface(windows: &mut Vec<WindowSession>, path: &str) -> bool {
+    let hit = windows.iter().enumerate().find_map(|(w, window)| {
+        let tab = window.open.tabs.iter().position(|t| {
+            t.get("path")
+                .and_then(Value::as_str)
+                .is_some_and(|p| same_path(p, path))
+        })?;
+        Some((w, tab))
+    });
+    let Some((w, tab)) = hit else {
+        return false;
+    };
+    windows[w].open.active = tab;
+    let window = windows.remove(w);
+    windows.insert(0, window);
+    true
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct WindowSession {
     #[serde(flatten)]
@@ -124,12 +165,18 @@ pub struct WindowSession {
     pub frame: Option<Frame>,
 }
 
+/// What a missing `restart` means — see the field.
+fn yes() -> bool {
+    true
+}
+
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Session {
     /// The version being installed. Only that version's first launch is the
     /// restart this was written for: on Windows the process is gone before the
     /// installer has done anything, so a cancelled install leaves this file
-    /// behind, and whatever launches next must not pick it up.
+    /// behind, and whatever launches next must not treat it as a restart —
+    /// see `read_from`. Means nothing on an ordinary session.
     pub version: String,
     /// The arguments the process was started with, minus the program. The
     /// relaunch repeats them verbatim, and this is how that echo is told apart
@@ -142,7 +189,10 @@ pub struct Session {
     /// app coming back mid-read rather than a new launch, so it restores
     /// whatever the reopen setting says about ordinary ones — the reader
     /// pressed Update, not Quit.
-    #[serde(default)]
+    ///
+    /// Missing means true: 1.6.2 and earlier wrote this file for restarts
+    /// only, and had no field to say so.
+    #[serde(default = "yes")]
     pub restart: bool,
     /// Least-recently-focused first. Restoring in that order is the intent;
     /// each window still comes forward as its own document finishes loading.
@@ -187,30 +237,100 @@ pub async fn snapshot(app: &AppHandle, version: String) {
 }
 
 /// Write down what is open right now, for an ordinary launch to come back to.
-/// Called whenever a window reports a change, because nothing fires as the app
-/// quits — the last report before the end is what comes back.
+/// Called whenever a window reports a change, when one closes, and once more
+/// when the grace after a close is over — nothing fires as the app quits, so
+/// the last write before the end is what comes back.
 ///
-/// Nothing is written when every window is empty: the reader closing their
-/// last tab, or the last window going, must leave the waiting session where it
-/// is rather than replacing it with the nothing that follows it.
+/// Nothing is written when nothing is open and no window has just closed: the
+/// reader closing their last tab must leave the waiting session where it is
+/// rather than replacing it with the nothing that follows it.
+///
+/// Main thread only. This reads the state, then writes and renames, and two
+/// of them on different threads can finish out of order and leave the older
+/// content on disk. Synchronous commands and window events are there already;
+/// anything else gets here through `run_on_main_thread`. A lock around `save`
+/// would not do instead: `Frame::of` asks the window where it stands, which
+/// off the main thread is a round trip through the event loop, and a main
+/// thread parked on that lock would never answer it.
 pub fn remember(app: &AppHandle) {
-    if config::load().reopen == "off" {
+    let state = app.state::<AppState>();
+    if *state.reopen.lock().unwrap() == "off" {
         return;
     }
-    let state = app.state::<AppState>();
     if state.installing.load(Ordering::SeqCst) {
         return;
     }
-    let nothing_open = state
+    let any_open_tab = state
         .sessions
         .lock()
         .unwrap()
         .values()
-        .all(|open| open.tabs.is_empty());
-    if nothing_open {
-        return;
+        .any(|open| !open.tabs.is_empty());
+    {
+        let mut closed = state.closed.lock().unwrap();
+        if chain_expired(closed.last().map(|(t, _)| *t), Instant::now(), any_open_tab) {
+            closed.clear();
+        }
+        if !any_open_tab && closed.is_empty() {
+            return;
+        }
     }
     save(app, app.package_info().version.to_string(), vec![], false);
+}
+
+/// Note where a window stands while it can still be asked — it is about to
+/// close, and the save that follows has only this to go on.
+pub fn note_frame(app: &AppHandle, label: &str) {
+    if let Some(frame) = app.get_webview_window(label).and_then(|w| Frame::of(&w)) {
+        app.state::<AppState>()
+            .frames
+            .lock()
+            .unwrap()
+            .insert(label.to_string(), frame);
+    }
+}
+
+/// A window has gone. Whether the reader closed it on purpose or is on the way
+/// out of the app cannot be told from here — a quit is every window closing
+/// one after another — so it is not forgotten yet: it joins the chain, the
+/// file is written with it still in, and a second save once the grace is over
+/// drops it if the app is still running by then.
+///
+/// Runs on the main thread (a window event), as every ordinary save must.
+pub fn window_closed(app: &AppHandle, label: &str) {
+    let state = app.state::<AppState>();
+    let open = state.sessions.lock().unwrap().remove(label);
+    let frame = state.frames.lock().unwrap().remove(label);
+    // "Start fresh" keeps nothing, and that includes this.
+    if *state.reopen.lock().unwrap() == "off" {
+        return;
+    }
+    // An empty window is never written, open or closed.
+    let Some(open) = open.filter(|open| !open.tabs.is_empty()) else {
+        return;
+    };
+
+    // Judged with this window still counted as open: closing the one window
+    // that has documents, long after some other close, must drop that old
+    // chain rather than carry it along.
+    {
+        let mut closed = state.closed.lock().unwrap();
+        if chain_expired(closed.last().map(|(t, _)| *t), Instant::now(), true) {
+            closed.clear();
+        }
+        closed.push((Instant::now(), WindowSession { open, frame }));
+    }
+    remember(app);
+
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(CLOSE_GRACE + GRACE_MARGIN);
+        // Back on the main thread for the write itself — see `remember`.
+        // Every one of these does the same thing, so a run of closes leaves
+        // nothing to cancel.
+        let app = handle.clone();
+        let _ = handle.run_on_main_thread(move || remember(&app));
+    });
 }
 
 /// A window has answered `snapshot` — or gone away, which is as much of an
@@ -218,6 +338,22 @@ pub fn remember(app: &AppHandle) {
 pub fn reported(state: &AppState, label: &str) {
     state.awaiting.lock().unwrap().remove(label);
     state.reported.notify_all();
+}
+
+/// Whether the chain of recent closes has had its time. Two conditions, and
+/// the second is the one that keeps a lone close from wiping the session:
+/// with no tab open anywhere, the chain is all there is to come back to.
+fn chain_expired(last_close: Option<Instant>, now: Instant, any_open_tab: bool) -> bool {
+    any_open_tab && last_close.is_some_and(|t| now.duration_since(t) >= CLOSE_GRACE)
+}
+
+/// What a save writes: the open windows, then the chain with its newest close
+/// last. Quitting by hand closes the window in front first, so reversing the
+/// chain puts the windows back in the order they stood in.
+fn restorable(open: Vec<WindowSession>, chain: &[(Instant, WindowSession)]) -> Vec<WindowSession> {
+    open.into_iter()
+        .chain(chain.iter().rev().map(|(_, w)| w.clone()))
+        .collect()
 }
 
 /// Write out every window that has something open.
@@ -235,14 +371,31 @@ fn save(app: &AppHandle, version: String, argv: Vec<String>, restart: bool) {
         .collect();
     windows.sort_by_cached_key(|(label, _)| (order.iter().position(|l| l == label), label.clone()));
 
-    let windows = windows
+    let open: Vec<WindowSession> = windows
         .into_iter()
-        .map(|(label, open)| WindowSession {
-            // A window still being built has no frame to speak of yet.
-            frame: app.get_webview_window(&label).and_then(|w| Frame::of(&w)),
-            open,
+        .map(|(label, open)| {
+            // A window still being built has no frame to speak of yet, and a
+            // minimized one has none worth keeping — the last one it did have
+            // stands in, which is also what a closed window is written with.
+            let live = app.get_webview_window(&label).and_then(|w| Frame::of(&w));
+            let mut frames = state.frames.lock().unwrap();
+            if let Some(frame) = &live {
+                frames.insert(label.clone(), frame.clone());
+            }
+            WindowSession {
+                frame: live.or_else(|| frames.get(&label).cloned()),
+                open,
+            }
         })
         .collect();
+
+    // A restart comes back as the app stood; a window closed a moment before
+    // the update was closed. Only an ordinary save carries the chain.
+    let windows = if restart {
+        open
+    } else {
+        restorable(open, &state.closed.lock().unwrap())
+    };
 
     let session = Session {
         version,
@@ -253,18 +406,17 @@ fn save(app: &AppHandle, version: String, argv: Vec<String>, restart: bool) {
     config::write_json(&file(), &session);
 }
 
-/// What the previous process left behind, if this build is the one it was
-/// written for. Left on disk: whether it is consumed depends on what the
-/// reader has asked for, and an offer they never take has to still be there
-/// at the next launch. Nothing has to clean that up either — the first thing
-/// this run opens writes over it.
+/// What the previous process left behind. Left on disk: whether it is consumed
+/// depends on what the reader has asked for, and an offer they never take has
+/// to still be there at the next launch. Nothing has to clean that up either —
+/// the first thing this run opens writes over it.
 pub fn read(app: &AppHandle) -> Option<Session> {
     read_from(&file(), &app.package_info().version.to_string())
 }
 
 /// Used up, or thrown away: a restored session must not come back on every
-/// launch after this one, and an install that failed after the snapshot must
-/// not ambush some later, ordinary launch with the file it left.
+/// launch after this one. A snapshot whose install never happened is not this
+/// function's business — `read_from` demotes it.
 pub fn discard() {
     discard_at(&file());
 }
@@ -273,10 +425,19 @@ fn discard_at(path: &Path) {
     let _ = std::fs::remove_file(path);
 }
 
+/// A restart file is only a restart for the build it was written for. Found by
+/// any other — the install was cancelled, or a different build came later — it
+/// is still what the reader last had open, so it is demoted to an ordinary
+/// session rather than dropped, and rewritten so it stays one. An ordinary
+/// session is read whatever wrote it.
 fn read_from(path: &Path, current: &str) -> Option<Session> {
-    serde_json::from_str::<Session>(&std::fs::read_to_string(path).ok()?)
-        .ok()
-        .filter(|s| s.version == current)
+    let mut session: Session = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    if session.restart && session.version != current {
+        session.restart = false;
+        session.argv.clear();
+        config::write_json(path, &session);
+    }
+    Some(session)
 }
 
 #[cfg(test)]
@@ -320,15 +481,111 @@ mod tests {
         assert!(!path.exists());
     }
 
-    /// A session written for some other version is a leftover from an install
-    /// that never happened — the version that wrote it relaunching, or a
-    /// different build installed later — and is thrown away rather than
-    /// restored.
+    /// A restart file for some other version is an install that never
+    /// happened. What it holds is still what the reader had open, so it comes
+    /// back as an ordinary session — theirs to decide about — and the file is
+    /// rewritten, so installing that version later does not force it on them.
     #[test]
-    fn a_session_for_another_version_is_dropped() {
-        let path = temp_path("stale");
+    fn a_cancelled_install_becomes_an_ordinary_session() {
+        let path = temp_path("cancelled");
         config::write_json(&path, &sample());
-        assert_eq!(read_from(&path, "1.4.5"), None);
+        let demoted = Session {
+            restart: false,
+            argv: vec![],
+            ..sample()
+        };
+        assert_eq!(read_from(&path, "1.4.5"), Some(demoted));
+        // On disk too: the version it was written for no longer sees a restart.
+        assert!(!read_from(&path, "1.4.6").unwrap().restart);
+        discard_at(&path);
+    }
+
+    /// An ordinary session belongs to the reader, not to a build: updating by
+    /// hand, or through a package manager, must not cost them their windows.
+    #[test]
+    fn an_ordinary_session_survives_a_version_change() {
+        let ordinary = Session {
+            argv: vec![],
+            restart: false,
+            ..sample()
+        };
+        let path = temp_path("upgraded");
+        config::write_json(&path, &ordinary);
+        assert_eq!(read_from(&path, "9.9.9"), Some(ordinary));
+        discard_at(&path);
+    }
+
+    /// 1.6.2 and earlier wrote this file for update restarts and nothing else,
+    /// and wrote no `restart` into it. Read as an ordinary session, the update
+    /// that brought this build in would offer what it promised to restore.
+    #[test]
+    fn a_file_without_restart_is_a_restart() {
+        let s: Session =
+            serde_json::from_str(r#"{"version":"1.6.3","argv":[],"windows":[]}"#).unwrap();
+        assert!(s.restart);
+    }
+
+    /// Launched on a file the session already has: that window moves to the
+    /// front of the list — the first one takes `main` — with that tab active,
+    /// instead of the file opening a second time beside it.
+    #[test]
+    fn surfacing_a_held_file_picks_its_window_and_tab() {
+        let window = |paths: &[&str]| WindowSession {
+            open: OpenTabs {
+                tabs: paths.iter().map(|p| json!({ "path": p })).collect(),
+                active: 0,
+            },
+            frame: None,
+        };
+        let mut windows = vec![window(&["/n/a.md"]), window(&["/n/b.md", "/n/c.md"])];
+
+        assert!(surface(&mut windows, "/n/c.md"));
+        assert_eq!(windows[0].open.tabs.len(), 2);
+        assert_eq!(windows[0].open.active, 1);
+        assert_eq!(windows[1].open.tabs[0], json!({ "path": "/n/a.md" }));
+
+        let before = windows.clone();
+        assert!(!surface(&mut windows, "/n/zzz.md"));
+        assert_eq!(windows, before);
+    }
+
+    /// The chain goes when its last close is older than the grace *and*
+    /// something is open to take its place. With no tab open anywhere — the
+    /// window with the documents was the one that closed — it waits, however
+    /// long: what it holds is the only thing worth coming back to.
+    #[test]
+    fn the_chain_expires_after_the_grace_once_something_is_open() {
+        let closed = Instant::now();
+        let inside = closed + CLOSE_GRACE / 2;
+        let after = closed + CLOSE_GRACE;
+
+        assert!(!chain_expired(Some(closed), inside, true));
+        assert!(chain_expired(Some(closed), after, true));
+        assert!(!chain_expired(Some(closed), after, false));
+        assert!(!chain_expired(None, after, true));
+    }
+
+    /// Open windows first, then the chain newest-close-last. Quitting by hand
+    /// closes the window in front first, so the chain runs front-to-back and
+    /// is written back-to-front — the order the windows stood in.
+    #[test]
+    fn the_chain_is_written_behind_first() {
+        let window = |path: &str| WindowSession {
+            open: OpenTabs {
+                tabs: vec![json!({ "path": path })],
+                active: 0,
+            },
+            frame: None,
+        };
+        let now = Instant::now();
+        // B was in front and closed first, then A.
+        let chain = vec![(now, window("b.md")), (now, window("a.md"))];
+
+        let quit = restorable(vec![], &chain);
+        assert_eq!(quit, vec![window("a.md"), window("b.md")]);
+
+        let mid = restorable(vec![window("c.md")], &chain[..1]);
+        assert_eq!(mid, vec![window("c.md"), window("b.md")]);
     }
 
     /// What `remember` writes as the reader works: the same file, with no

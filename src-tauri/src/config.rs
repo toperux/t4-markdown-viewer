@@ -16,6 +16,16 @@ pub const DEFAULT_OPEN_MODE: &str = "tab";
 /// back with windows nobody asked for is the more startling of the two.
 pub const DEFAULT_REOPEN: &str = "ask";
 
+/// The reopen setting as one of the three values the app acts on. The file is
+/// the user's to edit, and every reader of this compares strings.
+pub fn reopen_mode(raw: &str) -> &'static str {
+    match raw {
+        "restore" => "restore",
+        "off" => "off",
+        _ => DEFAULT_REOPEN,
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct Config {
@@ -77,10 +87,12 @@ fn file() -> PathBuf {
 }
 
 pub fn load() -> Config {
-    std::fs::read_to_string(file())
+    let mut cfg: Config = std::fs::read_to_string(file())
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    cfg.reopen = reopen_mode(&cfg.reopen).to_string();
+    cfg
 }
 
 pub fn save(cfg: &Config) {
@@ -165,6 +177,17 @@ mod tests {
         assert_eq!(c.theme, "dracula");
         assert_eq!(c.last_folder, "C:\\notes");
         assert_eq!(c.reopen, DEFAULT_REOPEN);
+    }
+
+    /// A hand-edited `"Ask"` used to fall through every comparison and restore,
+    /// with no radio selected in Settings. Anything unrecognised is the default.
+    #[test]
+    fn reopen_mode_accepts_only_the_three() {
+        assert_eq!(reopen_mode("restore"), "restore");
+        assert_eq!(reopen_mode("off"), "off");
+        assert_eq!(reopen_mode("ask"), "ask");
+        assert_eq!(reopen_mode("Ask"), DEFAULT_REOPEN);
+        assert_eq!(reopen_mode(""), DEFAULT_REOPEN);
     }
 
     /// The candidate wins when it is a real directory: the folder of what is on
