@@ -1117,9 +1117,10 @@ async function onTreeClick(event) {
   // Shift+click gives it a window of its own, as in a browser. Plain click
   // walks the active tab's history like a link. On the Mac the tab modifier is
   // Cmd alone: Ctrl+click there is the right-click that raises the menu, and a
-  // webview that sends the click as well would otherwise do both.
+  // webview that sends the click as well must not also open the file under it.
+  if (isMac && event.ctrlKey) return;
   if (event.shiftKey) await invoke("open_window", { path });
-  else if (event.metaKey || (event.ctrlKey && !isMac)) await openTab(path);
+  else if (event.metaKey || event.ctrlKey) await openTab(path);
   else await loadPath(path);
 }
 
@@ -1158,10 +1159,11 @@ function onTreeContextMenu(event) {
   // the window. Shift+F10 and the Menu key carry no point to put it at — and
   // report no button either, where a real right-click reports 2 — so those fall
   // back to the row. Testing the coordinates instead would mistake a click on
-  // the window's first pixel column for one of them.
+  // the window's first pixel column for one of them. A Mac Ctrl+click reports
+  // no button either, but it does have a point.
   const menu = els.treeMenu;
   const box = row.getBoundingClientRect();
-  const fromKeyboard = event.button !== 2;
+  const fromKeyboard = event.button !== 2 && !(isMac && event.ctrlKey);
   const x = fromKeyboard ? box.left + 8 : event.clientX;
   const y = fromKeyboard ? box.bottom : event.clientY;
   menu.style.left = `${Math.max(4, Math.min(x, window.innerWidth - menu.offsetWidth - 4))}px`;
