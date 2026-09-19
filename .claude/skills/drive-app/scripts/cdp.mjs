@@ -2,7 +2,11 @@
 import { writeFileSync } from "node:fs";
 const [port, cmd, arg] = process.argv.slice(2);
 const pages = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
-const page = pages.find((p) => p.type === "page" && p.url.includes("tauri"));
+// CDP_PAGE=<n> picks the nth tauri page; which window that is, ask it:
+// eval "appWindow.label"
+const page = pages.filter((p) => p.type === "page" && p.url.includes("tauri"))[
+  Number(process.env.CDP_PAGE ?? 0)
+];
 const ws = new WebSocket(page.webSocketDebuggerUrl);
 await new Promise((r) => ws.addEventListener("open", r, { once: true }));
 let id = 0;

@@ -40,6 +40,11 @@ Scripts in `.claude/skills/drive-app/scripts/` (run from the repo root):
   stays open and may save its own changes meanwhile, so at the end restore it
   only if the debug app changed it — diff the live file against the backup
   first, and copy back only that change.
+- **So is the session.** `session.json` sits beside it, and with the user's
+  `"reopen": "restore"` the first debug launch brings back *their* windows and
+  then writes over the file. Back it up too, and set `"reopen": "off"` in
+  `config.json` before the first launch unless session restore is the thing
+  under test. Restore both at the end.
 - **Port.** `netstat -ano | grep 9222`. t4-git-ui often holds 9222; use 9223.
 - **Build.** Use the `TAURI_CONFIG` command above, and rebuild after every
   `src/` edit: frontend assets are embedded at build time. Themes are copied into
@@ -148,8 +153,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/drive-app/scr
 - **Closing a window from JS** needs `core:window:allow-close` in
   `capabilities/default.json`. `core:default` doesn't include it, and callers
   that catch and log fail silently.
-- **Several windows.** `cdp.mjs` drives the first tauri page in `/json/list`.
-  Edit its `find` to target another.
+- **Several windows.** `CDP_PAGE=<n> node cdp.mjs …` picks the nth tauri page in
+  `/json/list` (default 0). The order is not the window order —
+  `eval "appWindow.label"` says which window a page is.
 - **One CDP call at a time.** Two Bash calls driving the app in parallel race
   on the active tab and on native dialogs: an `#open-btn` click during another
   call's `openTab` loop opened nothing. Chain dependent steps in one call.
