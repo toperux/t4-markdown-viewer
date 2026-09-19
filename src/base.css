@@ -297,7 +297,9 @@ main {
 
 /*
  * A document flows under the sticky bar, which slices whatever line is passing
- * clean in half. This fades it into the page colour over the last 3.5rem.
+ * clean in half. This fades it into the page colour over the height of the
+ * content's own top padding — so a document at rest starts exactly where the
+ * band ends, and only text that has scrolled up into it is faded.
  * Sticky rather than fixed so it takes `main`'s width and leaves the sidebar
  * alone; the negative margin keeps it out of the layout. Only for a document —
  * the image panel has its own scroll box and nothing to fade.
@@ -308,8 +310,8 @@ main:has(#content:not([hidden]))::before {
   position: sticky;
   top: var(--bar-h, 0px);
   z-index: 5;
-  height: 3.5rem;
-  margin-bottom: -3.5rem;
+  height: var(--content-pad);
+  margin-bottom: calc(-1 * var(--content-pad));
   /* A plain two-stop gradient still has slope where it ends, and the eye reads
      that as a line across the page. These stops trace a cosine curve, which
      arrives at transparent flat, so the band has no bottom edge to see. */
@@ -1426,8 +1428,9 @@ html.image-mode {
   border-top-style: solid;
 }
 
-/* Anchor targets clear the sticky bar instead of hiding behind it. `--bar-h`
-   comes from measureBar(), since the bar grows when the tab strip shows. */
+/* Anchor targets clear the sticky bar — and the fade band under it — instead
+   of hiding behind them. `--bar-h` comes from measureBar(), since the bar
+   grows when the tab strip shows. */
 .markdown-body :target {
-  scroll-margin-top: calc(var(--bar-h, 3rem) + 0.5rem);
+  scroll-margin-top: calc(var(--bar-h, 3rem) + var(--content-pad));
 }
