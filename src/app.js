@@ -200,6 +200,13 @@ const isMac = navigator.userAgent.includes("Macintosh");
 /** Guards against a slow load painting over a newer tab switch. */
 let renderToken = 0;
 
+/**
+ * The render whose document is on screen. Behind `renderToken` from the moment
+ * a switch begins until what it asked for is shown — and for that long the
+ * page still belongs to the entry being left, not the active one.
+ */
+let shownToken = 0;
+
 function activeTab() {
   return tabs.find((t) => t.id === activeId) ?? null;
 }
@@ -561,14 +568,17 @@ function onResize() {
 /** Render whatever the active tab points at. `scrollY` overrides the saved spot. */
 async function showActive(scrollY) {
   const tab = activeTab();
+  // Before the empty screen too: closing the last tab while it is still
+  // loading must outdate that load, or it paints the closed document over this.
+  const token = ++renderToken;
   if (!tab) {
+    shownToken = token;
     show("empty");
     updateChrome();
     return;
   }
 
   const entry = currentEntry(tab);
-  const token = ++renderToken;
   try {
     if (isImage(entry.path)) {
       // No content to fetch: the webview loads the bytes itself over the asset
@@ -615,6 +625,7 @@ async function showActive(scrollY) {
     els.errorDetail.textContent = String(err);
     show("error");
   }
+  shownToken = token;
   syncWatch();
   updateChrome();
 }
@@ -2507,9 +2518,13 @@ async function main() {
   // would write the zero over the position it is about to restore. On a real
   // scroll the current offset is by definition the right answer, and the
   // restore fires one of its own, so the last write is the correct one.
+  // Not while a switch is loading, though: the active entry has already moved
+  // on and the old document is still what is scrolling, so banking now would
+  // hand the new entry the old one's offset.
   window.addEventListener(
     "scroll",
     () => {
+      if (shownToken !== renderToken) return;
       rememberScroll();
       scheduleReport();
     },
