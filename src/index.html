@@ -76,6 +76,9 @@
             <svg aria-hidden="true"><use href="#icon-folder" /></svg>
             <span id="sidebar-name-text"></span>
           </button>
+          <button id="sidebar-sort" class="nav" type="button" title="Sort" aria-label="Sort" aria-haspopup="menu" aria-expanded="false">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4 H13 M3 8 H9.5 M3 12 H6" /></svg>
+          </button>
           <button id="sidebar-close" class="nav" type="button" title="Close folder" aria-label="Close folder">
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4 L12 12 M12 4 L4 12" /></svg>
           </button>
@@ -143,6 +146,13 @@
       <button type="button" role="menuitem" data-open="window">
         Open in new window<span class="menu-key">Shift+Click</span>
       </button>
+    </div>
+
+    <!-- What the sidebar orders its files by. Body level and fixed for the same
+         reason as the menu above, and placed under its button at open time. -->
+    <div id="sort-menu" role="menu" aria-label="Sort" hidden>
+      <button type="button" role="menuitemradio" data-sort="name">Name</button>
+      <button type="button" role="menuitemradio" data-sort="modified">Date modified</button>
     </div>
 
     <!-- A dialog rather than a page: settings should not cost you the document

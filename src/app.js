@@ -23,10 +23,12 @@ const els = {
   sidebar: document.getElementById("sidebar"),
   sidebarName: document.getElementById("sidebar-name"),
   sidebarNameText: document.getElementById("sidebar-name-text"),
+  sidebarSort: document.getElementById("sidebar-sort"),
   sidebarClose: document.getElementById("sidebar-close"),
   treeFilter: document.getElementById("tree-filter"),
   tree: document.getElementById("tree"),
   treeMenu: document.getElementById("tree-menu"),
+  sortMenu: document.getElementById("sort-menu"),
   settingsBtn: document.getElementById("settings-btn"),
   settings: document.getElementById("settings-dialog"),
   modeRadios: document.querySelectorAll('#settings-dialog input[name="open-mode"]'),
@@ -91,6 +93,12 @@ const state = {
   update: null,
   /** Root of the folder in the sidebar, or null while it is closed. */
   folder: null,
+  /**
+   * What the sidebar orders its files by, from `get_settings` at boot:
+   * `"modified"` for newest first, `"name"` otherwise. Rust does the sorting;
+   * this is only what gets handed to it.
+   */
+  folderSort: "name",
 };
 
 // What opens as a document, by kind. The Open dialog's filters are built
@@ -901,15 +909,20 @@ const treeListings = new WeakMap();
  * One level at a time. A list is rebuilt whenever its folder is expanded or
  * the watcher reports a change in it, and whatever was expanded inside it is
  * expanded again afterwards, so a re-list never costs the user their place.
+ *
+ * `keep` is what a rebuilt ancestor saw open below here. This list is new and
+ * empty by the time it is asked, so it cannot see that for itself, and without
+ * it a rebuild would reopen one level and leave everything deeper shut.
  */
-async function renderTree(ul, dir) {
+async function renderTree(ul, dir, keep = new Set()) {
   const token = (treeTokens.get(ul) ?? 0) + 1;
   treeTokens.set(ul, token);
   ul.dataset.dir = dir;
 
+  const sort = state.folderSort; // read once: it can change while the listing is out
   let listing;
   try {
-    listing = await invoke("list_dir", { path: dir });
+    listing = await invoke("list_dir", { path: dir, sort });
   } catch (err) {
     if (token !== treeTokens.get(ul)) return;
     treeListings.delete(ul);
@@ -926,13 +939,18 @@ async function renderTree(ul, dir) {
 
   // The watcher reports every save in the folder, and a save changes nothing
   // the tree shows. Rebuilding anyway would collapse-and-reopen the subtree.
-  const signature = JSON.stringify(entries);
+  // The sort is part of it: a list whose own order comes out the same under a
+  // new sort still has to rebuild, because that is what re-lists the folders
+  // open inside it.
+  const signature = sort + JSON.stringify(entries);
   if (signature === treeListings.get(ul)) return;
   treeListings.set(ul, signature);
 
-  const expanded = new Set(
-    [...ul.querySelectorAll(':scope > li[aria-expanded="true"] > .tree-row')].map((r) => r.dataset.path),
-  );
+  // Every level, not just this one: the lists below are about to be replaced.
+  const expanded = new Set([
+    ...keep,
+    ...[...ul.querySelectorAll('li[aria-expanded="true"] > .tree-row')].map((r) => r.dataset.path),
+  ]);
 
   const nodes = entries.map((e) => {
     const li = document.createElement("li");
@@ -977,7 +995,7 @@ async function renderTree(ul, dir) {
   const reopen = [...ul.querySelectorAll(":scope > li > .tree-row[data-dir]")].filter((r) =>
     expanded.has(r.dataset.path),
   );
-  await Promise.all(reopen.map((r) => expandRow(r, true)));
+  await Promise.all(reopen.map((r) => expandRow(r, true, expanded)));
 }
 
 /**
@@ -1004,11 +1022,11 @@ function applyTreeFilter() {
 }
 
 /** Open or close a folder row. Leaves the watcher alone — see syncFolderWatch. */
-async function expandRow(row, open) {
+async function expandRow(row, open, keep) {
   row.parentElement.setAttribute("aria-expanded", String(open));
   const children = row.nextElementSibling;
   children.hidden = !open;
-  if (open) await renderTree(children, row.dataset.path);
+  if (open) await renderTree(children, row.dataset.path, keep);
 }
 
 let watchingFolders = null;
@@ -1061,6 +1079,9 @@ async function openFolder(path) {
 function closeFolder() {
   state.folder = null;
   els.sidebar.hidden = true;
+  // The menu floats over the document rather than inside the sidebar, so it
+  // would otherwise be left pointing at a button that is no longer there.
+  showSortMenu(false);
   els.treeFilter.value = "";
   els.tree.replaceChildren();
   syncFolderWatch();
@@ -1190,6 +1211,48 @@ async function onTreeMenuClick(event) {
   if (item.dataset.open === "window") await invoke("open_window", { path });
   else if (item.dataset.open === "tab") await openTab(path);
   else await loadPath(path);
+}
+
+/**
+ * `undefined` toggles. Opening ticks whichever order is in force, puts the
+ * menu under its button, and focuses that row — the keyboard should arrive on
+ * the current answer, not above it.
+ */
+function showSortMenu(open) {
+  const next = open ?? els.sortMenu.hidden;
+  els.sortMenu.hidden = !next;
+  els.sidebarSort.setAttribute("aria-expanded", String(next));
+  if (!next) return;
+
+  const menu = els.sortMenu;
+  for (const item of menu.querySelectorAll("button[data-sort]")) {
+    item.setAttribute("aria-checked", String(item.dataset.sort === state.folderSort));
+  }
+
+  // Only measurable once it is on: a hidden menu has no width to keep inside
+  // the window. Clamped like the tree's menu, for a sidebar pushed up against
+  // the bottom of a short window.
+  const box = els.sidebarSort.getBoundingClientRect();
+  menu.style.left = `${Math.max(4, Math.min(box.left, window.innerWidth - menu.offsetWidth - 4))}px`;
+  menu.style.top = `${Math.max(4, Math.min(box.bottom + 4, window.innerHeight - menu.offsetHeight - 4))}px`;
+
+  menu.querySelector('[aria-checked="true"]')?.focus();
+}
+
+/**
+ * Take the new order and show it. The root is all that needs asking: the sort
+ * is part of every list's signature, so the root rebuilds, and rebuilding is
+ * what re-lists each folder open inside it, all the way down.
+ */
+async function setFolderSort(sort) {
+  if (sort === state.folderSort) return;
+  state.folderSort = sort;
+  invoke("set_folder_sort", { sort }).catch(console.error);
+  if (state.folder === null) return;
+
+  await renderTree(els.tree, els.tree.dataset.dir);
+  // Rebuilt rows come back unhidden, and this is what puts the filter back on.
+  syncFolderWatch();
 }
 
 /* ---------------- navigation ---------------- */
@@ -2207,6 +2270,19 @@ async function onKeydown(event) {
     if (event.key === "Escape") return; // dismissing it was the whole instruction
   }
 
+  // The sidebar's sort menu goes the same way, back to the button it came from.
+  const forSortMenu =
+    els.sortMenu.contains(document.activeElement) && ["Enter", " ", "Tab"].includes(event.key);
+  if (
+    !els.sortMenu.hidden &&
+    !forSortMenu &&
+    !["Shift", "Control", "Alt", "Meta"].includes(event.key)
+  ) {
+    showSortMenu(false);
+    els.sidebarSort.focus();
+    if (event.key === "Escape") return;
+  }
+
   if (event.key === "F8") {
     event.preventDefault();
     cycleTheme(event.shiftKey ? -1 : 1);
@@ -2363,6 +2439,14 @@ async function main() {
   });
   els.sidebarClose.addEventListener("click", closeFolder);
   els.sidebarName.addEventListener("click", chooseFolder);
+  els.sidebarSort.addEventListener("click", () => showSortMenu());
+  els.sortMenu.addEventListener("click", (e) => {
+    const item = e.target.closest("button[data-sort]");
+    if (!item) return;
+    showSortMenu(false);
+    els.sidebarSort.focus(); // hiding the focused item would drop it to the body
+    setFolderSort(item.dataset.sort).catch(toast);
+  });
   els.treeFilter.addEventListener("input", applyTreeFilter);
   els.treeFilter.addEventListener("keydown", async (event) => {
     if (event.key === "Escape") {
@@ -2419,6 +2503,10 @@ async function main() {
       // Not the menu itself: hiding it here would leave its own click with
       // nothing to land on.
       if (!els.treeMenu.hidden && !e.target.closest("#tree-menu")) showTreeMenu(null);
+      // Nor the button that opened it, which would otherwise close here and
+      // reopen on the click that follows — same reason as `#open-split`.
+      if (!els.sortMenu.hidden && !e.target.closest("#sort-menu, #sidebar-sort"))
+        showSortMenu(false);
     },
     true,
   );
@@ -2544,6 +2632,10 @@ async function main() {
   state.defaultTheme = settings.default_theme;
   els.autoUpdate.checked = settings.auto_update_check !== false;
   els.appVersion.textContent = settings.version ?? "";
+  // Before anything can open a folder, so the first listing is already in the
+  // order the reader last chose rather than sorted twice.
+  // The file is the user's to edit, and the menu ticks one of exactly two rows.
+  state.folderSort = settings.folder_sort === "modified" ? "modified" : "name";
   showOpenMode(settings.open_mode ?? "tab");
   showReopen(settings.reopen ?? "ask");
   await loadThemeList();

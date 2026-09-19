@@ -25,7 +25,8 @@ Electron build starts around 150 MB.
   `Shift`+click in a new window, and right-click offers all three. The
   tree follows the folder — files added, renamed or removed show up on their
   own. The box above the tree narrows it to names containing what you type,
-  across every folder it has listed so far.
+  across every folder it has listed so far. The sort button beside the close
+  button orders the files by name or by date modified, newest first.
 - **Tabs or windows.** Read several documents at once, and choose per taste
   whether an opened file lands in a new tab or its own window. Tabs drag to
   reorder, and out onto the desktop to become their own window. Dragging one

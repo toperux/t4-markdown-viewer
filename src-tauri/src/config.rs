@@ -26,6 +26,15 @@ pub fn reopen_mode(raw: &str) -> &'static str {
     }
 }
 
+/// The sidebar's sort as one of the two values the app acts on, for the same
+/// reason as `reopen_mode`: the menu ticks one of exactly two rows.
+pub fn folder_sort(raw: &str) -> &'static str {
+    match raw {
+        "modified" => "modified",
+        _ => "name",
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct Config {
@@ -41,6 +50,10 @@ pub struct Config {
     /// What to do at startup with the session the last run left behind — see
     /// `DEFAULT_REOPEN`.
     pub reopen: String,
+    /// How the sidebar orders a folder's files: `"modified"` for newest first,
+    /// anything else by name. One setting for every folder, because the
+    /// question people ask of a list is about the list, not about where it is.
+    pub folder_sort: String,
 }
 
 impl Default for Config {
@@ -51,6 +64,7 @@ impl Default for Config {
             auto_update_check: true,
             last_folder: String::new(),
             reopen: DEFAULT_REOPEN.to_string(),
+            folder_sort: "name".to_string(),
         }
     }
 }
@@ -92,6 +106,7 @@ pub fn load() -> Config {
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
     cfg.reopen = reopen_mode(&cfg.reopen).to_string();
+    cfg.folder_sort = folder_sort(&cfg.folder_sort).to_string();
     cfg
 }
 
@@ -177,6 +192,24 @@ mod tests {
         assert_eq!(c.theme, "dracula");
         assert_eq!(c.last_folder, "C:\\notes");
         assert_eq!(c.reopen, DEFAULT_REOPEN);
+    }
+
+    /// And once more for `folder_sort`: every config written before the sidebar
+    /// could be sorted must arrive sorted by name, as it always was.
+    #[test]
+    fn config_without_folder_sort_still_loads() {
+        let c: Config = serde_json::from_str(r#"{"theme":"dracula","reopen":"restore"}"#).unwrap();
+        assert_eq!(c.theme, "dracula");
+        assert_eq!(c.reopen, "restore");
+        assert_eq!(c.folder_sort, "name");
+    }
+
+    #[test]
+    fn folder_sort_accepts_only_the_two() {
+        assert_eq!(folder_sort("modified"), "modified");
+        assert_eq!(folder_sort("name"), "name");
+        assert_eq!(folder_sort("Modified"), "name");
+        assert_eq!(folder_sort(""), "name");
     }
 
     /// A hand-edited `"Ask"` used to fall through every comparison and restore,

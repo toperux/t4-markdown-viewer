@@ -167,6 +167,11 @@ struct DirEntry {
     name: String,
     path: String,
     is_dir: bool,
+    /// Ordering only, and deliberately never serialized: the tree rebuilds
+    /// itself whenever the listing it holds differs from the new one, and a
+    /// timestamp in that comparison would make every save a rebuild.
+    #[serde(skip)]
+    modified: Option<std::time::SystemTime>,
 }
 
 /// `dir` is the canonical form of what was asked for, so the tree can match it
@@ -659,11 +664,72 @@ fn load_asset(app: AppHandle, path: String) -> Result<Asset, String> {
     })
 }
 
+/// The digit run starting at `at`, with its leading zeros dropped, and the
+/// index just past it.
+fn digit_run(s: &[u8], at: usize) -> (&[u8], usize) {
+    let end = s[at..]
+        .iter()
+        .position(|c| !c.is_ascii_digit())
+        .map_or(s.len(), |n| at + n);
+    let start = s[at..end]
+        .iter()
+        .position(|c| *c != b'0')
+        .map_or(end, |n| at + n);
+    (&s[start..end], end)
+}
+
+/// Compare two names the way a reader would: case ignored, and a run of digits
+/// worth what it says rather than how it spells it, so `a2` comes before `a10`.
+///
+/// The runs are compared as runs — leading zeros dropped, then the longer run
+/// is the larger number, then digit by digit. Parsing them into an integer
+/// would be shorter and would also put a 25-digit id from some export tool in
+/// an arbitrary place the moment it overflowed.
+///
+/// Walks the bytes in place, because a sort calls this many times per name and
+/// copying both names out on each call adds up in a folder of thousands. The
+/// indices only ever stop on a character boundary: a digit is one byte, and
+/// anything else is stepped over by its own width.
+fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let (bytes_a, bytes_b) = (a.as_bytes(), b.as_bytes());
+    let (mut i, mut j) = (0, 0);
+    while i < a.len() && j < b.len() {
+        if bytes_a[i].is_ascii_digit() && bytes_b[j].is_ascii_digit() {
+            let (run_a, end_a) = digit_run(bytes_a, i);
+            let (run_b, end_b) = digit_run(bytes_b, j);
+            let ord = run_a.len().cmp(&run_b.len()).then_with(|| run_a.cmp(run_b));
+            if ord != Ordering::Equal {
+                return ord;
+            }
+            i = end_a;
+            j = end_b;
+        } else {
+            let (char_a, char_b) = (
+                a[i..].chars().next().unwrap(),
+                b[j..].chars().next().unwrap(),
+            );
+            let ord = char_a.to_lowercase().cmp(char_b.to_lowercase());
+            if ord != Ordering::Equal {
+                return ord;
+            }
+            i += char_a.len_utf8();
+            j += char_b.len_utf8();
+        }
+    }
+    // Whichever still has something left is the longer name, and so the later
+    // one; `007` against `7` runs out together and ties.
+    (a.len() - i).cmp(&(b.len() - j))
+}
+
 /// The openable contents of one folder for the sidebar: subfolders first, then
-/// the files this viewer can show, each group sorted by name without regard to
-/// case. Dot-prefixed entries are skipped — `.git` in a notes folder is noise.
+/// the files this viewer can show. `sort` orders the files — `"modified"` puts
+/// the newest first, anything else goes by name. Folders are always by name,
+/// because a folder's own mtime moves for reasons nobody reading can see.
+/// Names sort naturally and without regard to case — see `natural_cmp`.
+/// Dot-prefixed entries are skipped — `.git` in a notes folder is noise.
 #[tauri::command]
-fn list_dir(path: String) -> Result<Listing, String> {
+fn list_dir(path: String, sort: String) -> Result<Listing, String> {
     let dir = PathBuf::from(&path);
     let dir = std::fs::canonicalize(&dir).unwrap_or(dir);
     if !dir.is_dir() {
@@ -679,8 +745,11 @@ fn list_dir(path: String) -> Result<Listing, String> {
                 return None;
             }
             let name = entry.file_name().to_string_lossy().into_owned();
-            // `is_dir` follows symlinks, so a linked folder shows as a folder.
-            let is_dir = path.is_dir();
+            // One stat, and one that follows symlinks: a linked folder shows as
+            // a folder, and a linked file is as new as what it points at — the
+            // link's own mtime never moves, so it would never reach the top.
+            let meta = std::fs::metadata(&path).ok();
+            let is_dir = meta.as_ref().is_some_and(|m| m.is_dir());
             if !is_dir && !is_document(&path) && !is_image(&path) {
                 return None;
             }
@@ -688,10 +757,30 @@ fn list_dir(path: String) -> Result<Listing, String> {
                 name,
                 path: strip_unc(&path),
                 is_dir,
+                modified: meta.and_then(|m| m.modified().ok()),
             })
         })
         .collect();
-    entries.sort_by_cached_key(|e| (!e.is_dir, e.name.to_lowercase()));
+    let by_modified = sort == "modified";
+    entries.sort_by(|a, b| {
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then_with(|| {
+                // Only ever reached with both on the same side of that, so one
+                // being a file means neither is a folder.
+                if by_modified && !a.is_dir {
+                    b.modified.cmp(&a.modified)
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
+            .then_with(|| natural_cmp(&a.name, &b.name))
+            // `a.md` and `A.md` are one name to `natural_cmp`, and `read_dir`
+            // hands them over in whatever order it likes. Without a last word
+            // the two would swap places between listings, and the tree would
+            // rebuild itself every time they did.
+            .then_with(|| a.name.cmp(&b.name))
+    });
     Ok(Listing {
         dir: strip_unc(&dir),
         entries,
@@ -965,6 +1054,16 @@ fn restore_offered_session(app: AppHandle, window: Window) -> Option<Value> {
 #[tauri::command(async)]
 fn picker_dir(dir: String) -> String {
     config::start_dir(&dir, &config::load().last_folder)
+}
+
+/// Not broadcast, like the theme: the sidebar the reader is looking at is the
+/// one they chose this for. Another window keeps its own order until it is
+/// launched again, and the last window to write here is what it starts with.
+#[tauri::command]
+fn set_folder_sort(sort: String) {
+    let mut cfg = config::load();
+    cfg.folder_sort = config::folder_sort(&sort).to_string();
+    config::save(&cfg);
 }
 
 #[tauri::command]
@@ -1252,6 +1351,7 @@ fn main() {
             set_reopen,
             restore_offered_session,
             picker_dir,
+            set_folder_sort,
             set_last_folder,
             reveal_path,
             update::check_for_update,
@@ -1415,6 +1515,37 @@ mod tests {
         assert!(!is_document(Path::new("a.png")));
     }
 
+    /// Numbers read as numbers, so a run of digits is worth what it says and
+    /// not how wide it is. Case never decides anything, and a run far longer
+    /// than any integer must still compare.
+    #[test]
+    fn natural_cmp_reads_digit_runs_as_numbers() {
+        use std::cmp::Ordering;
+        assert_eq!(natural_cmp("a2", "a10"), Ordering::Less);
+        assert_eq!(natural_cmp("a10", "a2"), Ordering::Greater);
+        assert_eq!(natural_cmp("A1", "a1"), Ordering::Equal);
+        assert_eq!(natural_cmp("Chapter 2", "chapter 10"), Ordering::Less);
+        // Leading zeros are not a value, so these are the same number.
+        assert_eq!(natural_cmp("007", "7"), Ordering::Equal);
+        assert_eq!(natural_cmp("007", "8"), Ordering::Less);
+        // Wider than u64, u128 or anything else we could have parsed into.
+        assert_eq!(
+            natural_cmp(
+                "id-1234567890123456789012345",
+                "id-1234567890123456789012346"
+            ),
+            Ordering::Less
+        );
+        // A prefix is the smaller of the two.
+        assert_eq!(natural_cmp("note", "notes"), Ordering::Less);
+        // Wider than a byte on both sides of a number, and folded for case.
+        assert_eq!(
+            natural_cmp("Überblick 2 – é", "überblick 10 – É"),
+            Ordering::Less
+        );
+        assert_eq!(natural_cmp("日記2", "日記10"), Ordering::Less);
+    }
+
     #[test]
     fn list_dir_keeps_folders_and_openable_files_in_order() {
         let root = std::env::temp_dir().join(format!("t4-list-dir-{}", std::process::id()));
@@ -1423,6 +1554,8 @@ mod tests {
         std::fs::create_dir_all(root.join(".hidden")).unwrap();
         for f in [
             "a.md",
+            "a2.md",
+            "a10.md",
             "B.png",
             "c.json",
             "notes.txt",
@@ -1432,12 +1565,13 @@ mod tests {
             std::fs::write(root.join(f), b"").unwrap();
         }
 
-        let names: Vec<(String, bool)> = list_dir(root.to_string_lossy().into_owned())
-            .unwrap()
-            .entries
-            .into_iter()
-            .map(|e| (e.name, e.is_dir))
-            .collect();
+        let names: Vec<(String, bool)> =
+            list_dir(root.to_string_lossy().into_owned(), "name".to_string())
+                .unwrap()
+                .entries
+                .into_iter()
+                .map(|e| (e.name, e.is_dir))
+                .collect();
         std::fs::remove_dir_all(&root).unwrap();
 
         assert_eq!(
@@ -1445,11 +1579,51 @@ mod tests {
             vec![
                 ("sub".to_string(), true),
                 ("a.md".to_string(), false),
+                ("a2.md".to_string(), false),
+                ("a10.md".to_string(), false),
                 ("B.png".to_string(), false),
                 ("c.json".to_string(), false),
                 ("notes.txt".to_string(), false),
             ]
         );
+    }
+
+    /// Newest first, and only for the files: a folder's own mtime changes for
+    /// reasons nobody reading can see, so folders stay first and by name even
+    /// though this one was made last.
+    #[test]
+    fn list_dir_sorts_files_by_modified_newest_first() {
+        let root = std::env::temp_dir().join(format!("t4-list-dir-mtime-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("a-dir")).unwrap();
+        std::fs::create_dir_all(root.join("b-dir")).unwrap();
+
+        // Names and times deliberately disagree: by name this is mid, new,
+        // old, so only a listing that read the clock can come back new, mid,
+        // old. Stamped rather than written in turn, so the test needs no sleep.
+        let base =
+            std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        for (f, secs) in [("old.md", 0), ("mid.md", 60), ("new.md", 120)] {
+            let path = root.join(f);
+            std::fs::write(&path, b"").unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(base + std::time::Duration::from_secs(secs))
+                .unwrap();
+        }
+
+        let names: Vec<String> =
+            list_dir(root.to_string_lossy().into_owned(), "modified".to_string())
+                .unwrap()
+                .entries
+                .into_iter()
+                .map(|e| e.name)
+                .collect();
+        std::fs::remove_dir_all(&root).unwrap();
+
+        assert_eq!(names, vec!["a-dir", "b-dir", "new.md", "mid.md", "old.md"]);
     }
 
     #[test]
@@ -1464,7 +1638,7 @@ mod tests {
     fn list_dir_refuses_a_file() {
         let file = std::env::temp_dir().join(format!("t4-not-a-dir-{}.md", std::process::id()));
         std::fs::write(&file, b"").unwrap();
-        let result = list_dir(file.to_string_lossy().into_owned());
+        let result = list_dir(file.to_string_lossy().into_owned(), "name".to_string());
         std::fs::remove_file(&file).unwrap();
         assert!(result.is_err());
     }

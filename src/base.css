@@ -212,7 +212,8 @@ body {
 }
 
 #open-menu,
-#tree-menu {
+#tree-menu,
+#sort-menu {
   position: absolute;
   top: calc(100% + 4px);
   right: 0;
@@ -228,13 +229,16 @@ body {
 }
 
 #open-menu[hidden],
-#tree-menu[hidden] {
+#tree-menu[hidden],
+#sort-menu[hidden] {
   display: none;
 }
 
-/* Placed in viewport coordinates at the cursor, and outside `#bar`, so it has
-   to declare the chrome `#open-menu` inherits from the bar. */
-#tree-menu {
+/* Placed in viewport coordinates — at the cursor, or under the button that
+   opened it — and outside `#bar`, so these have to declare the chrome
+   `#open-menu` inherits from the bar. */
+#tree-menu,
+#sort-menu {
   position: fixed;
   top: 0;
   right: auto;
@@ -247,7 +251,8 @@ body {
 /* Overrides the generic `#bar button` chrome: menu rows, not buttons. The
    tree's menu is outside `#bar`, so it also needs what that rule set up. */
 #bar #open-menu button,
-#tree-menu button {
+#tree-menu button,
+#sort-menu button {
   font: inherit;
   color: inherit;
   background: transparent;
@@ -271,10 +276,24 @@ body {
   color: var(--ui-fg-muted);
 }
 
+/* A column the width of the mark, always there: the chosen row is ticked and
+   the other is not, and both labels start in the same place regardless. */
+#sort-menu button::before {
+  display: inline-block;
+  width: 1.125em;
+  content: "";
+}
+
+#sort-menu button[aria-checked="true"]::before {
+  content: "✓";
+}
+
 #bar #open-menu button:hover,
 #bar #open-menu button:focus-visible,
 #tree-menu button:hover,
-#tree-menu button:focus-visible {
+#tree-menu button:focus-visible,
+#sort-menu button:hover,
+#sort-menu button:focus-visible {
   box-shadow: inset 0 0 0 1px var(--ui-accent);
   border-color: transparent;
 }
@@ -405,18 +424,21 @@ main:has(#content:not([hidden]))::before {
   box-shadow: inset 0 0 0 1px var(--ui-accent);
 }
 
-#sidebar-close {
+#sidebar-close,
+#sidebar-sort {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0.1875rem;
 }
 
-#sidebar-close:hover {
+#sidebar-close:hover,
+#sidebar-sort:hover {
   border-color: var(--ui-accent);
 }
 
-#sidebar-close svg {
+#sidebar-close svg,
+#sidebar-sort svg {
   display: block;
   width: 0.875rem;
   height: 0.875rem;
