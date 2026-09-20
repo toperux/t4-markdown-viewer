@@ -263,6 +263,10 @@ and closed there the next day.
   - *#30 and #31, CI (47e8c0d).* The pinned `checkout` first runs on the next push; the
     pinned upload/download-artifact and the awk `lock=` line on the next release tag. The awk
     line was run once by hand against the real lock file and printed 1.6.5.
+  - *#27, #30 and #31 proven 2026-09-21 by 1.6.6: the push's CI run passed on all three legs,
+    macOS included; a `workflow_dispatch` packaging build passed before the tag; the v1.6.6
+    Release run passed `version`, the checks, all three builds and `publish`. #5 and #6 are
+    what keeps this open — 1.6.5 → 1.6.6 is the first in-app update to run #5's guard.*
 - [x] **Not driven in the 2026-09-20 smoke pass** (added 2026-09-21). These can be checked
   on this machine with the drive-app skill; the pass did not get to them.
   *All three driven 2026-09-21, `cdp.mjs` having learned `drag` and `key`:*
