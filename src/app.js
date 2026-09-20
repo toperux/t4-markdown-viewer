@@ -1692,6 +1692,13 @@ async function checkUpdate(force) {
   return info;
 }
 
+/**
+ * Whether an update is being downloaded or installed — by any window, since
+ * the progress is broadcast. The dialog's own state is not enough: it is reset
+ * every time the dialog opens, and another window's never knew.
+ */
+let installing = false;
+
 function showUpdateDialog() {
   const info = state.update;
   if (!info) return;
@@ -1699,9 +1706,12 @@ function showUpdateDialog() {
   els.updateSummary.textContent = `Version ${info.version} is available.`;
   els.updateNotes.textContent = info.notes;
   els.updateNotes.hidden = !info.notes;
-  els.updateProgress.hidden = true;
+  // An install already under way — begun here before the dialog was closed,
+  // or in another window — is still under way: show it, and offer no second.
+  els.updateProgress.hidden = !installing;
+  if (installing && !els.updateProgress.textContent) els.updateProgress.textContent = "Downloading…";
   els.updateError.hidden = true;
-  els.updateNow.disabled = false;
+  els.updateNow.disabled = installing;
 
   // A deb or rpm install cannot replace itself; that is the package manager's
   // job. Offering an Update button that could only ever fail would be worse
@@ -1721,6 +1731,7 @@ async function runUpdate() {
     return;
   }
 
+  installing = true;
   els.updateNow.disabled = true;
   els.updateError.hidden = true;
   els.updateProgress.hidden = false;
@@ -1732,6 +1743,7 @@ async function runUpdate() {
     await invoke("install_update");
   } catch (err) {
     console.error(err);
+    installing = false;
     els.updateProgress.hidden = true;
     els.updateError.textContent = `Update failed: ${err}`;
     els.updateError.hidden = false;
@@ -2924,7 +2936,15 @@ async function main() {
   await listen("open-mode-changed", (e) => showOpenMode(e.payload));
   // Broadcast on purpose: one install is happening to the whole app, so every
   // window's dialog should count along with it.
-  await listen("update-progress", (e) => showUpdateProgress(e.payload));
+  await listen("update-progress", (e) => {
+    installing = true; // another window's install is this window's too
+    showUpdateProgress(e.payload);
+  });
+  // The window that asked hears of a failure from its own `invoke`; the rest
+  // hear it here, and get their Update button back.
+  await listen("update-failed", () => {
+    installing = false;
+  });
   // Rust asks once the update is downloaded and waits for the answer. The
   // reader's place is only noted when they leave a document, so the restart
   // would otherwise land them where they last switched tabs.

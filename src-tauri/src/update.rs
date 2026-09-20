@@ -9,7 +9,7 @@
 
 use crate::AppState;
 use serde::Serialize;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
@@ -95,6 +95,27 @@ pub async fn check_for_update(app: AppHandle, force: bool) -> Result<Option<Upda
 /// app's shared state.
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> Result<(), String> {
+    // One install, whoever asks. The button that started it is disabled, but
+    // only in its own window and only until that dialog is reopened, and two
+    // downloads ending in two installers over one directory is not a state to
+    // find out about. Not `AppState::installing`: that stands ordinary session
+    // saves down, which is right for the moment of the install and wrong for
+    // the whole of a download.
+    if INSTALLING.swap(true, Ordering::SeqCst) {
+        return Err("An update is already being installed.".to_string());
+    }
+    let result = install(app.clone()).await;
+    // Only ever reached by a failure: success does not return.
+    INSTALLING.store(false, Ordering::SeqCst);
+    // Every window has been counting along with the download and holding its
+    // own Update button back; they need telling it is theirs to press again.
+    let _ = app.emit("update-failed", ());
+    result
+}
+
+static INSTALLING: AtomicBool = AtomicBool::new(false);
+
+async fn install(app: AppHandle) -> Result<(), String> {
     let update = app
         .updater()
         .map_err(|e| e.to_string())?
