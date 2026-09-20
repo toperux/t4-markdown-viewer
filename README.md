@@ -53,7 +53,9 @@ Electron build starts around 150 MB.
 - **JSON and JSONC open as documents,** shown as written — comments, key order
   and formatting kept — highlighted, with every `{…}` and `[…]` foldable. A
   file on one long line is reflowed first so it can be read, and a very large
-  one loads in chunks: a `… more` at the end of each fetches the next.
+  one loads in chunks: a `… more` at the end of each fetches the next. One
+  nested thousands deep is shown without fold controls, which is what keeps
+  it from stalling the window.
 - **GFM**: tables, task lists, footnotes, strikethrough, autolinks,
   definition lists.
 

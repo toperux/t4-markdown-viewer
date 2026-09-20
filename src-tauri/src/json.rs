@@ -25,10 +25,60 @@ const CHUNK_BYTES: usize = 512 * 1024;
 /// far bigger must not come back whole; the rest stays a click away.
 const MAX_EXTENT: usize = 8 * 1024 * 1024;
 
+/// The most HTML one render hands the webview. The budgets above count source
+/// bytes, and HTML runs from a few times the source to seventy — a span per
+/// token, a fold control per bracket — so without this nothing bounds what the
+/// page is asked to swallow. Set above the most a first chunk that found a comma
+/// to end on can come to — `CHUNK_BYTES + LOOKAHEAD` of nothing but brackets, at
+/// 178 bytes of markup a pair, is under 52 MB — so that no ordinary file is
+/// refused: only a re-render of a far-expanded one falls back, and only a
+/// document with nowhere to cut is turned away.
+// ponytail: a refusal, not a cut, and a backstop only. What hung the window in
+// #9 of the 2026-09-20 review was lines inside nested fold spans, not how much
+// markup there was — see `MAX_FOLD_WEIGHT`. End a chunk on output as well as on
+// source if a real file ever proves size alone too much; a re-render would
+// then have to stop at the same place, which a budget in source bytes cannot
+// say.
+const MAX_HTML_BYTES: usize = 64 * 1024 * 1024;
+
+const TOO_MUCH: &str = "This is too much to show at once: rendered, it comes to more than 64 MB. \
+    That usually means brackets nested thousands deep.";
+
+/// What folding may cost one render before the render is made without it.
+///
+/// A fold is a `.fold-body` span around everything its container holds, so a
+/// line nested twenty deep sits inside twenty of them — and that, not the size
+/// of the markup or its depth alone, is what a webview pays for. Measured in
+/// WebView2 (2026-09-21): laying a document out takes about half a second and
+/// 0.7 GB for every million of lines × spans open around them. 300,000 lines
+/// inside none lay out in 0.7 s; inside 16, 2.4 s and 3.8 GB; inside 64, 8 s
+/// and 8 GB; inside 256 the window never answers again. `display: contents`
+/// changes none of it.
+///
+/// So the weight is the number of spans open, summed over every newline — a
+/// line — and every fold control, which is a box of its own inside the same
+/// spans. Past this a render starts again with no folds at all: plain
+/// brackets, everything else as ever. All or nothing, because a line pays for
+/// every span open around it whether or not more are opened after.
+///
+/// An ordinary chunk comes nowhere near. Indentation makes deep lines long, so
+/// `CHUNK_BYTES` of pretty-printed JSON weighs a few hundred thousand. What
+/// passes this is nesting thousands deep, or a far-expanded document of very
+/// short lines on a re-render — which keeps its place and loses its folds.
+const MAX_FOLD_WEIGHT: usize = 2_000_000;
+
 /// How far past the budget the emitter will look for a better place to cut —
 /// a comma between two records rather than inside one. Bounded so a record
 /// bigger than this costs one ugly cut rather than a scan of the whole file.
 const LOOKAHEAD: usize = 64 * 1024;
+
+/// How many times its own size the one-line reflow may grow a file to before it
+/// is given up on. Indentation is two spaces a level at every bracket and comma,
+/// so a file that is mostly nesting reflows to the square of its size — 8 KB of
+/// `[` is 64 MB — and nothing else bounds that. Ordinary minified JSON roughly
+/// doubles. The floor keeps a small file, which may fairly grow tenfold, out of it.
+const REFLOW_GROWTH: usize = 8;
+const REFLOW_FLOOR: usize = 1024 * 1024;
 
 /// The fold control. It carries no text of its own — the marker is a CSS
 /// `::before` keyed off `aria-expanded`, so the theme decides how it looks and a
@@ -210,7 +260,12 @@ pub fn source(text: &str) -> Cow<'_, str> {
 
     let mut out = String::with_capacity(text.len() + text.len() / 4);
     let mut depth = 0usize;
+    let limit = text.len().max(REFLOW_FLOOR) * REFLOW_GROWTH;
     for token in Tokens::new(text, 0) {
+        // Shown as written instead: one long line, but one that opens.
+        if out.len() > limit {
+            return Cow::Borrowed(text);
+        }
         let piece = &text[token.start..token.end];
         if token.kind == Kind::Space {
             // Layout is ours from here on, but a space that keeps two tokens
@@ -299,13 +354,31 @@ fn indent(out: &mut String, depth: usize) {
 /// back to chunk one. The emitter trips at the first comma at or past its
 /// budget, so a budget equal to where a chunk stopped trips at that same comma
 /// again and reproduces exactly what was loaded, buttons and all.
+///
+/// Past `MAX_HTML_BYTES` a re-render falls back to the first chunk alone, and a
+/// first chunk that is still too much is refused.
 // ponytail: fold state is per-render, so a live reload reopens every fold;
 // carry the open ranges across if that turns out to be annoying in practice.
-pub fn render_to(src: &str, extent: usize) -> String {
-    let mut html = String::from("<pre><code>");
-    html.push_str(&emit(src, 0, extent.clamp(CHUNK_BYTES, MAX_EXTENT)));
-    html.push_str("</code></pre>");
-    html
+pub fn render_to(src: &str, extent: usize) -> Result<String, String> {
+    render_within(src, extent, MAX_HTML_BYTES)
+}
+
+fn render_within(src: &str, extent: usize, ceiling: usize) -> Result<String, String> {
+    let wanted = extent.clamp(CHUNK_BYTES, MAX_EXTENT);
+    // What the reader had expanded, if that fits; failing that the first chunk
+    // alone, which costs them their place in the document rather than the
+    // document.
+    let mut budgets = vec![wanted];
+    if wanted > CHUNK_BYTES {
+        budgets.push(CHUNK_BYTES);
+    }
+    for budget in budgets {
+        let body = emit_within(src, 0, budget, ceiling, 0);
+        if body.len() <= ceiling {
+            return Ok(format!("<pre><code>{body}</code></pre>"));
+        }
+    }
+    Err(TOO_MUCH.to_string())
 }
 
 /// One chunk of a document, as named by a `more` button's `data-range`.
@@ -320,11 +393,43 @@ pub fn render_to(src: &str, extent: usize) -> String {
 /// been edited between the render that produced the button and the click on it.
 /// A stale-but-valid range renders whatever text is now there, which is harmless
 /// — the watcher's re-render replaces the whole document moments later anyway.
+///
+/// Rendered on its own, but not as if it were the top of a document: it is
+/// spliced in where the button was, so it weighs its folds from that depth —
+/// see `depth_at` and `MAX_FOLD_WEIGHT`.
 pub fn render_slice(src: &str, start: usize, end: usize) -> Result<String, String> {
     let slice = src
         .get(start..end)
         .ok_or_else(|| format!("Bytes {start}–{end} are no longer part of this document"))?;
-    Ok(emit(slice, start, CHUNK_BYTES))
+    let html = emit_within(
+        slice,
+        start,
+        CHUNK_BYTES,
+        MAX_HTML_BYTES,
+        depth_at(src, start),
+    );
+    if html.len() > MAX_HTML_BYTES {
+        return Err(TOO_MUCH.to_string());
+    }
+    Ok(html)
+}
+
+/// `emit_within` under the ceiling every real render has, from the top of a
+/// document.
+#[cfg(test)]
+fn emit(src: &str, base: usize, budget: usize) -> String {
+    emit_within(src, base, budget, MAX_HTML_BYTES, 0)
+}
+
+/// Render `src` folded if the webview can afford that, and flat if not.
+/// `depth` is how many containers are already open where `src` begins — none
+/// for a document, `depth_at` for a chunk of one. Where the chunk is cut does
+/// not depend on which: the budget and the commas are the same either way, so
+/// a re-render stops where it did.
+fn emit_within(src: &str, base: usize, budget: usize, ceiling: usize, depth: usize) -> String {
+    emit_as(src, base, budget, ceiling, Some(depth))
+        .or_else(|| emit_as(src, base, budget, ceiling, None))
+        .unwrap_or_default()
 }
 
 /// Render `src` as HTML, stopping once `budget` source bytes are behind us.
@@ -335,7 +440,18 @@ pub fn render_slice(src: &str, start: usize, end: usize) -> Result<String, Strin
 /// The container stack is explicit rather than a recursive descent: `{"a":{"a":{…`
 /// nested ten thousand deep is a file someone can hand this app, and a recursive
 /// emitter would meet it with a blown stack.
-fn emit(src: &str, base: usize, budget: usize) -> String {
+///
+/// `folding` is how many `.fold-body` spans are already open where `src` will
+/// sit, or `None` for a render with no fold markup at all. A folding render
+/// gives up — `None` — once it has cost more than `MAX_FOLD_WEIGHT`; one
+/// without never does.
+fn emit_as(
+    src: &str,
+    base: usize,
+    budget: usize,
+    ceiling: usize,
+    folding: Option<usize>,
+) -> Option<String> {
     let mut out = String::with_capacity(src.len().min(budget) * 2);
     // One entry per container we are inside: the byte that closes it, and
     // whether it opened a `.fold-body` span that has to be closed with it.
@@ -345,9 +461,25 @@ fn emit(src: &str, base: usize, budget: usize) -> String {
     // Whether nothing but indentation precedes the current token on its line,
     // which is what decides where a bracket's fold marker goes.
     let mut at_line_start = true;
+    // How many `.fold-body` spans are open around what is being written, those
+    // of the document this is a chunk of included, and what that has come to:
+    // see `MAX_FOLD_WEIGHT`.
+    let mut open = folding.unwrap_or(0);
+    let mut weight = 0usize;
 
     for token in Tokens::new(src, 0) {
+        // Past the ceiling the caller refuses this whatever else it holds, so
+        // there is no point building — or allocating — the rest of it.
+        if out.len() > ceiling {
+            return Some(out);
+        }
+        if folding.is_some() && weight > MAX_FOLD_WEIGHT {
+            return None;
+        }
         let text = &src[token.start..token.end];
+        if open > 0 {
+            weight += open * text.bytes().filter(|b| *b == b'\n').count();
+        }
         let opens_line = at_line_start;
         at_line_start = token.kind == Kind::Space && (opens_line || text.contains('\n'));
         match token.kind {
@@ -370,7 +502,7 @@ fn emit(src: &str, base: usize, budget: usize) -> String {
                     let closer = if byte == b'{' { b'}' } else { b']' };
                     // Nothing but whitespace inside means nothing to fold, so an
                     // empty container gets its two brackets and no control.
-                    let folds = has_body(src, token.start, closer);
+                    let folds = folding.is_some() && has_body(src, token.start, closer);
                     if folds {
                         out.push_str(if opens_line {
                             GUTTER_FOLD_BUTTON
@@ -381,6 +513,9 @@ fn emit(src: &str, base: usize, budget: usize) -> String {
                     span(&mut out, "hljs-punctuation", text);
                     if folds {
                         out.push_str(r#"<span class="fold-body">"#);
+                        // The control is paid for by what was open around it.
+                        weight += open;
+                        open += 1;
                     }
                     stack.push((closer, folds));
                 }
@@ -391,6 +526,7 @@ fn emit(src: &str, base: usize, budget: usize) -> String {
                     let (_, folds) = stack.pop().unwrap();
                     if folds {
                         out.push_str("</span>");
+                        open -= 1;
                     }
                     span(&mut out, "hljs-punctuation", text);
                 }
@@ -406,17 +542,14 @@ fn emit(src: &str, base: usize, budget: usize) -> String {
                 b',' if token.start >= budget && token.start > 0 => {
                     let at =
                         *cut_at.get_or_insert_with(|| shallowest_comma(src, token.start, &stack));
-                    if token.start >= at {
+                    // A remainder holding nothing but this comma and whitespace
+                    // — a JSONC trailing comma, or the exact end of a container
+                    // — is not worth a button, so carry on and trip at the next
+                    // comma further out instead.
+                    if token.start >= at && more_after(src, token.start, &stack) {
                         let ends = container_ends(src, token.start, &stack);
-                        let inner = ends.first().copied().flatten().unwrap_or(src.len());
-                        // A remainder holding nothing but this comma and
-                        // whitespace — a JSONC trailing comma, or the exact end
-                        // of a container — is not worth a button, so carry on
-                        // and trip at the next comma further out instead.
-                        if has_content(src, token.start, inner) {
-                            finish(&mut out, src, base, token.start, &ends, &stack);
-                            return out;
-                        }
+                        finish(&mut out, src, base, token.start, &ends, &stack);
+                        return Some(out);
                     }
                     span(&mut out, "hljs-punctuation", text);
                 }
@@ -433,7 +566,7 @@ fn emit(src: &str, base: usize, budget: usize) -> String {
             out.push_str("</span>");
         }
     }
-    out
+    Some(out)
 }
 
 /// Wind up a chunk: a `more` button for the rest of every container we are
@@ -508,6 +641,34 @@ fn size(bytes: usize) -> String {
     };
     let text = format!("{value:.1}");
     format!("{} {unit}", text.strip_suffix(".0").unwrap_or(&text))
+}
+
+/// How many containers are open at `at`, counted from the top of the document
+/// by the emitter's own rules — a closer that does not match what is open
+/// closes nothing. What a chunk needs to know to weigh itself: it is rendered
+/// on its own, but spliced in that deep, inside every span open there.
+// ponytail: a pass over everything before the chunk on every click, beside a
+// reflow of the whole file that `json_region` already pays for; carry the depth
+// on the button if either is ever felt.
+fn depth_at(src: &str, at: usize) -> usize {
+    let mut open: Vec<u8> = Vec::new();
+    for token in Tokens::new(src, 0) {
+        if token.start >= at {
+            break;
+        }
+        if token.kind != Kind::Punct {
+            continue;
+        }
+        match src.as_bytes()[token.start] {
+            b'{' => open.push(b'}'),
+            b'[' => open.push(b']'),
+            byte @ (b'}' | b']') if open.last() == Some(&byte) => {
+                open.pop();
+            }
+            _ => {}
+        }
+    }
+    open.len()
 }
 
 /// Where each open container's closing bracket is, innermost first, or `None`
@@ -598,6 +759,19 @@ fn shallowest_comma(src: &str, from: usize, stack: &[(u8, bool)]) -> usize {
     best.1
 }
 
+/// Whether the comma at `comma` has a member after it, rather than the bracket
+/// that closes the innermost open container — a JSONC trailing comma — or the
+/// end of the text. The answer `has_content` gives for the stretch up to that
+/// bracket, without looking for the bracket: `container_ends` scans to the end
+/// of *every* open container, and a file with a trailing comma at each of many
+/// levels asked it to at every one of them.
+fn more_after(src: &str, comma: usize, stack: &[(u8, bool)]) -> bool {
+    src.as_bytes()[comma + 1..]
+        .iter()
+        .find(|b| !b.is_ascii_whitespace())
+        .is_some_and(|b| !stack.last().is_some_and(|(closer, _)| b == closer))
+}
+
 /// Whether `src[start..end]` is worth a button: a leading comma and whitespace
 /// are not content, anything else is.
 fn has_content(src: &str, start: usize, end: usize) -> bool {
@@ -650,7 +824,7 @@ mod tests {
     /// A document nothing has been expanded in yet — how every render but a
     /// re-render of an expanded one arrives.
     fn render(src: &str) -> String {
-        render_to(src, 0)
+        render_to(src, 0).unwrap()
     }
 
     /// The text a render puts on screen: tags gone, and `more` buttons gone with
@@ -966,7 +1140,7 @@ mod tests {
         // The innermost button left is at `next`, which is what the frontend
         // remembers — and as a budget it trips at that same comma again.
         assert_eq!(strip(&emit(src, 0, next)), strip(&page));
-        let html = render_to(src, next);
+        let html = render_to(src, next).unwrap();
         assert!(html.starts_with("<pre><code>"), "{html}");
         assert!(strip(&html).starts_with(&escaped(&src[..next])), "{html}");
     }
@@ -1049,7 +1223,9 @@ mod tests {
     /// A re-render never brings back more than `MAX_EXTENT` at once.
     #[test]
     fn extent_is_clamped() {
-        assert!(render_to("[1]", usize::MAX).contains(r#"class="hljs-number">1<"#));
+        assert!(render_to("[1]", usize::MAX)
+            .unwrap()
+            .contains(r#"class="hljs-number">1<"#));
     }
 
     /// A header comment above one enormous line is still a one-line file.
@@ -1077,5 +1253,145 @@ mod tests {
             let out = source(bad);
             assert!(out.ends_with('\n') || out.is_empty(), "{bad:?}: {out:?}");
         }
+    }
+
+    /// `more_after` answers what `has_content(src, comma, innermost_end)` did,
+    /// without finding the end.
+    #[test]
+    fn a_trailing_comma_has_nothing_after_it() {
+        let array = [(b']', true)];
+        assert!(!more_after("[1,\n]", 2, &array));
+        assert!(more_after("[1, 2]", 2, &array));
+        assert!(more_after("[1, // c\n]", 2, &array));
+        // A closer that does not match closes nothing, so it is content.
+        assert!(more_after("[1,}]", 2, &array));
+        // Outside every container only the end of the text ends anything.
+        assert!(!more_after("1,\n", 1, &[]));
+        assert!(more_after("1, 2", 1, &[]));
+    }
+
+    /// A trailing comma before every closer, nested deep: no comma past the
+    /// budget is a place to cut, and asking where every open container ends at
+    /// each of them made the render quadratic in the depth — minutes for a file
+    /// under a megabyte. Deep enough that the commas outrun `LOOKAHEAD`, which
+    /// is where the repeated scans began.
+    #[test]
+    fn trailing_commas_nested_deep_render_in_linear_time() {
+        let depth = 40_000;
+        let src = format!("{}1{}", "[\n".repeat(depth), ",\n]".repeat(depth));
+        let started = std::time::Instant::now();
+        let html = emit(&src, 0, 0);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(3),
+            "took {:?}",
+            started.elapsed()
+        );
+        assert!(!html.contains("class=\"more\""));
+    }
+
+    /// Indentation grows with depth, so a file that is all nesting reflows to
+    /// the square of its size. Past the limit it is shown as it was written.
+    #[test]
+    fn reflow_gives_up_on_a_file_that_is_all_nesting() {
+        assert!(matches!(source(&"[".repeat(8192)), Cow::Borrowed(_)));
+        // Ordinary nesting is nowhere near the limit.
+        assert!(matches!(source("[[[[1]]]]"), Cow::Owned(_)));
+    }
+
+    /// Brackets nested deep with a trailing comma at every level: no comma is a
+    /// place to cut, so the whole of it would be handed over.
+    #[test]
+    fn a_render_past_the_ceiling_is_refused() {
+        let depth = 10_000;
+        let src = format!("{}1{}", "[\n".repeat(depth), ",\n]".repeat(depth));
+        assert!(render_within(&src, 0, 1024 * 1024).is_err());
+        // The same document under a ceiling it fits is rendered as ever.
+        assert!(render_within(&src, 0, usize::MAX).is_ok());
+    }
+
+    /// A reader who had expanded a big document gets the first chunk back, not
+    /// an error, when the whole of what they had is too much.
+    #[test]
+    fn a_re_render_past_the_ceiling_falls_back_to_the_first_chunk() {
+        // Long strings keep the markup small beside the text, so the sizes are
+        // predictable: about 2.1 MB of source, whose first 512 KB renders to
+        // well under the 3 MB ceiling and whose whole renders to well over it.
+        let record = format!("{{\"a\":\"{}\"}},\n", "x".repeat(200));
+        let src = format!("[{}{{\"a\":1}}]", record.repeat(10_000));
+        let ceiling = 3 * 1024 * 1024;
+        assert!(emit_within(&src, 0, usize::MAX, usize::MAX, 0).len() > ceiling);
+        let html = render_within(&src, usize::MAX, ceiling).unwrap();
+        assert!(html.contains(r#"class="more""#));
+        assert!(html.len() <= ceiling + 64);
+    }
+
+    /// Nested deep enough that folding it would stall the window, a document
+    /// is shown without folds — and every byte of it is still on the page.
+    #[test]
+    fn a_document_too_heavy_to_fold_is_shown_flat() {
+        let depth = 2000;
+        let src = format!("{}1{}", "[\n".repeat(depth), "\n]".repeat(depth));
+        let html = emit(&src, 0, usize::MAX);
+        assert!(!html.contains("fold"), "fold markup in a flat render");
+        assert!(balanced(&html));
+        assert_eq!(strip(&html), escaped(&src));
+    }
+
+    /// Deep is not heavy: five hundred levels is a few hundred thousand, and
+    /// folds all the way down.
+    #[test]
+    fn a_deep_document_that_is_not_heavy_still_folds() {
+        let depth = 500;
+        let src = format!("{}1{}", "[\n".repeat(depth), "\n]".repeat(depth));
+        let html = emit(&src, 0, usize::MAX);
+        assert_eq!(html.matches(r#"class="fold-body""#).count(), depth);
+    }
+
+    /// A chunk is spliced in where its `more` button was, inside every span
+    /// open there, so its lines weigh what that depth makes them weigh.
+    #[test]
+    fn a_slice_weighs_its_lines_by_its_depth_in_the_document() {
+        let members = ",\n[2]".repeat(1000);
+        let deep = format!("{}1{members}{}", "[\n".repeat(3000), "\n]".repeat(3000));
+        let start = deep.find(',').unwrap();
+        let chunk = render_slice(&deep, start, start + members.len()).unwrap();
+        assert!(!chunk.contains("fold"), "a heavy chunk folded");
+        assert_eq!(strip(&chunk), members);
+        // The same members one level down weigh two thousand, and fold.
+        let shallow = format!("[1{members}]");
+        let chunk = render_slice(&shallow, 2, 2 + members.len()).unwrap();
+        assert_eq!(chunk.matches(r#"class="fold-body""#).count(), 1000);
+    }
+
+    /// `depth_at` has to agree with the emitter about what is open, so it
+    /// keeps the emitter's rules: a closer that does not match closes
+    /// nothing, and a bracket inside a string is text.
+    #[test]
+    fn depth_is_counted_by_the_emitters_own_rules() {
+        assert_eq!(depth_at("[[1, 2]]", 0), 0);
+        assert_eq!(depth_at("[[1, 2]]", 3), 2);
+        assert_eq!(depth_at("[[1], 2]", 4), 1);
+        assert_eq!(depth_at("[}, \"]\", 1]", 9), 1);
+    }
+
+    /// A re-render has to stop where the render before it did, whichever of
+    /// the two was folded: cuts, ranges and text are the same either way.
+    #[test]
+    fn a_flat_render_cuts_where_a_folded_one_does() {
+        let src = "[[1,2,3],[4,5,6],[7,8,9]]";
+        let folded = emit_as(src, 0, 4, usize::MAX, Some(0)).unwrap();
+        let flat = emit_as(src, 0, 4, usize::MAX, None).unwrap();
+        assert!(folded.contains("fold-body") && !flat.contains("fold"));
+        assert!(first_range(&folded).is_some());
+        let ranges = |html: &str| -> Vec<String> {
+            html.match_indices("data-range=\"")
+                .map(|(at, open)| {
+                    let rest = &html[at + open.len()..];
+                    rest[..rest.find('"').unwrap()].to_string()
+                })
+                .collect()
+        };
+        assert_eq!(ranges(&folded), ranges(&flat));
+        assert_eq!(strip(&folded), strip(&flat));
     }
 }

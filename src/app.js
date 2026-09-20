@@ -2380,8 +2380,14 @@ function onJsonClick(event) {
   // As in `onTaskToggle`: the range belongs to the document in the DOM, so the
   // path has to come from there too, not from a tab entry that may have moved on.
   const path = els.content.dataset.path;
+  // Whose document this is, taken now: by the time the chunk is back, another
+  // tab may be showing the same file.
+  const owner = currentEntry(activeTab());
   invoke("json_region", { path, start, end })
     .then((html) => {
+      // Re-rendered while the fetch was out: this button is no longer in the
+      // page, and the new render has one of its own.
+      if (!btn.isConnected) return;
       // The chunk goes where the button was, and may itself end in another one.
       btn.insertAdjacentHTML("beforebegin", html);
       btn.remove();
@@ -2397,9 +2403,8 @@ function onJsonClick(event) {
         .reduce((a, b) => Math.min(a, b), end);
       // Only if this is still the document on screen: a navigation during
       // the fetch would otherwise stamp the count on whatever replaced it.
-      const entry = currentEntry(activeTab());
-      if (entry && els.content.dataset.path === path)
-        entry.extent = loaded;
+      if (owner && owner === currentEntry(activeTab()) && els.content.dataset.path === path)
+        owner.extent = loaded;
     })
     .catch((err) => {
       // The file has changed under the range — say so in place rather than in a

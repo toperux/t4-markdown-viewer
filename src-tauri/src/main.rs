@@ -500,7 +500,7 @@ fn load_file(app: AppHandle, path: String, extent: Option<usize>) -> Result<Docu
     // than in the webview — see `json.rs`.
     let as_json = is_json(&path);
     let html = if as_json {
-        json::render_to(&json::source(&text), extent.unwrap_or(0))
+        json::render_to(&json::source(&text), extent.unwrap_or(0))?
     } else {
         render::render(&text)
     };
