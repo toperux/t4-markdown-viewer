@@ -12,7 +12,10 @@ on and talking Chrome DevTools Protocol to it. Windows only, as written.
 Scripts in `.claude/skills/drive-app/scripts/` (run from the repo root):
 
 - `cdp.mjs` — `node cdp.mjs <port> eval "<js>"` | `click "<css selector>"` |
-  `shot <out.png>`. Uses Node 24's global `WebSocket`; nothing to install.
+  `shot <out.png>` | `key <Key> <vk>` (a real key press, e.g. `key ArrowRight 39`)
+  | `drag "x,y x,y …"` (press at the first point, move through the rest, release
+  at the last; client CSS px). Uses Node 24's global `WebSocket`; nothing to
+  install.
 - `dialog.ps1` — answers the native open dialog: `-ProcId <pid> -Path <path>`,
   `-Cancel`, or `-Dump`.
 
@@ -44,7 +47,10 @@ Scripts in `.claude/skills/drive-app/scripts/` (run from the repo root):
   `"reopen": "restore"` the first debug launch brings back *their* windows and
   then writes over the file. Back it up too, and set `"reopen": "off"` in
   `config.json` before the first launch unless session restore is the thing
-  under test. Restore both at the end.
+  under test. Restore both at the end. When restore *is* under test, delete the
+  live `session.json` after backing it up, and again between probes: a session
+  left by the last probe comes back in place of the file named on the command
+  line.
 - **Port.** `netstat -ano | grep 9222`. t4-git-ui often holds 9222; use 9223.
 - **Build.** Use the `TAURI_CONFIG` command above, and rebuild after every
   `src/` edit: frontend assets are embedded at build time. Themes are copied into
@@ -128,6 +134,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/drive-app/scr
 2. Only after the process is gone, since it may write on exit: diff the live
    `config.json` against the backup, and if the debug app changed it, copy
    back only that change, not the whole backup. Re-read the file to confirm.
+   `session.json` is the other way round: after a run with `"reopen": "off"`
+   it is **gone**, not changed: `setup` in `main.rs` discards the file at
+   every launch that is not offering it (`"ask"`), and `"off"` never writes
+   another. Copy the backup back whole and `cmp` the two.
 3. If you closed the user's viewer, reopen it detached:
    `powershell -NoProfile -Command "Start-Process '<path>\t4-markdown-viewer.exe'"`.
    A background bash job would die with the session. To bring back the file it
@@ -163,4 +173,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/drive-app/scr
 - **JSON documents** (`json.rs`): `button.fold` toggles `aria-expanded`, its
   body is `nextElementSibling.nextElementSibling`; `button.more[data-range]`
   fetches a chunk. Scroll the button into view before `click` — it sits at
-  the end of a long line and the `pre` scrolls sideways.
+  the end of a long line and the `pre` scrolls sideways. A document too heavy
+  to fold (`MAX_FOLD_WEIGHT`) has no `button.fold` at all; that is not a bug.
+- **A page that may hang.** `cdp.mjs` waits for ever, so wrap the call:
+  `timeout 65 node cdp.mjs 9223 eval "…"` exits 124 when the page never
+  answered. The host process goes on reading `Responding: True` — the page
+  lives in the `msedgewebview2` children, and that is where its memory is too
+  (`Get-Process t4-markdown-viewer,msedgewebview2 | select Name,Id,WS,CPU`;
+  the big one is the renderer). Kill with `//F`, and use a fresh launch for
+  the next probe. Write results to a notes file as they come.
+- **Timing a render.** Separate `eval`s, so a partial result survives and the
+  slow stage is named: `invoke("load_file", …)` and keep `d.html` on `window`
+  (Rust); `el.innerHTML = html` on a detached `div` (parse); `appendChild` then
+  read `offsetHeight` (style + layout). Only then `openTab` for the app's own
+  path.
+- **Keyboard scrolling is animated.** Wait ~1 s after `key` before reading
+  `scrollLeft`/`scrollTop`, or the rest of the move shows up in the next
+  reading as drift on the wrong axis. An arrow press is 40 px.
+- **`#content` is hidden on the empty screen**, so anything appended to it
+  measures `offsetHeight` 0 and lays nothing out. Open a document first and
+  check `els.content.offsetHeight > 0`.

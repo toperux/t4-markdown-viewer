@@ -1,4 +1,5 @@
 // node cdp.mjs <port> eval "<expr>" | shot <out.png> | click "<css selector>"
+//   | key <Key> <vk> (e.g. key ArrowRight 39) | drag "x,y x,y …" (client CSS px)
 import { writeFileSync } from "node:fs";
 const [port, cmd, arg] = process.argv.slice(2);
 const pages = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
@@ -37,6 +38,21 @@ if (cmd === "eval") {
       await send("Input.dispatchMouseEvent", { type, x: at.x, y: at.y, button: "left", clickCount: 1 });
     console.log("clicked", arg, JSON.stringify(at));
   }
+} else if (cmd === "key") {
+  // A real key press: the key's name, then its Windows virtual-key code.
+  const vk = Number(process.argv[5]);
+  for (const type of ["rawKeyDown", "keyUp"])
+    await send("Input.dispatchKeyEvent", { type, key: arg, code: arg, windowsVirtualKeyCode: vk });
+  console.log("pressed", arg);
+} else if (cmd === "drag") {
+  // Press at the first point, move through the rest, release at the last.
+  const pts = arg.split(" ").map((p) => p.split(",").map(Number));
+  const mouse = (type, [x, y]) =>
+    send("Input.dispatchMouseEvent", { type, x, y, button: "left", buttons: 1, clickCount: 1 });
+  await mouse("mousePressed", pts[0]);
+  for (const p of pts.slice(1)) await mouse("mouseMoved", p);
+  await mouse("mouseReleased", pts.at(-1));
+  console.log("dragged", arg);
 } else {
   const r = await send("Page.captureScreenshot", { format: "png" });
   writeFileSync(arg, Buffer.from(r.data, "base64"));
