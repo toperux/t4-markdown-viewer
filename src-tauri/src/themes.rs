@@ -229,6 +229,17 @@ fn assign_groups(themes: &mut [ThemeInfo]) {
     }
 }
 
+/// Whether two theme names are one file to the filesystem `path_for` resolves
+/// them through. ASCII is as far as this goes: theme files are named in it, and
+/// matching a filesystem's full case folding is not worth a dependency.
+fn same_name(a: &str, b: &str) -> bool {
+    if cfg!(any(windows, target_os = "macos")) {
+        a.eq_ignore_ascii_case(b)
+    } else {
+        a == b
+    }
+}
+
 fn scan(dir: &PathBuf, builtin: bool, out: &mut Vec<ThemeInfo>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -257,8 +268,9 @@ fn scan(dir: &PathBuf, builtin: bool, out: &mut Vec<ThemeInfo>) {
             group_label: String::new(),
             mode: mode_for(stem, css.as_deref()),
         };
-        // A user theme with the same stem shadows the bundled one.
-        match out.iter().position(|t| t.name == info.name) {
+        // A user theme with the same stem shadows the bundled one — the same
+        // as the filesystem sees it, since that is who `path_for` asks.
+        match out.iter().position(|t| same_name(&t.name, &info.name)) {
             Some(i) => out[i] = info,
             None => out.push(info),
         }
@@ -672,5 +684,39 @@ mod tests {
             partner.is_some(),
             "the default theme must have a light partner for the toggle"
         );
+    }
+
+    /// A scratch directory of our own under the system's, emptied first.
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("t4mv-themes-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// `path_for` finds a theme through the filesystem, which on Windows and
+    /// macOS does not tell `Solarized-Light` from `solarized-light`: the user's
+    /// file answers to both names. So it has to shadow the bundled one in the
+    /// list too, or the picker shows two rows that load the same file.
+    #[test]
+    fn a_user_theme_shadows_a_bundled_one_the_way_the_filesystem_sees_it() {
+        let bundled = scratch("bundled");
+        let user = scratch("user");
+        std::fs::write(bundled.join("solarized-light.css"), "").unwrap();
+        std::fs::write(user.join("Solarized-Light.css"), "").unwrap();
+
+        let mut out = Vec::new();
+        scan(&bundled, true, &mut out);
+        scan(&user, false, &mut out);
+
+        if cfg!(any(windows, target_os = "macos")) {
+            assert_eq!(out.len(), 1);
+            assert!(!out[0].builtin);
+            assert_eq!(out[0].name, "Solarized-Light");
+        } else {
+            assert_eq!(out.len(), 2);
+        }
+        let _ = std::fs::remove_dir_all(&bundled);
+        let _ = std::fs::remove_dir_all(&user);
     }
 }
