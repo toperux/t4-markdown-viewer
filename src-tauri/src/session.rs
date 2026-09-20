@@ -233,7 +233,13 @@ pub async fn snapshot(app: &AppHandle, version: String) {
     })
     .await;
 
-    save(app, version, std::env::args().skip(1).collect(), true);
+    // Lossy for the reason `setup` gives: `args()` panics on a name that is
+    // not Unicode.
+    let args = std::env::args_os()
+        .skip(1)
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    save(app, version, args, true);
 }
 
 /// Write down what is open right now, for an ordinary launch to come back to.

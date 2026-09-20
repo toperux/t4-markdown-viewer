@@ -1399,7 +1399,13 @@ fn main() {
             }
         })
         .setup(|app| {
-            let args: Vec<String> = std::env::args().collect();
+            // `args()` panics on an argument that is not Unicode, and a panic
+            // here is an abort with no window: a file manager handing over a
+            // Latin-1 file name would simply fail to start the app. Lossy
+            // instead — the mangled name is not a file, so it is ignored.
+            let args: Vec<String> = std::env::args_os()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect();
             let state = app.state::<AppState>();
             touch_focus(&state, "main");
 
