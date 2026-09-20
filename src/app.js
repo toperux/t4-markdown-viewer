@@ -94,6 +94,11 @@ const state = {
   /** Root of the folder in the sidebar, or null while it is closed. */
   folder: null,
   /**
+   * Whether the reader chose that folder. The tab showing it knows as much for
+   * itself; this is for the window with no tab yet, whose first one inherits it.
+   */
+  folderPicked: false,
+  /**
    * What the sidebar orders its files by, from `get_settings` at boot:
    * `"modified"` for newest first, `"name"` otherwise. Rust does the sorting;
    * this is only what gets handed to it.
@@ -186,6 +191,12 @@ function normPath(p) {
   return state.caseInsensitivePaths ? slashed.toLowerCase() : slashed;
 }
 
+/** Whether `path` lies in `dir` or anywhere below it. */
+function isInside(path, dir) {
+  const root = `${normPath(dir).replace(/\/+$/, "")}/`;
+  return normPath(path).startsWith(root);
+}
+
 /* ---------------- tabs ---------------- */
 
 /**
@@ -232,6 +243,16 @@ function makeTab(path) {
     heading: "",
     /** Pictures the rendered document shows, so the watcher covers them too. */
     media: [],
+    /** The sidebar's root for this tab, or null for the document's own folder. */
+    folder: null,
+    /** Whether the reader chose that folder, rather than the sidebar following to it. */
+    picked: false,
+    /** A new tab reads in whatever order is in force when it opens. */
+    sort: state.folderSort,
+    /** Folders open inside the tree. Tabs on one folder share its live tree, and so this. */
+    expanded: [],
+    /** What the filter box held for this tab. Not saved: a search, not a setting. */
+    filter: "",
     entries: [{ path, scrollY: 0 }],
     index: 0,
   };
@@ -583,6 +604,7 @@ async function showActive(scrollY) {
     shownToken = token;
     show("empty");
     updateChrome();
+    followTab(null);
     return;
   }
 
@@ -636,6 +658,10 @@ async function showActive(scrollY) {
   shownToken = token;
   syncWatch();
   updateChrome();
+  // After the load, not before: `tab.dir` is canonical by now, and a render a
+  // newer switch superseded has already returned without touching the sidebar.
+  // Not awaited: nothing a tab change leads to should wait on a folder listing.
+  followTab(tab).catch(console.error);
 }
 
 function updateChrome() {
@@ -793,6 +819,23 @@ function reportSoon() {
 
 async function openTab(path) {
   const tab = makeTab(path);
+  // A tab opened on a file under the folder on show keeps that root, so a link
+  // or a picture clicked inside a project does not re-root its tree. One that
+  // lies outside it follows its own folder instead.
+  const root = state.folder ?? sidebarTab?.folder;
+  if (root && isInside(path, root)) {
+    tab.folder = root;
+    // Picked stays picked: the reader chose this root, and a tab opened under
+    // it is one more document of the same project.
+    tab.picked = sidebarTab ? sidebarTab.picked && sidebarTab.folder === root : state.folderPicked;
+    // Shared, not copied: an `expanded` array is only ever replaced, never
+    // written into, so the two tabs on one tree cannot surprise each other.
+    // Only where that list is this root's: a sidebar borrowing a folder while
+    // the tab's own will not list holds another folder's.
+    if (sidebarTab && sidebarTab.folder === root) tab.expanded = sidebarTab.expanded;
+    // The search too: a hit opened beside the rest must not cost the others.
+    if (state.folder !== null) tab.filter = els.treeFilter.value;
+  }
   tabs.push(tab);
   rememberScroll();
   activeId = tab.id;
@@ -858,7 +901,8 @@ async function cycleTab(step) {
 
 /** The plain JSON a tab is handed around as: between windows, and across an update restart. */
 function packTab(tab) {
-  return { path: tab.path, entries: tab.entries, index: tab.index };
+  const { path, entries, index, folder, picked, sort, expanded } = tab;
+  return { path, entries, index, folder, picked, sort, expanded };
 }
 
 /** A live tab from the plain JSON one is handed around as, or null if it names nothing. */
@@ -870,7 +914,14 @@ function rebuildTab(data) {
   const index = Math.max(0, Math.min(entries.length - 1, data?.index ?? 0));
   const path = entries[index]?.path;
   if (!path) return null;
-  return Object.assign(makeTab(path), { entries, index });
+  const tab = Object.assign(makeTab(path), { entries, index });
+  // Hand-edited session files and older ones alike: anything that is not a
+  // folder or one of the two orders leaves `makeTab`'s default in place.
+  if (typeof data.folder === "string") tab.folder = data.folder;
+  if (data.sort === "name" || data.sort === "modified") tab.sort = data.sort;
+  tab.picked = data.picked === true && tab.folder !== null;
+  if (Array.isArray(data.expanded)) tab.expanded = data.expanded.filter((p) => typeof p === "string");
+  return tab;
 }
 
 /** Rebuild a tab handed over from another window and take it on. */
@@ -900,6 +951,78 @@ async function restoreTabs(list, active) {
 
 /* ---------------- folder sidebar ---------------- */
 
+/**
+ * The tab the sidebar is showing for. The object, not its id: writing onto a
+ * closed tab is harmless, and means Ctrl+Shift+T brings its folder back with it.
+ */
+let sidebarTab = null;
+
+/**
+ * Renders of the root still out, whoever asked: a folder opening, a new order,
+ * the watcher. While any is, the tree is half-built — one that a later render
+ * outdated may still be reopening the folders inside it — so `syncFolderWatch`
+ * waits for the last. Only this folder's count: `openFolder` starts a new epoch
+ * for a different one, or a share that never answers would hold up the rest.
+ */
+let folderLoads = 0;
+let rootEpoch = 0;
+
+/**
+ * What the root renders still out were asked to reopen. One that outdates
+ * another takes this on, or a save landing mid-switch would bring the tree back
+ * shut and have that written down as what the tab remembers.
+ */
+let rootKeep = new Set();
+
+/**
+ * The folder the sidebar owes `tab`, for a tab switch and for Ctrl+Shift+O
+ * alike. One the reader picked always comes back, wherever the tab has been
+ * since. One the sidebar only followed to comes back while the document still
+ * lies inside it; after that the tab stays on the folder on show if the
+ * document is in there — the rule `openTab` gives a new tab — and otherwise
+ * goes to the document's own.
+ */
+function folderFor(tab) {
+  const doc = currentEntry(tab)?.path;
+  const holds = (dir) => !!dir && !!doc && isInside(doc, dir);
+  if (tab.folder && (tab.picked || !doc || holds(tab.folder))) return tab.folder;
+  if (holds(state.folder)) return state.folder;
+  return tab.dir || dirName(tab.path);
+}
+
+/**
+ * Move the sidebar to the tab now on screen: the folder `folderFor` names. The
+ * only place `sidebarTab` changes.
+ */
+async function followTab(tab) {
+  if (tab === sidebarTab) return; // in-tab navigation leaves the sidebar alone
+  sidebarTab = tab;
+  if (!tab) return; // empty window: the sidebar stays as it is
+  const resort = tab.sort !== state.folderSort;
+  state.folderSort = tab.sort;
+  showSortMenu(false); // left open, it would go on ticking the last tab's order
+  if (state.folder === null) return; // closed: showFolder picks it up later
+  const folder = folderFor(tab);
+  if (!folder) return; // a load that failed on a bare name: nowhere to go
+  // What the tab remembers is about its own folder, not one standing in for it.
+  const own = folder === tab.folder;
+  if (!sameDir(folder, state.folder)) {
+    return openFolder(
+      folder,
+      own
+        ? { keep: tab.expanded, filter: tab.filter, picked: tab.picked, record: false }
+        : { record: false },
+    );
+  }
+  if (tab.folder !== state.folder) {
+    tab.folder = state.folder;
+    reportSoon(); // `updateChrome` has already said its piece for this switch
+  }
+  els.treeFilter.value = tab.filter; // the sync below is what applies it
+  if (resort) await resortTree();
+  else syncFolderWatch(); // also records what is expanded onto the new owner
+}
+
 /** Per-list render tokens: a watcher burst and a click can re-list the same folder. */
 const treeTokens = new WeakMap();
 /** What each list last showed, so a save that changes nothing does not rebuild it. */
@@ -915,6 +1038,31 @@ const treeListings = new WeakMap();
  * it a rebuild would reopen one level and leave everything deeper shut.
  */
 async function renderTree(ul, dir, keep = new Set()) {
+  if (ul !== els.tree) return listTree(ul, dir, keep);
+  const epoch = rootEpoch;
+  folderLoads++;
+  for (const path of keep) rootKeep.add(path);
+  try {
+    await listTree(ul, dir, rootKeep);
+  } finally {
+    // One from before the folder changed was written off when it did.
+    if (epoch === rootEpoch && !--folderLoads) rootKeep = new Set();
+  }
+}
+
+/**
+ * Re-list the root in the order now in force. It is all that needs asking: the
+ * sort is part of every list's signature, so the root rebuilds, and rebuilding
+ * is what re-lists each folder open inside it, all the way down. Rebuilt rows
+ * come back unhidden, and the sync is what puts the filter back on.
+ */
+async function resortTree() {
+  await renderTree(els.tree, els.tree.dataset.dir);
+  syncFolderWatch();
+}
+
+/** The listing itself. `renderTree` is the way in: it keeps count of the root's. */
+async function listTree(ul, dir, keep) {
   const token = (treeTokens.get(ul) ?? 0) + 1;
   treeTokens.set(ul, token);
   ul.dataset.dir = dir;
@@ -1039,12 +1187,33 @@ let watchingFolders = null;
  * moment later loses whatever happened in between.
  */
 function syncFolderWatch() {
+  // Every root render ends in a call here, so the last one out does the work.
+  // A closed sidebar has nothing half-built about it.
+  if (folderLoads && state.folder !== null) return;
   applyTreeFilter(); // the same settled moment is when the filter wants the finished tree
   const dirs = [];
   if (state.folder !== null) {
     dirs.push(state.folder);
     for (const row of els.tree.querySelectorAll('li[aria-expanded="true"] > .tree-row')) {
       if (!row.closest("ul[hidden]")) dirs.push(row.dataset.path);
+    }
+    // The settled tree, minus its root: exactly what the owning tab has to
+    // reopen with. Not off a listing that failed: an unplugged drive shows
+    // nothing open, and that is no reason to forget what was. Nor off a folder
+    // the tab is only borrowing while its own will not list — nothing of that
+    // one is written down.
+    if (
+      sidebarTab &&
+      els.sidebar.dataset.tree !== "error" &&
+      sidebarTab.folder &&
+      sameDir(sidebarTab.folder, state.folder)
+    ) {
+      const open = dirs.slice(1);
+      // Part of the session too, but only said when it changed: the watcher
+      // lands here on every save in the folder.
+      const changed = open.join("\0") !== sidebarTab.expanded.join("\0");
+      sidebarTab.expanded = open;
+      if (changed) reportSoon();
     }
   }
   const key = dirs.join("\0");
@@ -1053,22 +1222,71 @@ function syncFolderWatch() {
   invoke("watch_folders", { dirs }).catch(console.error);
 }
 
-async function openFolder(path) {
+/**
+ * Show `path` in the sidebar. `keep` is what was expanded last time this folder
+ * was on show and `filter` what the filter box held, if anything. `record` says
+ * the reader asked for this folder, so it is worth keeping as the one a picker
+ * starts in; `remember` whether the tab takes it on as its own, and `picked`
+ * whether as one the reader chose rather than one the sidebar followed to.
+ */
+async function openFolder(
+  path,
+  { keep, filter = "", record = true, remember = true, picked = false } = {},
+) {
+  const last = state.folder;
   state.folder = path;
+  state.folderPicked = picked;
+  const owner = sidebarTab;
+  const was = owner?.folder;
+  const wasPicked = owner?.picked;
+  const wasFilter = owner?.filter;
   els.sidebar.hidden = false;
-  els.treeFilter.value = "";
+  els.treeFilter.value = filter;
+  // Onto the tab before the listing, not after it: a switch away while it is
+  // out would otherwise lose what the reader just picked.
+  if (owner && remember) Object.assign(owner, { folder: path, picked, filter });
   treeListings.delete(els.tree); // a different folder must rebuild even if it lists the same
   els.sidebar.dataset.tree = ""; // the last folder's error or emptiness is not this one's
-  await renderTree(els.tree, path);
+  // Emptied first: a rebuild reopens whatever the old rows had open, and when
+  // this folder sits inside the last one, that is another tab's memory. Not
+  // for the folder already on show — picked again, it keeps what it has open.
+  if (last === null || !sameDir(path, last)) {
+    els.tree.replaceChildren();
+    // And so is whatever a render of the last folder was carrying, and the
+    // render itself: it no longer counts towards this tree being settled.
+    rootKeep = new Set();
+    rootEpoch++;
+    folderLoads = 0;
+  }
+  await renderTree(els.tree, path, new Set(keep));
+  if (state.folder === null) return; // closed while the listing was out
   // Canonical from here on, so it compares with what the watcher reports.
   if (state.folder === path) {
     state.folder = els.tree.dataset.dir;
+    const failed = els.sidebar.dataset.tree === "error";
+    // A folder that will not list leaves the tab exactly as it was: one the
+    // reader had is kept, and a fresh pick that failed was never really picked.
+    if (owner && remember) {
+      owner.folder = failed ? was : state.folder;
+      if (failed) Object.assign(owner, { picked: wasPicked, filter: wasFilter });
+    }
+    // A folder the reader picked is part of what the session holds. A tab
+    // switch coming back to the one it left has nothing new to say.
+    if (owner && (owner.folder !== was || owner.picked !== wasPicked)) reportSoon();
     // Fire-and-forget, like `reportSession`: nothing on screen waits for it.
     // Not when the listing failed, because `dataset.dir` is then still the path
     // that failed — recording an unplugged drive would lose the folder that
     // works, and leave the next picker opening in home instead.
-    if (state.folder && els.sidebar.dataset.tree !== "error") {
+    if (record && state.folder && !failed) {
       invoke("set_last_folder", { path: state.folder }).catch(console.error);
+    }
+    // The tab's own folder, unplugged: show the document's folder this time
+    // rather than an error row, without writing any of it down. The tab still
+    // remembers the drive, and gets it back when the drive comes back. With
+    // nowhere else to go the error stays on show, folder still remembered.
+    if (failed && owner && was && sameDir(was, path)) {
+      const dir = activeDir();
+      if (dir && !sameDir(dir, path)) return openFolder(dir, { record: false, remember: false });
     }
   }
   els.sidebarNameText.textContent = baseName(state.folder);
@@ -1083,6 +1301,9 @@ function closeFolder() {
   // would otherwise be left pointing at a button that is no longer there.
   showSortMenu(false);
   els.treeFilter.value = "";
+  // Every tab's, closed ones too: shutting the sidebar dismisses the search,
+  // and one coming back with the next tab would narrow the tree unasked.
+  for (const tab of [...tabs, ...closedTabs]) tab.filter = "";
   els.tree.replaceChildren();
   syncFolderWatch();
 }
@@ -1239,20 +1460,21 @@ function showSortMenu(open) {
   menu.querySelector('[aria-checked="true"]')?.focus();
 }
 
-/**
- * Take the new order and show it. The root is all that needs asking: the sort
- * is part of every list's signature, so the root rebuilds, and rebuilding is
- * what re-lists each folder open inside it, all the way down.
- */
+/** Take the new order and show it. */
 async function setFolderSort(sort) {
   if (sort === state.folderSort) return;
   state.folderSort = sort;
+  // Onto the tab as well as the config: the file is what a new window starts
+  // from, the tab keeps the order it was last read in, and a new tab takes
+  // whichever is in force where it opens.
+  if (sidebarTab) {
+    sidebarTab.sort = sort;
+    reportSoon();
+  }
   invoke("set_folder_sort", { sort }).catch(console.error);
   if (state.folder === null) return;
 
-  await renderTree(els.tree, els.tree.dataset.dir);
-  // Rebuilt rows come back unhidden, and this is what puts the filter back on.
-  syncFolderWatch();
+  await resortTree();
 }
 
 /* ---------------- navigation ---------------- */
@@ -1990,7 +2212,7 @@ async function pickFolder() {
 /** Ask for a folder and show it in the sidebar. */
 async function chooseFolder() {
   const path = await pickFolder();
-  if (path) await openFolder(path);
+  if (path) await openFolder(path, { picked: true });
 }
 
 /** The active document's folder, or "" when there is none to name. */
@@ -2002,16 +2224,24 @@ function activeDir() {
 }
 
 /**
- * Toggle the sidebar. Opening shows the folder of what is on screen — almost
- * always the one wanted — and asks only when nothing is open.
+ * Toggle the sidebar. Opening shows the folder `folderFor` names — the one a
+ * tab switch would — and asks only when there is none to name.
  */
 async function showFolder() {
   if (state.folder !== null) {
     closeFolder();
     return;
   }
-  const path = activeDir() || (await pickFolder());
-  if (path) await openFolder(path);
+  const tab = sidebarTab;
+  const named = (tab && folderFor(tab)) || activeDir();
+  const path = named || (await pickFolder());
+  if (!path) return;
+  // What the tab remembers is only about its own folder, not a stand-in for it.
+  const own = !!tab && path === tab.folder;
+  await openFolder(
+    path,
+    own ? { keep: tab.expanded, filter: tab.filter, picked: tab.picked } : { picked: !named },
+  );
 }
 
 /**
@@ -2447,12 +2677,16 @@ async function main() {
     els.sidebarSort.focus(); // hiding the focused item would drop it to the body
     setFolderSort(item.dataset.sort).catch(toast);
   });
-  els.treeFilter.addEventListener("input", applyTreeFilter);
+  els.treeFilter.addEventListener("input", () => {
+    if (sidebarTab) sidebarTab.filter = els.treeFilter.value;
+    applyTreeFilter();
+  });
   els.treeFilter.addEventListener("keydown", async (event) => {
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation(); // onKeydown would read it as "close the open menu"
       els.treeFilter.value = "";
+      if (sidebarTab) sidebarTab.filter = "";
       applyTreeFilter();
       els.treeFilter.blur();
     } else if (event.key === "Enter" && els.treeFilter.value.trim()) {

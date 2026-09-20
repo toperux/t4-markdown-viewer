@@ -24,7 +24,13 @@ Electron build starts around 150 MB.
   what you have read. `Ctrl`+click or middle-click opens it in a new tab,
   `Shift`+click in a new window, and right-click offers all three. The
   tree follows the folder — files added, renamed or removed show up on their
-  own. The box above the tree narrows it to names containing what you type,
+  own. The sidebar follows the tab: each tab remembers the folder it was last
+  shown, what was open inside it and the sort order, across restarts too, and
+  one that has none shows its own file's folder — a new tab keeps the folder on
+  show when its file lies inside it. A folder you pick stays with its tab
+  wherever you read from there; one the sidebar only followed to stays while
+  the tab's document is inside it.
+  The box above the tree narrows it to names containing what you type,
   across every folder it has listed so far. The sort button beside the close
   button orders the files by name or by date modified, newest first.
 - **Tabs or windows.** Read several documents at once, and choose per taste
@@ -213,7 +219,7 @@ On macOS, read `Cmd` for every `Ctrl` below.
 | --- | --- |
 | `Alt+←` / `Alt+→`, or `Ctrl+[` / `Ctrl+]` | Back / forward through visited documents |
 | `Ctrl+O` | Open a file, wherever Settings says |
-| `Ctrl+Shift+O` | Show or hide the sidebar with the current file's folder (a picker when nothing is open) |
+| `Ctrl+Shift+O` | Show or hide the sidebar with the tab's folder — the one you picked, or the one it last showed while the document is inside it, otherwise the current file's (a picker when nothing is open) |
 | `Ctrl+Shift+F` | Filter the sidebar tree (opens it first when it is closed) |
 | `Ctrl+T` | Open a file in a new **tab** |
 | `Ctrl+N` | Open a file in a new **window** |
