@@ -36,10 +36,11 @@ const JSON_EXTS: &[&str] = &["json", "jsonc"];
 
 /// How big a document `load_file` will read. `.txt` is in `MD_EXTS`, so the
 /// sidebar happily offers a multi-gigabyte log, and reading, decoding and
-/// rendering it all happen before the command returns — the window is frozen
-/// for as long as that takes. Images are deliberately not capped: `load_asset`
-/// hands the webview a path rather than bytes, so a 40 MB photo costs nothing
-/// here.
+/// rendering it all happen before the command returns — on a worker thread, so
+/// nothing freezes, but the tab stands empty for as long as that takes and the
+/// webview then has to swallow the result. Images are deliberately not capped:
+/// `load_asset` hands the webview a path rather than bytes, so a 40 MB photo
+/// costs nothing here.
 const MAX_DOCUMENT_BYTES: u64 = 32 * 1024 * 1024;
 
 /// How far each window has got through starting up. One struct behind one lock
@@ -488,7 +489,19 @@ fn check_size(path: &Path) -> Result<(), String> {
 /// screen — the frontend's count, handed back so a re-render (a tab switched
 /// back to, a live reload, F5) does not drop every chunk a `more` button had
 /// fetched. Omitted by every other caller, and ignored by everything but JSON.
-#[tauri::command]
+///
+/// `(async)` here and on the other read-only commands — `load_asset`,
+/// `section_source`, `json_region`, `list_dir` — only to get off the main
+/// thread, as `picker_dir` does: a synchronous command runs on the event loop,
+/// and a big file, a folder of ten thousand entries or a share that has gone
+/// away would hold every window still for as long as it took. Not the watch
+/// commands: being taken in turn on the main thread is what stops two quick
+/// calls installing the older watcher last.
+// ponytail: a slow call still occupies one of the async runtime's workers for
+// as long as it takes; move the body into `spawn_blocking` if enough of them
+// at once — a tree of folders on a dead share — ever starve the other async
+// commands.
+#[tauri::command(async)]
 fn load_file(app: AppHandle, path: String, extent: Option<usize>) -> Result<Document, String> {
     let (path, dir) = locate(path)?;
     check_size(&path)?;
@@ -576,7 +589,7 @@ fn toggle_task(path: String, line: usize, checked: bool) -> Result<(), String> {
 /// in between, the watcher is already re-rendering, so the window in which the
 /// line could name a different heading is milliseconds wide. Guard it by
 /// sending the heading text along if that ever bites.
-#[tauri::command]
+#[tauri::command(async)]
 fn section_source(path: String, line: usize) -> Result<String, String> {
     let (path, _) = locate(path)?;
     let shown = strip_unc(&path);
@@ -594,7 +607,7 @@ fn section_source(path: String, line: usize) -> Result<String, String> {
 /// watcher's re-render replaces the page moments later.
 // ponytail: a one-line 30 MB file is reflowed again on every click (~0.3 s);
 // cache the derived source per path in a `Mutex<HashMap>` if that becomes felt.
-#[tauri::command]
+#[tauri::command(async)]
 fn json_region(path: String, start: usize, end: usize) -> Result<String, String> {
     let (path, _) = locate(path)?;
     check_size(&path)?;
@@ -653,7 +666,7 @@ fn set_watch(
 /// canonical path. `load_file` does this for the documents it opens, which is
 /// why an image sitting beside one already loads; an image opened as a tab in
 /// its own right has had no such grant, and the webview would refuse it.
-#[tauri::command]
+#[tauri::command(async)]
 fn load_asset(app: AppHandle, path: String) -> Result<Asset, String> {
     let (path, dir) = locate(path)?;
     // Recursive for the same reasoning as `load_file`.
@@ -728,7 +741,7 @@ fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
 /// because a folder's own mtime moves for reasons nobody reading can see.
 /// Names sort naturally and without regard to case — see `natural_cmp`.
 /// Dot-prefixed entries are skipped — `.git` in a notes folder is noise.
-#[tauri::command]
+#[tauri::command(async)]
 fn list_dir(path: String, sort: String) -> Result<Listing, String> {
     let dir = PathBuf::from(&path);
     let dir = std::fs::canonicalize(&dir).unwrap_or(dir);
