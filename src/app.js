@@ -2654,7 +2654,9 @@ async function onKeydown(event) {
   }
 
   const ctrl = event.ctrlKey || event.metaKey;
-  if (!ctrl) return;
+  // Windows reports AltGr as Ctrl+Alt, and on a German or Nordic keyboard
+  // AltGr is how `[` and `]` are typed. Nothing below is a Ctrl+Alt shortcut.
+  if (!ctrl || event.altKey) return;
 
   // Alt+Arrow above is the Windows idiom; Cmd+[ and Cmd+] are the Mac one.
   // Both are accepted everywhere rather than branching on the platform.
