@@ -582,6 +582,10 @@ async function showImage(asset, entry, token) {
   // bar, so settle its height before anything is measured against it.
   renderTabs();
 
+  // Until this one has decoded, `picture` would still describe the last, and
+  // a zoom in that gap would be worked out from the wrong size and banked on
+  // this entry.
+  picture = null;
   els.imageEl.style.width = "";
   els.zoomLevel.textContent = "";
   els.imageEl.alt = baseName(asset.path);
