@@ -30,7 +30,7 @@ jobs:
         working-directory: src-tauri
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Linux build dependencies
         if: runner.os == 'Linux'
@@ -39,8 +39,8 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
-      # Third-party actions are pinned to a commit for the reason given in
-      # release.yml. Dependabot bumps the pins.
+      # Every action is pinned to a commit for the reason given in release.yml.
+      # Dependabot bumps the pins.
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
           toolchain: stable

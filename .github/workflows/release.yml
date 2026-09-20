@@ -27,7 +27,7 @@ jobs:
     outputs:
       version: ${{ steps.read.outputs.version }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: read
         shell: bash
         run: |
@@ -36,8 +36,13 @@ jobs:
           # The builds run `--locked`, so a Cargo.lock left behind by a bump
           # fails all three legs after the tag is already public. Catch it here,
           # where the only cost is a red check on a tag nobody has downloaded.
-          lock=$(grep -A1 '^name = "t4-markdown-viewer"$' src-tauri/Cargo.lock \
-            | grep -m1 '^version = ' | cut -d'"' -f2)
+          # The first `version` inside this package's own `[[package]]` block,
+          # wherever in the block it sits: `grep -A1` assumed it is the line
+          # right after `name`, which is the lockfile's habit, not its promise.
+          lock=$(awk '/^\[\[package\]\]/ { hit = 0 }
+                      /^name = "t4-markdown-viewer"$/ { hit = 1 }
+                      hit && /^version = / { print; exit }' src-tauri/Cargo.lock \
+            | cut -d'"' -f2)
           if [[ "$lock" != "$crate" ]]; then
             echo "Cargo.lock version $lock does not match Cargo.toml version $crate" >&2
             exit 1
@@ -97,7 +102,7 @@ jobs:
             bundle_dir: target/release/bundle
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Linux build dependencies
         if: runner.os == 'Linux'
@@ -106,9 +111,9 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
-      # Third-party actions are pinned to a commit, not a tag: this job ends up
-      # holding the signing key, and a tag or branch can be moved to code
-      # nobody reviewed. Dependabot bumps the pins.
+      # Every action is pinned to a commit, not a tag — GitHub's own included:
+      # this job ends up holding the signing key, and a tag or branch can be
+      # moved to code nobody reviewed. Dependabot bumps the pins.
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
           toolchain: stable
@@ -277,7 +282,7 @@ jobs:
             echo "$f  $hash"
           done
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: packages-${{ runner.os }}
           path: dist/*
@@ -293,11 +298,11 @@ jobs:
       # The notes are built from the log since the previous tag, so the whole
       # history and every tag has to be here. Checkout cleans the workspace,
       # so it goes before the artifacts land in it.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: dist
           merge-multiple: true
