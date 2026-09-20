@@ -1029,12 +1029,14 @@ async function followTab(tab) {
   if (tab === sidebarTab) return; // in-tab navigation leaves the sidebar alone
   sidebarTab = tab;
   if (!tab) return; // empty window: the sidebar stays as it is
+  showSortMenu(false); // left open, it would go on ticking the last tab's order
+  const folder = folderFor(tab);
+  // A load that failed on a bare name: nowhere to go. Before the order is
+  // taken, or the tree would stay in the old one with the menu ticking the new.
+  if (!folder) return;
   const resort = tab.sort !== state.folderSort;
   state.folderSort = tab.sort;
-  showSortMenu(false); // left open, it would go on ticking the last tab's order
   if (state.folder === null) return; // closed: showFolder picks it up later
-  const folder = folderFor(tab);
-  if (!folder) return; // a load that failed on a bare name: nowhere to go
   // What the tab remembers is about its own folder, not one standing in for it.
   const own = folder === tab.folder;
   if (!sameDir(folder, state.folder)) {
@@ -1049,6 +1051,9 @@ async function followTab(tab) {
     tab.folder = state.folder;
     reportSoon(); // `updateChrome` has already said its piece for this switch
   }
+  // `openFolder` is what usually says this, and it has not run: a tab opened
+  // into an empty window reads it to learn whether this folder was chosen.
+  state.folderPicked = own && tab.picked;
   els.treeFilter.value = tab.filter; // the sync below is what applies it
   if (resort) await resortTree();
   else syncFolderWatch(); // also records what is expanded onto the new owner
@@ -1073,6 +1078,16 @@ async function renderTree(ul, dir, keep = new Set()) {
   const epoch = rootEpoch;
   folderLoads++;
   for (const path of keep) rootKeep.add(path);
+  // After a listing that failed there are no rows left to read what was open
+  // off, and a tree that came back shut would be written down as what the tab
+  // remembers. The tab still knows: `syncFolderWatch` left it alone.
+  if (
+    els.sidebar.dataset.tree === "error" &&
+    sidebarTab?.folder &&
+    sameDir(sidebarTab.folder, dir)
+  ) {
+    for (const path of sidebarTab.expanded) rootKeep.add(path);
+  }
   try {
     await listTree(ul, dir, rootKeep);
   } finally {
@@ -1178,6 +1193,18 @@ async function listTree(ul, dir, keep) {
 }
 
 /**
+ * Bank the search on the tab on screen — while the sidebar shows that tab's
+ * own folder, or the tab has none yet. Not while it is borrowing the
+ * document's folder because its own will not list: nothing about a stand-in
+ * is written down, the rule `syncFolderWatch` keeps for `expanded`.
+ */
+function rememberFilter(value) {
+  const tab = activeTab();
+  if (!tab || state.folder === null) return;
+  if (!tab.folder || sameDir(tab.folder, state.folder)) tab.filter = value;
+}
+
+/**
  * Narrow the tree to rows whose name contains what is in the filter box. A
  * folder that matches shows everything under it; one that does not stays for
  * any loaded descendant that does, collapsed or not, so the hit is a click away.
@@ -1267,7 +1294,7 @@ async function openFolder(
   const last = state.folder;
   state.folder = path;
   state.folderPicked = picked;
-  const owner = sidebarTab;
+  const owner = activeTab(); // not `sidebarTab`, which lags a loading switch
   const was = owner?.folder;
   const wasPicked = owner?.picked;
   const wasFilter = owner?.filter;
@@ -1290,7 +1317,15 @@ async function openFolder(
     folderLoads = 0;
   }
   await renderTree(els.tree, path, new Set(keep));
-  if (state.folder === null) return; // closed while the listing was out
+  if (state.folder === null) {
+    // Closed while the listing was out. A folder that then failed to list was
+    // never really picked, so the tab goes back to the one it had — unless
+    // something newer has written it since. Not the filter: closing blanked it.
+    if (owner && remember && owner.folder === path && els.sidebar.dataset.tree === "error") {
+      Object.assign(owner, { folder: was, picked: wasPicked });
+    }
+    return;
+  }
   // Canonical from here on, so it compares with what the watcher reports.
   if (state.folder === path) {
     state.folder = els.tree.dataset.dir;
@@ -1498,8 +1533,11 @@ async function setFolderSort(sort) {
   // Onto the tab as well as the config: the file is what a new window starts
   // from, the tab keeps the order it was last read in, and a new tab takes
   // whichever is in force where it opens.
-  if (sidebarTab) {
-    sidebarTab.sort = sort;
+  // The tab on screen, not `sidebarTab`: while a switch is loading that is
+  // still the tab being left, and `followTab` would take the order back.
+  const tab = activeTab();
+  if (tab) {
+    tab.sort = sort;
     reportSoon();
   }
   invoke("set_folder_sort", { sort }).catch(console.error);
@@ -2284,7 +2322,7 @@ async function showFolder() {
     closeFolder();
     return;
   }
-  const tab = sidebarTab;
+  const tab = activeTab();
   const named = (tab && folderFor(tab)) || activeDir();
   const path = named || (await pickFolder());
   if (!path) return;
@@ -2292,7 +2330,8 @@ async function showFolder() {
   const own = !!tab && path === tab.folder;
   await openFolder(
     path,
-    own ? { keep: tab.expanded, filter: tab.filter, picked: tab.picked } : { picked: !named },
+    // No filter to hand back: closing the sidebar blanked every tab's.
+    own ? { keep: tab.expanded, picked: tab.picked } : { picked: !named },
   );
 }
 
@@ -2735,7 +2774,7 @@ async function main() {
     setFolderSort(item.dataset.sort).catch(toast);
   });
   els.treeFilter.addEventListener("input", () => {
-    if (sidebarTab) sidebarTab.filter = els.treeFilter.value;
+    rememberFilter(els.treeFilter.value);
     applyTreeFilter();
   });
   els.treeFilter.addEventListener("keydown", async (event) => {
@@ -2743,7 +2782,7 @@ async function main() {
       event.preventDefault();
       event.stopPropagation(); // onKeydown would read it as "close the open menu"
       els.treeFilter.value = "";
-      if (sidebarTab) sidebarTab.filter = "";
+      rememberFilter("");
       applyTreeFilter();
       els.treeFilter.blur();
     } else if (event.key === "Enter" && els.treeFilter.value.trim()) {
