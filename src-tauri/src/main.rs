@@ -512,10 +512,14 @@ fn load_file(app: AppHandle, path: String, extent: Option<usize>) -> Result<Docu
     // JSON is shown as source rather than rendered, and highlighted here rather
     // than in the webview — see `json.rs`.
     let as_json = is_json(&path);
-    let html = if as_json {
-        json::render_to(&json::source(&text), extent.unwrap_or(0))?
+    let (html, heading) = if as_json {
+        (
+            json::render_to(&json::source(&text), extent.unwrap_or(0))?,
+            None,
+        )
     } else {
-        render::render(&text)
+        // One parse for both: the title is a heading of the page just rendered.
+        render::render_titled(&text)
     };
 
     // Let the webview load images and other assets sitting next to the document.
@@ -532,11 +536,7 @@ fn load_file(app: AppHandle, path: String, extent: Option<usize>) -> Result<Docu
         .unwrap_or_default();
     // A JSON document has no headings to be titled by, and the file name is
     // what the reader went looking for anyway.
-    let title = if as_json {
-        file_name.clone()
-    } else {
-        render::first_heading(&text).unwrap_or_else(|| file_name.clone())
-    };
+    let title = heading.unwrap_or_else(|| file_name.clone());
 
     Ok(Document {
         path: strip_unc(&path),

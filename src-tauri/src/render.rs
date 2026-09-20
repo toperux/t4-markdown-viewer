@@ -1,4 +1,4 @@
-use comrak::nodes::NodeValue;
+use comrak::nodes::{AstNode, NodeValue};
 use comrak::{format_html, parse_document, Arena, Options};
 
 /// What comrak leaves behind for each raw-HTML node when `unsafe_` is off.
@@ -120,12 +120,28 @@ fn anchor_target(raw: &str) -> Option<String> {
 ///
 /// The one thing recovered from that dropped HTML is anchor *targets* — see
 /// `anchor_target`. They are rebuilt from the parsed name alone, so this adds
-/// no path by which document HTML reaches the webview.
-pub fn render(md: &str) -> String {
+/// no path by which document HTML reaches the webview. The title comes back
+/// with it — see `title_of` — so the document is parsed once for both.
+pub fn render_titled(md: &str) -> (String, Option<String>) {
     let o = options();
     let arena = Arena::new();
     let root = parse_document(&arena, md, &o);
+    (html_of(root, &o), title_of(root))
+}
 
+/// The HTML alone, which is all most of the tests below are about.
+#[cfg(test)]
+fn render(md: &str) -> String {
+    render_titled(md).0
+}
+
+/// The title alone, likewise.
+#[cfg(test)]
+fn first_heading(md: &str) -> Option<String> {
+    render_titled(md).1
+}
+
+fn html_of<'a>(root: &'a AstNode<'a>, o: &Options) -> String {
     // Raw-HTML nodes in document order, which is the order comrak drops them.
     let targets: Vec<Option<String>> = root
         .descendants()
@@ -145,7 +161,7 @@ pub fn render(md: &str) -> String {
         .collect();
 
     let mut html = String::new();
-    if format_html(root, &o, &mut html).is_err() {
+    if format_html(root, o, &mut html).is_err() {
         return String::new();
     }
 
@@ -287,9 +303,7 @@ fn line_start(md: &str, line: usize) -> Option<usize> {
 /// the reader can actually see. Frontmatter is metadata rather than a setext
 /// underline, `#hashtag` is a word, an indented `#` is code, and the text
 /// comes out of the heading's own nodes rather than off the raw line.
-pub fn first_heading(md: &str) -> Option<String> {
-    let arena = Arena::new();
-    let root = parse_document(&arena, md, &options());
+fn title_of<'a>(root: &'a AstNode<'a>) -> Option<String> {
     root.descendants().find_map(|node| {
         if !matches!(node.data.borrow().value, NodeValue::Heading(_)) {
             return None;
@@ -790,5 +804,13 @@ fn main() {}
     fn section_inside_a_list_item_ends_with_the_item() {
         let md = "# X\n- item\n  ## Y\n  more\n- next\n# Z\n";
         assert_eq!(section(md, 3).unwrap(), "  ## Y\n  more\n");
+    }
+
+    #[test]
+    fn render_titled_gives_the_page_and_its_title_from_one_parse() {
+        let (html, title) = render_titled("intro\n\n## Deeper\n");
+        assert!(html.contains("<h2"));
+        assert_eq!(title, Some("Deeper".into()));
+        assert_eq!(render_titled("just text\n").1, None);
     }
 }
