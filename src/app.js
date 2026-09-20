@@ -117,6 +117,21 @@ const IMG_LINK = /\.(svg|png|jpe?g|gif|webp|avif|bmp|ico)$/i;
 const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 
 /**
+ * A link that names a file by drive and path: `C:\notes\spec.md`, `D:/a/b.md`.
+ *
+ * Not a leading slash. `/docs/guide.md` is how a repository's README names a
+ * file from the repository's root, and resolving it against the document's
+ * folder — as every other link is — is what makes that work for a document
+ * that sits at the root. Reading it as the filesystem's root instead would
+ * break those links to fix ones almost nobody writes.
+ *
+ * Not a network path either — `\\host\share\x.png`, `//host/x.png` — and on
+ * purpose: a picture is fetched without a click, and a document able to name a
+ * server could have Windows offer the reader's credentials to it.
+ */
+const ABSOLUTE_PATH = /^[a-z]:[\\/]/i;
+
+/**
  * What a tab holds is read back off its path rather than stored beside it. That
  * keeps `makeTab`, `adoptTab` and the cross-window drag payload untouched: a
  * tab handed to another window arrives knowing what it is.
@@ -127,21 +142,27 @@ function isImage(p) {
 
 /* ---------------- paths ---------------- */
 
-/** Resolve `rel` against `dir`, collapsing `.` and `..`. Forward-slash output. */
-function resolvePath(dir, rel) {
-  let decoded = rel;
+/** `href` with its percent-escapes undone; malformed ones are used as written. */
+function unescapeHref(href) {
   try {
-    decoded = decodeURIComponent(rel);
+    return decodeURIComponent(href);
   } catch {
-    /* malformed escapes: use the raw text */
+    return href;
   }
-  const joined = `${dir}/${decoded}`.replace(/\\/g, "/");
+}
+
+/** Resolve `rel` against `dir` — or on its own, if it is a full path — collapsing `.` and `..`. Forward-slash output. */
+function resolvePath(dir, rel) {
+  const decoded = unescapeHref(rel);
+  // A full path stands on its own; only a relative one hangs off `dir`.
+  const absolute = ABSOLUTE_PATH.test(decoded);
+  const joined = (absolute ? decoded : `${dir}/${decoded}`).replace(/\\/g, "/");
   // A network path is `//server/share/...`: both leading slashes belong to the
   // root, and the server and share are part of it too — `..` climbing past them
   // would leave a path no longer pointing at any machine. Only `dir` can say
   // so; the joined string starts `//` for the POSIX root as well, since the
   // separator lands right behind its own leading slash.
-  const unc = dir.replace(/\\/g, "/").startsWith("//");
+  const unc = !absolute && dir.replace(/\\/g, "/").startsWith("//");
   const floor = unc ? 4 : 1; // ["", "", server, share], or one leading segment
   const parts = joined.split("/");
   const out = [];
@@ -160,8 +181,12 @@ function resolvePath(dir, rel) {
   return out.join("/");
 }
 
-function isRelative(href) {
-  return href && !HAS_SCHEME.test(href) && !href.startsWith("//") && !href.startsWith("#");
+/** Whether `href` names a file on this machine: relative to the document, or by its full path. */
+function isLocal(href) {
+  if (!href || href.startsWith("#")) return false;
+  // Before the scheme test: `C:` reads as one.
+  if (ABSOLUTE_PATH.test(unescapeHref(href))) return true;
+  return !HAS_SCHEME.test(href) && !href.startsWith("//");
 }
 
 function baseName(p) {
@@ -304,7 +329,7 @@ function bumpAsset(file) {
 function resolveMedia(root, dir) {
   root.querySelectorAll("img[src], video[src], audio[src], source[src]").forEach((el) => {
     const raw = el.getAttribute("src");
-    if (!isRelative(raw)) return;
+    if (!isLocal(raw)) return;
     const file = resolvePath(dir, raw);
     // A picture nothing was watching may have changed unseen, so the webview's
     // cached copy cannot be trusted; a bump refetches it. A watched one is left
@@ -1513,8 +1538,14 @@ async function loadPath(path, hash) {
     tab.entries.push({ path, scrollY: 0, hash: id });
     tab.index = tab.entries.length - 1;
     syncWatch();
+    await showActive(0);
+    return;
   }
-  await showActive(0);
+  // The document already on screen, named without a fragment. Read again where
+  // it stands rather than from the top: no entry was pushed, so a jump would
+  // leave no way back. Still a re-read, so clicking the open file in the tree
+  // goes on retrying a load that failed.
+  await refresh();
 }
 
 async function go(delta) {
@@ -2294,7 +2325,7 @@ function onLinkClick(event) {
 
   event.preventDefault();
 
-  if (isRelative(href)) {
+  if (isLocal(href)) {
     const [pathPart, ...rest] = href.split("#");
     const target = resolvePath(activeTab()?.dir ?? "", pathPart);
     if (DOC_LINK.test(pathPart)) {
