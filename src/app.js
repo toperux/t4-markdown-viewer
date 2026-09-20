@@ -260,6 +260,12 @@ function makeTab(path) {
 
 /** Snapshot the reading position so Back and tab switches return to the spot. */
 function rememberScroll() {
+  // Not while a switch is loading: the active entry has already moved on and
+  // the old document is still what is on screen, so banking now would hand
+  // the new entry the old one's offset. Here rather than in each caller — a
+  // second Ctrl+Tab before the first has loaded comes through `activateTab`,
+  // not the scroll listener.
+  if (shownToken !== renderToken) return;
   const entry = currentEntry(activeTab());
   if (!entry) return;
   // A picture scrolls inside its own box, and in two directions; it also has a
@@ -1605,7 +1611,9 @@ async function refresh() {
   // in their own right, so nothing else needs invalidating here — refetching
   // them would leave the page short of their height when the scroll is restored.
   if (isImage(entry.path)) bumpAsset(entry.path);
-  await showActive(window.scrollY);
+  // Mid-switch the page on screen is the document being left, and its offset
+  // is not this entry's to keep: the entry's own saved spot stands.
+  await showActive(shownToken === renderToken ? window.scrollY : undefined);
 }
 
 /** Where a newly opened file goes, per the Settings choice. */
@@ -1979,6 +1987,7 @@ async function onDragEnd(event) {
   }
   if (!d.detached) {
     renderTabs(); // reorder is already applied; just drop the drag styling
+    reportSoon(); // the order is part of the session, and nothing else says it moved
     return;
   }
 
