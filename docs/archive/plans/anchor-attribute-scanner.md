@@ -1,5 +1,9 @@
 # Anchor Attribute Scanner (#28) Implementation Plan
 
+> **Status (2026-09-24):** executed in full — ff2eef6, no deviations. Results are under #28 in
+> `../../closed-items.md`; paths and unticked boxes below are as they stood when it was
+> written.
+
 > **For agentic workers:** Execute per the **Execution** section below — it says who runs each task and in what order, and it overrides the one-subagent-per-task default of superpowers:subagent-driven-development. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close #28 of the 2026-09-20 review: an `id=` inside another attribute's value no longer loses or replaces a recovered anchor.

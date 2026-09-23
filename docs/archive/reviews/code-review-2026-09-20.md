@@ -2,8 +2,8 @@
 
 > **Status (2026-09-21):** closed. Every item is `done`, `wontfix` or `park`: 26 findings are
 > `done`, on `main` as the thirteen commits d952d02 through 47e8c0d (squashed by feature); #23–#26 are
-> `wontfix`; #28 is `park`, tracked with the crash-loop question from #2 in
-> `../../open-items.md`. #9 was to be parked behind its stopgap (`d952d02`), but the smoke
+> `wontfix`; #28 was parked, then fixed on 2026-09-24 (`ff2eef6`). #9 was to be parked
+> behind its stopgap (`d952d02`), but the smoke
 > pass's check Z — the 750 KB file from #1, 33.9 MB of HTML, under the ceiling on purpose —
 > hung the webview for more than 140 s, so the owner promoted it and it was fixed the next day
 > (`../plans/json-fold-weight.md`). Not driven in the app: #12 and the tab tear-off regression check
@@ -76,7 +76,7 @@ to confirm or flip. The plan for the proposed fixes is
 | 25 | wontfix | `src-tauri/src/main.rs:786` | **Proposed: wontfix.** **A folder whose name is not valid UTF-8 comes back mangled** (`to_string_lossy`), and every call on it then fails as "Not a folder". Linux only, reachable only through the picker (`is_visible_entry` hides such entries in the tree), and the outcome is already an error row. |
 | 26 | wontfix | `src-tauri/src/main.rs:1086` | **Proposed: wontfix.** **`reveal_path` takes any path.** Not exploitable: the frontend's `resolvePath` was traced and no escape found, and revealing is COM / NSWorkspace / DBus, never an exec. An `exists()` check would not narrow anything — showing an existing file in the file manager *is* the feature. |
 | 27 | done (`0b1c86c`) | `src-tauri/src/themes.rs:261` | **Decided 2026-09-20: fix** (plan Task 5a, with a temp-directory test for `scan`). **Theme shadowing compares names case-sensitively**, but `path_for` resolves through the filesystem, which on Windows and macOS is not. `Solarized-Light.css` beside the bundled `solarized-light.css` gives two picker rows, a dead light/dark toggle, and the bundled file unreachable. Needs a user to create a case-variant of a bundled name. |
-| 28 | park | `src-tauri/src/render.rs:47` | **Proposed: park.** **Anchor recovery misreads an `id=` inside another attribute's value.** `<a href="p?a id=q" id="x"></a>` recovers no anchor, so `[…](#x)` links to nothing. Every ordinary shape works. |
+| 28 | done (`ff2eef6`) | `src-tauri/src/render.rs:47` | **Fixed 2026-09-24.** **Proposed: park.** **Anchor recovery misreads an `id=` inside another attribute's value.** `<a href="p?a id=q" id="x"></a>` recovers no anchor, so `[…](#x)` links to nothing. Every ordinary shape works. |
 | 29 | done (`6cb91af`) | `src-tauri/src/main.rs:502-526` | **Decided 2026-09-20: fix** (plan Task 5b: `render_titled` over one parse). **Every markdown open parses the document twice** — `render::render` and then `render::first_heading`, each with its own arena. Pure cost, and off the main thread once #3 lands. |
 | 30 | done (`47e8c0d`) | `.github/workflows/release.yml:30`, `:100`, `:280`, `:296`, `:300`, `checks.yml:33` | **Decided 2026-09-20: fix** (plan Task 9a). **`actions/checkout`, `upload-artifact`, `download-artifact` are pinned to tags.** Not against the workflow's rule as written — that (`checks.yml:42`) is "*third-party* actions are pinned to a commit", and these are GitHub's own — but the reason given for the rule (the job holds the signing key, and a tag can be moved) applies to them just the same. Pin all six uses and reword both comments to say every action. |
 | 31 | done (`47e8c0d`) | `.github/workflows/release.yml:39` | **Decided 2026-09-20: fix** (plan Task 9a). **The `Cargo.lock` version grep uses `-A1`**, so a lockfile format that put a field between `name` and `version` would break it — loudly, with a mismatch error, before anything is published. Read the first `version` inside the package's own `[[package]]` block instead (`awk`; checked against the current lockfile, gives `1.6.5`). |

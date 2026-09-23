@@ -42,18 +42,6 @@ section, so this file lists only what is still to do. Finished plans and reviews
   page's offset onto the incoming entry when a second tab switch landed before the first had
   loaded. Fixed in 0cbadf1. Leave open until a release has gone by without a recurrence.*
 
-## Deferred from the 2026-09-20 review
-
-Real defects put off, not accepted (`archive/reviews/code-review-2026-09-20.md`). Each says what
-reopens it. #9 was to sit here too; it went under *Bugs* instead, because the smoke pass hung,
-and closed the next day (`closed-items.md`).
-
-- [ ] **#28 Anchor recovery misreads an `id=` inside another attribute's value** (added
-  2026-09-20; `render.rs`, `attribute`). `<a href="p?a id=q" id="x"></a>` recovers no anchor,
-  so `[…](#x)` links to nothing; every ordinary shape works. The fix is a scanner that skips
-  quoted values. *Reopen when:* a document in the wild loses an anchor to it, or `attribute` is
-  touched for any other reason.
-
 ## Needs a Mac, a Dependabot run, or an older build
 
 - [ ] **Mac keeps folder access across an update.** 1.5.8 was the first signed build and 1.5.9

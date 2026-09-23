@@ -209,9 +209,22 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   - *Killed 2.5 s into that restore's load: `session.json` was already gone (`setup` discards
     it before restoring) and was not rewritten. The launch after that was the empty screen.
     So a document that kills or hangs the app on load costs one bad launch, not every one.*
-  - *The price is under* Needs a decision *in `open-items.md`: that launch loses the whole
-    session. `"ask"` was not run; by the code the file stays, and so does the choice not to
-    press Reopen.*
+  - *The price was that launch losing the whole session — its own item under* Needs a
+    decision *above, fixed 2026-09-24. `"ask"` was not run; by the code the file stays, and
+    so does the choice not to press Reopen.*
+- [x] **#28 Anchor recovery misreads an `id=` inside another attribute's value** (added
+  2026-09-20; `render.rs`, `attribute`). `<a href="p?a id=q" id="x"></a>` recovers no anchor,
+  so `[…](#x)` links to nothing; every ordinary shape works. The fix is a scanner that skips
+  quoted values. *Reopen when:* a document in the wild loses an anchor to it, or `attribute` is
+  touched for any other reason.
+  *Fixed 2026-09-24 in ff2eef6 (`archive/plans/anchor-attribute-scanner.md`), at the owner's
+  call rather than a trigger. `attribute` now reads a tag as HTML does — a name, then an
+  optional quoted or bare value skipped whole — and the first attribute of that name wins. It
+  was worse than recorded: `<a title="the id=3 entry" id="x">` gave the wrong anchor, `#3`,
+  not just none. Two deliberate changes ride along: a bare `id=a/b` is refused rather than cut
+  to `a`, and an empty `id` falls back to `name`, as a browser does. Three tests, all red
+  before; renders of every `examples/*.md` (the defect-96194 file's 18 raw anchors among them)
+  and the README were byte-identical before and after.*
 
 ## Needs a Mac, a Dependabot run, or an older build
 
