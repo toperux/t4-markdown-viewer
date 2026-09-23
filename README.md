@@ -348,6 +348,14 @@ by closing every window comes back whole, but close one window and then read on
 in another and the closed one is gone from the record — while closing one and
 quitting straight after brings it back with the rest.
 
+A launch that goes down while it is still putting the session back — a document
+that crashes or hangs the app as it opens — costs you only that launch. The next
+one offers the session with the **Reopen** button instead of putting it back,
+whatever the setting bar **Start fresh**, and brings nothing back until you
+press it. The one exception is the one **Ask me each time** has: a next launch
+made by double-clicking a file has no empty screen to offer on, and that file
+takes the saved session's place.
+
 Installing an update uses the same file, and that one restart always comes back
 as it was whatever the setting says — **Start fresh** included. You pressed
 Update, not Quit, and an app that replaces itself mid-read owes you the page you

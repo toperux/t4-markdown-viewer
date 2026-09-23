@@ -82,6 +82,10 @@ struct AppState {
     /// they stood when they went. Written out with the open ones until the
     /// grace is over — see `session::window_closed`.
     closed: Mutex<Vec<(Instant, session::WindowSession)>>,
+    /// Windows put back from a saved session that have not yet shown their
+    /// document. While any is left, every save marks the file as a restore
+    /// under way — see `session::begin_restore`.
+    restoring: Mutex<HashSet<String>>,
     /// Where each window last stood. A window that has closed cannot be asked,
     /// and one that is minimized gives no answer worth keeping.
     frames: Mutex<HashMap<String, session::Frame>>,
@@ -287,6 +291,9 @@ fn claim_in(state: &AppState, boot: &mut Boot, label: &str, payload: Value) -> b
             .unwrap()
             .insert(label.to_string(), open);
     }
+    if payload.get("kind").and_then(Value::as_str) == Some("session") {
+        state.restoring.lock().unwrap().insert(label.to_string());
+    }
     boot.pending.insert(label.to_string(), payload);
     true
 }
@@ -350,6 +357,13 @@ fn spawn_window(
                 let state = app.state::<AppState>();
                 let mut stashed = state.boot.lock().unwrap().pending.remove(&target);
                 state.sessions.lock().unwrap().remove(&target);
+                // A restored window that never opened is done restoring, or
+                // the file stays marked for the rest of the run. The save puts
+                // back what the discard may just have taken — on the main
+                // thread, as every ordinary save must be (see `remember`).
+                session::restored(&app, &target);
+                let handle = app.clone();
+                let _ = app.run_on_main_thread(move || session::remember(&handle));
                 // Give a torn-off tab back to the window that let it go. The
                 // other spawn paths have nothing to hand back, and a lost
                 // `eprintln!` is all a windowless build can offer them.
@@ -855,13 +869,23 @@ fn open_window(app: AppHandle, path: Option<String>) -> String {
 /// recoverable — there is no event for the last window going, so the file has
 /// to be current before it does.
 #[tauri::command]
-fn set_session(state: State<AppState>, window: Window, tabs: Vec<Value>, active: usize) {
+fn set_session(
+    state: State<AppState>,
+    window: Window,
+    tabs: Vec<Value>,
+    active: usize,
+    settled: bool,
+) {
     let label = window.label();
     state
         .sessions
         .lock()
         .unwrap()
         .insert(label.to_string(), session::OpenTabs { tabs, active });
+    // A restored window is restored once a report finds nothing still loading.
+    if settled {
+        session::restored(window.app_handle(), label);
+    }
     // Written before the answer is rung in: `reported` is what releases a
     // waiting snapshot, and the save it then makes is the one that has to
     // survive. Both write the same file, and the loser of that race would be
@@ -1041,9 +1065,17 @@ fn set_reopen(app: AppHandle, state: State<AppState>, mode: String) {
 /// `restore_session` gives them.
 #[tauri::command]
 fn restore_offered_session(app: AppHandle, window: Window) -> Option<Value> {
-    let session = app.state::<AppState>().offered.lock().unwrap().take()?;
+    let state = app.state::<AppState>();
+    let session = state.offered.lock().unwrap().take()?;
     let mut windows = session.windows.into_iter();
     let first = windows.next()?;
+    // This window is restoring too, though it gets its tabs as the answer
+    // rather than as a pending payload.
+    state
+        .restoring
+        .lock()
+        .unwrap()
+        .insert(window.label().to_string());
 
     if let (Some(frame), Some(w)) = (&first.frame, app.get_webview_window(window.label())) {
         frame.apply(&w);
@@ -1417,14 +1449,16 @@ fn main() {
             // Update rather than Quit. Only an ordinary session is theirs to
             // decide about.
             let restart = saved.as_ref().is_some_and(|s| s.restart);
-            let offering = reopen == "ask" && !restart;
+            let offering = session::offers(&reopen, saved.as_ref());
+            let mut session = saved.filter(|_| restart || reopen != "off");
             // An offer may never be taken, so its file stays where it is — and
             // needs no cleaning up, since the first thing this run opens writes
-            // over it. Everything else consumes what it found.
-            if !offering {
+            // over it. A session about to be put back stays too, marked as under
+            // way until its windows are up (`begin_restore`). Only one going
+            // nowhere is consumed here.
+            if !offering && session.is_none() {
                 session::discard();
             }
-            let mut session = saved.filter(|_| restart || reopen != "off");
 
             // An update restart repeats the old process's argv, so the file it
             // was once double-clicked on would come back even if it had since
@@ -1460,6 +1494,7 @@ fn main() {
                 if offering {
                     offer_session(&state, s);
                 } else {
+                    session::begin_restore(&s);
                     restore_session(app.handle(), s.windows, held);
                 }
             }

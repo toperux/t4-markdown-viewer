@@ -194,6 +194,13 @@ pub struct Session {
     /// only, and had no field to say so.
     #[serde(default = "yes")]
     pub restart: bool,
+    /// Set while a launch is putting this session back, until every window it
+    /// brought back has shown its document — see `begin_restore`. Found set,
+    /// the launch that wrote it went down on the way, and the next one offers
+    /// rather than risk going down the same way. Missing means false: nothing
+    /// written before this field was ever mid-restore.
+    #[serde(default)]
+    pub restoring: bool,
     /// Least-recently-focused first. Restoring in that order is the intent;
     /// each window still comes forward as its own document finishes loading.
     pub windows: Vec<WindowSession>,
@@ -305,6 +312,7 @@ pub fn note_frame(app: &AppHandle, label: &str) {
 /// Runs on the main thread (a window event), as every ordinary save must.
 pub fn window_closed(app: &AppHandle, label: &str) {
     let state = app.state::<AppState>();
+    restored(app, label);
     let open = state.sessions.lock().unwrap().remove(label);
     let frame = state.frames.lock().unwrap().remove(label);
     // "Start fresh" keeps nothing, and that includes this.
@@ -403,13 +411,68 @@ fn save(app: &AppHandle, version: String, argv: Vec<String>, restart: bool) {
         restorable(open, &state.closed.lock().unwrap())
     };
 
+    // A snapshot is a record of its own, and its restart must come back as one.
+    let restoring = !restart && !state.restoring.lock().unwrap().is_empty();
+
     let session = Session {
         version,
         argv,
         restart,
+        restoring,
         windows,
     };
     config::write_json(&file(), &session);
+}
+
+/// Whether this launch offers the saved session on the empty screen instead of
+/// putting it back. `ask` offers an ordinary session, never a restart — the
+/// reader pressed Update, not Quit. A session found mid-restore is offered
+/// whatever the setting, bar `off`: the launch that was putting it back went
+/// down doing so, and doing it again unasked could go down the same way.
+pub fn offers(reopen: &str, saved: Option<&Session>) -> bool {
+    match saved {
+        Some(s) if s.restoring => reopen != "off",
+        Some(s) => reopen == "ask" && !s.restart,
+        None => reopen == "ask",
+    }
+}
+
+/// Mark the file as a restore under way instead of consuming it up front, so a
+/// launch that goes down mid-restore leaves the session for the next one to
+/// offer. `save` keeps the mark while any restored window is still loading,
+/// and `restored` consumes the file once the last has shown its document.
+pub fn begin_restore(session: &Session) {
+    mark_at(&file(), session);
+}
+
+/// Written as an ordinary session: found again, it is no longer the app coming
+/// back mid-read, and its argv would echo into the wrong launch.
+fn mark_at(path: &Path, session: &Session) {
+    let marked = Session {
+        version: session.version.clone(),
+        argv: vec![],
+        restart: false,
+        restoring: true,
+        windows: session.windows.clone(),
+    };
+    config::write_json(path, &marked);
+}
+
+/// A restored window has shown its document, or has gone. Once the last of
+/// them has, the restore is over and the file is consumed, as it used to be at
+/// launch; the save that follows writes what is open now, unmarked.
+///
+/// Not while an update installs: the file is then the restart's snapshot, and
+/// no ordinary save would follow to put anything back.
+pub fn restored(app: &AppHandle, label: &str) {
+    let state = app.state::<AppState>();
+    let mut restoring = state.restoring.lock().unwrap();
+    if restoring.remove(label) && restoring.is_empty() {
+        drop(restoring);
+        if !state.installing.load(Ordering::SeqCst) {
+            discard();
+        }
+    }
 }
 
 /// What the previous process left behind. Left on disk: whether it is consumed
@@ -455,6 +518,7 @@ mod tests {
             version: "1.4.6".into(),
             argv: vec![r"C:\notes\a.md".into()],
             restart: true,
+            restoring: false,
             windows: vec![WindowSession {
                 open: OpenTabs {
                     tabs: vec![json!({ "path": r"C:\notes\a.md", "entries": [], "index": 0 })],
@@ -611,6 +675,57 @@ mod tests {
         assert_eq!(read_from(&path, "1.4.6"), Some(ordinary()));
         assert!(path.exists());
         discard_at(&path);
+    }
+
+    /// Files written before the mark existed were never mid-restore.
+    #[test]
+    fn a_file_without_restoring_is_not_mid_restore() {
+        let s: Session =
+            serde_json::from_str(r#"{"version":"1.6.6","argv":[],"restart":false,"windows":[]}"#)
+                .unwrap();
+        assert!(!s.restoring);
+    }
+
+    /// The file a restore leaves while it runs: the same windows, marked, and
+    /// no longer a restart — found again, it is a launch that went down, not the
+    /// app coming back mid-read, and its argv would echo into the wrong launch.
+    #[test]
+    fn a_restore_under_way_is_marked_on_disk() {
+        let path = temp_path("marked");
+        mark_at(&path, &sample());
+        let marked = read_from(&path, "1.4.6").unwrap();
+        assert!(marked.restoring);
+        assert!(!marked.restart);
+        assert!(marked.argv.is_empty());
+        assert_eq!(marked.windows, sample().windows);
+        discard_at(&path);
+    }
+
+    /// Offered or put back. A session found mid-restore is offered whatever
+    /// the setting — bar off, which keeps nothing — because putting it back
+    /// unasked could go down the same way the last launch did.
+    #[test]
+    fn a_session_found_mid_restore_is_offered() {
+        let ordinary = || Session {
+            argv: vec![],
+            restart: false,
+            ..sample()
+        };
+        let died = Session {
+            restoring: true,
+            ..ordinary()
+        };
+        let restart = sample();
+
+        assert!(offers("ask", Some(&ordinary())));
+        assert!(!offers("restore", Some(&ordinary())));
+        assert!(!offers("ask", Some(&restart)));
+        assert!(!offers("restore", Some(&restart)));
+        assert!(offers("restore", Some(&died)));
+        assert!(offers("ask", Some(&died)));
+        assert!(!offers("off", Some(&died)));
+        assert!(offers("ask", None));
+        assert!(!offers("restore", None));
     }
 
     /// A window that reported before Wayland refused its position still

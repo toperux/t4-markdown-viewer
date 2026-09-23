@@ -26,14 +26,6 @@ section, so this file lists only what is still to do. Finished plans and reviews
   leg only. Listed here because both `ci-alignment.md` and `ci-alignment-round-2.md` deferred it
   and are now archived, so it was invisible. t4-git-ui carries the same item in its
   `docs/plans/open-items.md` §K.
-- [ ] **A launch that dies mid-restore loses the whole session** (added 2026-09-21, found
-  answering the crash-loop question, now in `closed-items.md`). `setup` discards `session.json`
-  before it restores, and a window writes it again only once its document is laid out; a
-  process that goes down in between leaves no file, so the next launch is the empty screen —
-  the documents that were fine went with the one that was not. That is also exactly what stops
-  a bad document coming back for ever. Options: leave it (one lost session for a guaranteed way
-  out), or discard only once the first window has reported, and count failed restores so a
-  second one in a row starts fresh.
 
 ## Bugs
 

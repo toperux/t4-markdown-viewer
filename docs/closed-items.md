@@ -57,6 +57,30 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   Update now; `setInstalling` now sets the flag and both buttons together, in every window, as
   the broadcast arrives. Driven with two windows: w1's open dialog went Later → Hide (Update
   now disabled) on main's `update-progress`, and back on `update-failed`.*
+- [x] **A launch that dies mid-restore loses the whole session** (added 2026-09-21, found
+  answering the crash-loop question below). `setup` discards `session.json`
+  before it restores, and a window writes it again only once its document is laid out; a
+  process that goes down in between leaves no file, so the next launch is the empty screen —
+  the documents that were fine went with the one that was not. That is also exactly what stops
+  a bad document coming back for ever. Options: leave it (one lost session for a guaranteed way
+  out), or discard only once the first window has reported, and count failed restores so a
+  second one in a row starts fresh.
+  *Decided 2026-09-24: a third option — offer instead of restore. `setup` no longer discards a
+  session it is about to put back; it rewrites it marked `restoring` (`session::begin_restore`),
+  saves keep the mark while any restored window is still loading, and the file is consumed as
+  before once the last one reports with nothing loading (`settled` on `set_session`). A launch
+  that finds the mark offers the session with the Reopen button whatever the setting bar off
+  (`session::offers`) — except one started on a file, which has no empty screen to offer on,
+  so the file takes the session's place as under `ask` (the owner chose that over restoring
+  beside the file, which would reload a crashing document on every double-click). The first drive found the mark cleared 0.5 s into a Reopen: the click's
+  focus report landed mid-load, hence `settled`. Driven on the debug build under
+  `"reopen": "restore"` with a 400,000-deep JSON as the active tab:*
+  - *killed 3.2 s into the restore: the file was still there, marked, both tabs in it;*
+  - *the relaunch showed "Reopen 2 tabs in 1 window" and loaded nothing;*
+  - *Reopen pressed, killed 2 s in: still marked, offered again on the next launch;*
+  - *Reopen pressed and left: the mark cleared at 6.7 s, once the document was on screen;*
+  - *an ordinary restore of two light documents marked and cleared within 0.1 s, and the
+    launch after it restored as usual.*
 
 ## Bugs
 

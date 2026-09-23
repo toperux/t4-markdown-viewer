@@ -836,6 +836,9 @@ function reportSession() {
   return invoke("set_session", {
     tabs: tabs.map(packTab),
     active: Math.max(0, tabs.findIndex((t) => t.id === activeId)),
+    // Nothing still loading. A restored window is only restored once its
+    // document is on screen, and a focus or move can report before that.
+    settled: shownToken === renderToken,
   }).catch(console.error);
 }
 
