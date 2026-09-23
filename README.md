@@ -359,9 +359,10 @@ takes the saved session's place.
 Installing an update uses the same file, and that one restart always comes back
 as it was whatever the setting says — **Start fresh** included. You pressed
 Update, not Quit, and an app that replaces itself mid-read owes you the page you
-were on. Reinstalling a *different* version by hand drops the saved session
-once: the file records the version that wrote it, and one from another build is
-a leftover rather than something to restore.
+were on. Reinstalling by hand, a different version included, keeps the saved
+session and follows the setting as usual. The file names the version an update
+was installing only so that version alone treats it as the restart: an install
+that never finished leaves a file any other build reads as an ordinary session.
 
 ## Themes
 

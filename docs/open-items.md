@@ -118,17 +118,14 @@ Parked by ruling in the 2026-09-12 review (`archive/reviews/code-review-2026-09-
   cache only helps windows that open later.
 - Two concurrent config saves are each atomic, but the pair is last-writer-wins.
 
-Session restore (1.6.3) adds four, each ruled on while planning it and stated in the README so
-a reader meets them before they surprise anyone:
+Session restore (1.6.3) adds two, each ruled on while planning it:
 
-- A window's frame is only as fresh as its last report. Move a window and quit without
-  touching a tab or scrolling, and it comes back where it was before the move.
-- The report is debounced by 500 ms, so quitting inside that window loses the last change.
+- A report waits 500 ms for things to settle — scrolling, moving or resizing a window, or a
+  tab change hard on the heels of another — so quitting inside that wait loses the last of
+  it. (In 1.6.3 a move or resize was not reported at all until the next tab change or scroll;
+  1.6.4 reports them.)
 - `session.json` is a record of a moment, not a log: close one window and read on in another,
   and the closed one is gone from the record. Closing every window comes back whole.
-- A manual reinstall of a *different* version drops the saved session once, because the file
-  records the version that wrote it. An in-app update does not — its own snapshot rewrites the
-  file with the version being installed.
 
 Ruled on in the 2026-09-20 review (`archive/reviews/code-review-2026-09-20.md`):
 
