@@ -41,12 +41,6 @@ section, so this file lists only what is still to do. Finished plans and reviews
   *2026-09-20: #4 of the review is a mechanism that fits — `rememberScroll` banked the outgoing
   page's offset onto the incoming entry when a second tab switch landed before the first had
   loaded. Fixed in 0cbadf1. Leave open until a release has gone by without a recurrence.*
-- [ ] **Dependabot's cargo PR #3 fails all three CI legs** (opened 2026-09-12, seen 2026-09-13).
-  The group bumps seven crates; `comrak` 0.54 → 0.55 deprecates
-  `Extension::tagfilter` (removed in 0.56), and clippy's `-D warnings` turns the deprecation
-  at `render.rs:18` into an error. Needs a code change on top of the bump, not a merge. The
-  other six (dialog, single-instance, opener, updater plugins, `dirs` 6 → 7, `windows-sys`
-  0.59 → 0.61) are untested until comrak compiles.
 
 ## Deferred from the 2026-09-20 review
 

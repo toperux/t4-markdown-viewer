@@ -164,6 +164,27 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   *Not reproduced on 2026-09-11. Three later normal closes with Settings open each exited
   within 1 s. One of them replayed the original run: native dialogs, folder switches, Check now.
   Reopen this if it happens again.*
+- [x] **Dependabot's cargo PR #3 fails all three CI legs** (opened 2026-09-12, seen 2026-09-13).
+  The group bumps seven crates; `comrak` 0.54 → 0.55 deprecates
+  `Extension::tagfilter` (removed in 0.56), and clippy's `-D warnings` turns the deprecation
+  at `render.rs:18` into an error. Needs a code change on top of the bump, not a merge. The
+  other six (dialog, single-instance, opener, updater plugins, `dirs` 6 → 7, `windows-sys`
+  0.59 → 0.61) are untested until comrak compiles.
+  *Fixed 2026-09-24 in 61f05b0 (`archive/plans/cargo-group-bump.md`): the PR's Cargo files taken
+  whole, `tagfilter` dropped, and `iframes_do_not_survive` widened to all nine tags it used to
+  filter (`tagfiltered_tags_do_not_survive`). `tagfilter` was a no-op here — `render.unsafe_`
+  is off, so raw HTML never reaches its filter; 12 documents rendered identically with it on
+  and off. After the bump clippy's only error was that line, so `windows-sys` 0.61 and `dirs`
+  7 compiled as they were; `dirs` 7's one behaviour change is `preference_dir` on Windows,
+  which the app does not call. Renders of every `examples/*.md`, the README, both item files
+  and an autolink edge-case sample were byte-identical before and after. Smoke pass on the
+  debug build: boots themed; the saved theme is read back (same config dir); kitchen-sink
+  renders; 18 recovered anchors, and `#f14` scrolls 0 → 6465; a task tick writes back; Check
+  now says "You are up to date."; a tab dragged into another window's strip lands there
+  (`w1` 2 tabs, `main` 1). PR #3 closes by itself once `main` is pushed. comrak 0.55 also
+  fixes two autolink DoS issues (GHSA-xg9p-p4jc-c46g), and `autolink` is on. The updater's
+  2.11 changes (a Windows installer spawn failure now errors) first run on the update after
+  the one that installs this build.*
 
 ## Deferred from the 2026-09-20 review
 

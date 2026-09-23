@@ -1,5 +1,10 @@
 # Cargo Group Bump (Dependabot PR #3) Implementation Plan
 
+> **Status (2026-09-24):** executed in full — 61f05b0, PR #3 head 520c345. One deviation:
+> rustfmt lays Step 1's tag list out one per line. Results are under the PR #3 item in
+> `../../closed-items.md`; paths and unticked boxes below are as they stood when it was
+> written.
+
 > **For agentic workers:** Execute per the **Execution** section below — it says who runs each task and in what order, and it overrides the one-subagent-per-task default of superpowers:subagent-driven-development. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Land Dependabot PR #3's seven crate bumps on `main`, with the one code change comrak 0.55 needs, so the open item "Dependabot's cargo PR #3 fails all three CI legs" closes.
