@@ -26,6 +26,8 @@ section, so this file lists only what is still to do. Finished plans and reviews
   leg only. Listed here because both `ci-alignment.md` and `ci-alignment-round-2.md` deferred it
   and are now archived, so it was invisible. t4-git-ui carries the same item in its
   `docs/plans/open-items.md` §K.
+  *Snoozed by the owner 2026-09-24 until 2026-12-23, three months before the first brownout:
+  not to be raised or offered before then.*
 
 ## Bugs
 
