@@ -43,42 +43,50 @@ fn is_safe_id(value: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'))
 }
 
+/// The value of the attribute named `key`, in any case, in a tag's attribute
+/// text. Read the way HTML reads it — a name, then an optional `=value`, quoted
+/// or bare, skipped whole — so a `key=` inside another attribute's value is
+/// never taken for the attribute itself. The first attribute of that name wins.
 fn attribute<'a>(attrs: &'a str, key: &str) -> Option<&'a str> {
-    let lower = attrs.to_ascii_lowercase();
-    let mut from = 0;
-    while let Some(hit) = lower[from..].find(key) {
-        let start = from + hit;
-        // Must be a whole attribute name, not the tail of another one.
-        let boundary = start == 0
-            || lower[..start]
-                .chars()
-                .next_back()
-                .is_some_and(|c| c.is_whitespace());
-        let rest = attrs[start + key.len()..].trim_start();
-        if boundary {
-            if let Some(value) = rest.strip_prefix('=') {
-                let value = value.trim_start();
-                for quote in ['"', '\''] {
-                    if let Some(v) = value.strip_prefix(quote) {
-                        if let Some(end) = v.find(quote) {
-                            return Some(&v[..end]);
-                        }
-                    }
+    let mut rest = attrs;
+    loop {
+        rest = rest.trim_start_matches(|c: char| c.is_whitespace() || c == '/');
+        let first = rest.chars().next()?.len_utf8();
+        // A name runs to whitespace, `=`, `/` or `>`, but always takes its
+        // first character, so a stray `=` cannot stall the scan.
+        let name_end = rest[first..]
+            .find(|c: char| c.is_whitespace() || matches!(c, '=' | '/' | '>'))
+            .map_or(rest.len(), |i| i + first);
+        let name = &rest[..name_end];
+        rest = rest[name_end..].trim_start();
+
+        let mut value = None;
+        if let Some(after) = rest.strip_prefix('=') {
+            let after = after.trim_start();
+            match after.chars().next() {
+                Some(quote @ ('"' | '\'')) => {
+                    // An unclosed quote runs to the end of the tag, so nothing
+                    // after it is an attribute.
+                    let end = after[1..].find(quote)?;
+                    value = Some(&after[1..1 + end]);
+                    rest = &after[2 + end..];
                 }
-                // HTML lets the value go unquoted, in which case it runs to the
-                // first whitespace or to the tag itself. `is_safe_id` still has
-                // the last word on what such a value may contain.
-                let end = value
-                    .find(|c: char| c.is_whitespace() || c == '>' || c == '/')
-                    .unwrap_or(value.len());
-                if end > 0 {
-                    return Some(&value[..end]);
+                _ => {
+                    // HTML lets the value go unquoted, in which case it runs to
+                    // the first whitespace or to the tag itself. `is_safe_id`
+                    // still has the last word on what such a value may contain.
+                    let end = after
+                        .find(|c: char| c.is_whitespace() || c == '>')
+                        .unwrap_or(after.len());
+                    value = Some(&after[..end]);
+                    rest = &after[end..];
                 }
             }
         }
-        from = start + key.len();
+        if name.eq_ignore_ascii_case(key) {
+            return value.filter(|v| !v.is_empty());
+        }
     }
-    None
 }
 
 /// The name a bare `<a id="x">` / `<a name="x">` / `<span id="x">` gives to a
@@ -426,6 +434,61 @@ fn main() {}
         // The unquoted value is still held to `is_safe_id`.
         let html = render("<a id=a+b></a>text\n");
         assert!(!html.contains("<span"), "unsafe id was reproduced: {html}");
+    }
+
+    /// Attributes are read one after another, each value skipped whole, so a
+    /// `key=` inside some other attribute's value is text, not the attribute.
+    #[test]
+    fn attribute_skips_a_key_inside_another_value() {
+        assert_eq!(attribute(r#" href="p?a id=q" id="x""#, "id"), Some("x"));
+        assert_eq!(
+            attribute(r#" title="the id=3 entry" id="x""#, "id"),
+            Some("x")
+        );
+        assert_eq!(attribute(" title='a id=b' id=x", "id"), Some("x"));
+        assert_eq!(attribute(r#" title="café id=q" id="x""#, "id"), Some("x"));
+        assert_eq!(attribute(r#" title="x id=q""#, "id"), None);
+        // A name may start with a character wider than a byte.
+        assert_eq!(attribute(" é=1 id=x", "id"), Some("x"));
+    }
+
+    /// The rest of how HTML spells an attribute.
+    #[test]
+    fn attribute_reads_a_tag_the_way_html_does() {
+        assert_eq!(attribute(r#" id="x""#, "id"), Some("x"));
+        assert_eq!(attribute(" ID = 'x' ", "id"), Some("x"));
+        assert_eq!(attribute(" id=f5", "id"), Some("f5"));
+        // A bare attribute has no value to skip.
+        assert_eq!(attribute(r#" download id="x""#, "id"), Some("x"));
+        // The first of two wins, as in HTML.
+        assert_eq!(attribute(r#" id="a" id="b""#, "id"), Some("a"));
+        // A name that merely ends in the key is another attribute.
+        assert_eq!(attribute(r#" data-id="q" id="x""#, "id"), Some("x"));
+        // No whitespace is needed after a quoted value.
+        assert_eq!(attribute(r#" id="x"title="y""#, "title"), Some("y"));
+        // An unclosed quote runs to the end of the tag.
+        assert_eq!(attribute(r#" id="x"#, "id"), None);
+        assert_eq!(attribute(" id", "id"), None);
+        assert_eq!(attribute("", "id"), None);
+        // A bare value runs to whitespace, slashes included; `is_safe_id`
+        // then refuses it rather than an anchor being cut from its front.
+        assert_eq!(attribute(" id=a/b", "id"), Some("a/b"));
+        // An empty value is no value, so the caller can go on to `name`.
+        assert_eq!(attribute(r#" id="" name="n""#, "id"), None);
+    }
+
+    /// End to end: the anchor the document meant, not one made from the text
+    /// of another attribute.
+    #[test]
+    fn an_id_inside_another_attribute_does_not_steal_the_anchor() {
+        let html = render("<a title=\"the id=3 entry\" id=\"x\"></a>t\n\nSee [x](#x).\n");
+        assert!(html.contains("<span id=\"x\"></span>"), "{html}");
+        assert!(!html.contains("id=\"3\""), "{html}");
+        let html = render("<a href=\"p?a id=q\" id=\"x\"></a>t\n");
+        assert!(html.contains("<span id=\"x\"></span>"), "{html}");
+        // An empty id leaves the name to do the job, as a browser would.
+        let html = render("<a id=\"\" name=\"n\"></a>t\n");
+        assert!(html.contains("<span id=\"n\"></span>"), "{html}");
     }
 
     /// Only the name is carried over; everything else about the original tag is
