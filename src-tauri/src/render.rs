@@ -15,7 +15,6 @@ fn options() -> Options<'static> {
     o.extension.autolink = true;
     o.extension.footnotes = true;
     o.extension.description_lists = true;
-    o.extension.tagfilter = true;
     // Empty prefix: heading anchors are plain slugs, so `#some-section` links work.
     o.extension.header_id_prefix = Some(String::new());
     // YAML frontmatter is metadata for other tools, not content: without this
@@ -540,12 +539,27 @@ fn main() {}
         assert!(!html.contains("onerror"), "{html}");
     }
 
-    /// The tagfilter extension neutralises the tags GFM singles out even when
-    /// raw HTML is otherwise permitted; assert the end state directly.
+    /// None of the tags GFM's tagfilter singles out reach the page, inline or
+    /// as a block. That extension is gone — deprecated in comrak 0.55 and a
+    /// no-op here anyway, since raw HTML is dropped whole — so this pins what
+    /// it used to promise.
     #[test]
-    fn iframes_do_not_survive() {
-        let html = render("<iframe src=\"https://example.com\"></iframe>\n");
-        assert!(!html.contains("<iframe"), "{html}");
+    fn tagfiltered_tags_do_not_survive() {
+        for tag in [
+            "title",
+            "textarea",
+            "style",
+            "xmp",
+            "iframe",
+            "noembed",
+            "noframes",
+            "script",
+            "plaintext",
+        ] {
+            let md = format!("a <{tag}>x</{tag}> b\n\n<{tag}>\nblock\n</{tag}>\n");
+            let html = render(&md);
+            assert!(!html.contains(&format!("<{tag}")), "{tag}: {html}");
+        }
     }
 
     #[test]
