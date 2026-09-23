@@ -397,6 +397,10 @@ function show(which) {
   els.empty.hidden = which !== "empty";
   els.image.hidden = which !== "image";
   els.error.hidden = which !== "error";
+  // Opening anything writes this window's session over the one on offer, so
+  // the offer is stale from then on and must not come back with the empty
+  // screen when that tab closes.
+  if (which !== "empty") els.emptyReopenBtn.hidden = true;
   // The image panel brings its own scroll box. Left to itself the body would
   // scroll too, giving two scrollbars for one thing to scroll.
   document.documentElement.classList.toggle("image-mode", which === "image");

@@ -31,6 +31,17 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   *Settled by the code review (9910b77, 1.5.11): `ci.yml` now runs on `pull_request` too, so
   Dependabot PRs get the full matrix before merge. Security updates stay on. Proof: PR #3's
   checks ran (and failed, see Bugs).*
+- [x] **A stale Reopen offer can outlive the session it describes** (added 2026-09-17, 1.6.3).
+  With **Ask me each time**: ignore the offer, open a file, then close that tab. The empty
+  screen comes back with the Reopen button still on it, and pressing it restores the session
+  Rust is still holding in memory — even though `session.json` was overwritten by the file you
+  opened seconds earlier. Arguably a courtesy rather than a fault: the stash is intact and
+  nothing else can reach it. Options: leave it, or hide the button the first time this window
+  opens anything.
+  *Decided 2026-09-24: hide it. `show()` in `app.js` now hides the button whenever anything
+  but the empty screen goes up. Driven on the debug build under `"reopen": "ask"`: the offer
+  showed at launch ("Reopen 2 tabs in 1 window"), was gone once a file opened, and stayed gone
+  after that tab closed; on a fresh launch, pressing it still restored both tabs.*
 
 ## Bugs
 

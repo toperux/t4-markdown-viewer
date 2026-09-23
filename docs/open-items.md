@@ -26,13 +26,6 @@ section, so this file lists only what is still to do. Finished plans and reviews
   leg only. Listed here because both `ci-alignment.md` and `ci-alignment-round-2.md` deferred it
   and are now archived, so it was invisible. t4-git-ui carries the same item in its
   `docs/plans/open-items.md` §K.
-- [ ] **A stale Reopen offer can outlive the session it describes** (added 2026-09-17, 1.6.3).
-  With **Ask me each time**: ignore the offer, open a file, then close that tab. The empty
-  screen comes back with the Reopen button still on it, and pressing it restores the session
-  Rust is still holding in memory — even though `session.json` was overwritten by the file you
-  opened seconds earlier. Arguably a courtesy rather than a fault: the stash is intact and
-  nothing else can reach it. Options: leave it, or hide the button the first time this window
-  opens anything.
 - [ ] **Later does not cancel an update that has started** (added 2026-09-20, from #5 of
   `archive/reviews/code-review-2026-09-20.md`). Pressing **Update now** and then **Later** closes the
   dialog, but the download carries on and the app still restarts under the reader. Since
