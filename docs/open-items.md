@@ -26,13 +26,6 @@ section, so this file lists only what is still to do. Finished plans and reviews
   leg only. Listed here because both `ci-alignment.md` and `ci-alignment-round-2.md` deferred it
   and are now archived, so it was invisible. t4-git-ui carries the same item in its
   `docs/plans/open-items.md` §K.
-- [ ] **Later does not cancel an update that has started** (added 2026-09-20, from #5 of
-  `archive/reviews/code-review-2026-09-20.md`). Pressing **Update now** and then **Later** closes the
-  dialog, but the download carries on and the app still restarts under the reader. Since
-  769cd54 a reopened dialog says an install is under way; nothing makes Later mean it. Options:
-  leave it (the reader did ask for the update), relabel the button to **Hide** once a download
-  is running, or make it cancel — which needs the updater plugin's download to be abortable,
-  unchecked.
 - [ ] **A launch that dies mid-restore loses the whole session** (added 2026-09-21, found
   answering the crash-loop question, now in `closed-items.md`). `setup` discards `session.json`
   before it restores, and a window writes it again only once its document is laid out; a

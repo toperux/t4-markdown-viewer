@@ -47,6 +47,7 @@ const els = {
   updateError: document.getElementById("update-error"),
   updateNotesBtn: document.getElementById("update-notes-btn"),
   updateNow: document.getElementById("update-now"),
+  updateLater: document.getElementById("update-later"),
   emptyOpenBtn: document.getElementById("empty-open-btn"),
   emptyFolderBtn: document.getElementById("empty-folder-btn"),
   emptyReopenBtn: document.getElementById("empty-reopen-btn"),
@@ -1784,6 +1785,19 @@ async function checkUpdate(force) {
  */
 let installing = false;
 
+/**
+ * Set whether an install is under way, with the two buttons that follow it.
+ * Every window calls this as the broadcast reaches it, so a dialog already
+ * open elsewhere stops offering a second install the moment one begins.
+ */
+function setInstalling(value) {
+  installing = value;
+  els.updateNow.disabled = value;
+  // Closing the dialog does not stop a download, and the restart still comes
+  // when it lands, so once one has begun the button only hides the dialog.
+  els.updateLater.textContent = value ? "Hide" : "Later";
+}
+
 function showUpdateDialog() {
   const info = state.update;
   if (!info) return;
@@ -1796,7 +1810,7 @@ function showUpdateDialog() {
   els.updateProgress.hidden = !installing;
   if (installing && !els.updateProgress.textContent) els.updateProgress.textContent = "Downloading…";
   els.updateError.hidden = true;
-  els.updateNow.disabled = installing;
+  setInstalling(installing);
 
   // A deb or rpm install cannot replace itself; that is the package manager's
   // job. Offering an Update button that could only ever fail would be worse
@@ -1816,8 +1830,7 @@ async function runUpdate() {
     return;
   }
 
-  installing = true;
-  els.updateNow.disabled = true;
+  setInstalling(true);
   els.updateError.hidden = true;
   els.updateProgress.hidden = false;
   els.updateProgress.textContent = "Downloading…";
@@ -1828,11 +1841,10 @@ async function runUpdate() {
     await invoke("install_update");
   } catch (err) {
     console.error(err);
-    installing = false;
+    setInstalling(false);
     els.updateProgress.hidden = true;
     els.updateError.textContent = `Update failed: ${err}`;
     els.updateError.hidden = false;
-    els.updateNow.disabled = false;
   }
 }
 
@@ -3026,13 +3038,13 @@ async function main() {
   // Broadcast on purpose: one install is happening to the whole app, so every
   // window's dialog should count along with it.
   await listen("update-progress", (e) => {
-    installing = true; // another window's install is this window's too
+    setInstalling(true); // another window's install is this window's too
     showUpdateProgress(e.payload);
   });
   // The window that asked hears of a failure from its own `invoke`; the rest
   // hear it here, and get their Update button back.
   await listen("update-failed", () => {
-    installing = false;
+    setInstalling(false);
   });
   // Rust asks once the update is downloaded and waits for the answer. The
   // reader's place is only noted when they leave a document, so the restart

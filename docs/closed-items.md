@@ -42,6 +42,21 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   but the empty screen goes up. Driven on the debug build under `"reopen": "ask"`: the offer
   showed at launch ("Reopen 2 tabs in 1 window"), was gone once a file opened, and stayed gone
   after that tab closed; on a fresh launch, pressing it still restored both tabs.*
+- [x] **Later does not cancel an update that has started** (added 2026-09-20, from #5 of
+  `archive/reviews/code-review-2026-09-20.md`). Pressing **Update now** and then **Later** closes the
+  dialog, but the download carries on and the app still restarts under the reader. Since
+  769cd54 a reopened dialog says an install is under way; nothing makes Later mean it. Options:
+  leave it (the reader did ask for the update), relabel the button to **Hide** once a download
+  is running, or make it cancel — which needs the updater plugin's download to be abortable,
+  unchecked.
+  *Decided 2026-09-24: relabel. The button reads **Hide** from the moment an install starts,
+  on a reopened dialog too, and **Later** again if it fails. Driven on the debug build with a
+  faked `state.update` and a real `runUpdate()`, which Rust refused as there is nothing newer
+  than 1.6.6: Later → Hide (Update now disabled) → Hide on reopen → Later after the failure.
+  A review the same day found another window's already-open dialog kept Later and an enabled
+  Update now; `setInstalling` now sets the flag and both buttons together, in every window, as
+  the broadcast arrives. Driven with two windows: w1's open dialog went Later → Hide (Update
+  now disabled) on main's `update-progress`, and back on `update-failed`.*
 
 ## Bugs
 
