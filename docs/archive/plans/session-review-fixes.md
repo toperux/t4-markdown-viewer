@@ -1,5 +1,9 @@
 # Session Review Fixes Implementation Plan
 
+> **Status (2026-09-24):** executed in full and shipped in 1.6.4 — Tasks 1–4 and 6 in 053979c,
+> Task 5 in fae6909, Task 7 in 9df9ef0, Task 8 in 6b2c8fa. Paths and unticked boxes below are
+> as they stood when it was written.
+
 > **For agentic workers:** Execute per the **Execution** section below — it says who runs each task and in what order, and it overrides the one-subagent-per-task default of superpowers:subagent-driven-development. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Fix the 10 findings from the code review of `v1.6.0..HEAD` (commit `cf7d8fa`), most of them in the session-restore feature shipped in 1.6.3.
