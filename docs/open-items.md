@@ -3,10 +3,9 @@
 ## Context
 
 Collected on 2026-09-11, after v1.5.9. Sources: a review of history since v1.5.0, CI and
-GitHub state, and a smoke run of the debug build using the `drive-app` skill. Last swept on
-2026-09-20, after v1.6.5 and the full review of that date (1.5.10 contrast, 1.5.11 review
-fixes, 1.6.0 JSON viewer, 1.6.1–1.6.2 tab chrome, 1.6.3 session restore, 1.6.4–1.6.5 sidebar
-sort). Nothing here blocks a release.
+GitHub state, and a smoke run of the debug build using the `drive-app` skill. Swept after
+v1.6.5 and the full review of 2026-09-20, and again on 2026-09-25 after v1.6.8: what is left
+needs a Mac, a Linux install or a date. Nothing here blocks a release.
 
 Tick an item as it closes, then move it with its notes to `closed-items.md`, under the same
 section, so this file lists only what is still to do. Finished plans and reviews live in
@@ -29,26 +28,13 @@ section, so this file lists only what is still to do. Finished plans and reviews
   *Snoozed by the owner 2026-09-24 until 2026-12-23, three months before the first brownout:
   not to be raised or offered before then.*
 
-## Bugs
-
-- [ ] **A restored scroll position degraded once, unreproduced** (added 2026-09-17, 1.6.3).
-  During the 1.6.3 drive run a tab recorded `scrollY: 1500`, and some minutes later the same
-  entry read 500 with nothing having touched that window. Two later runs round-tripped 3000
-  exactly, cold restore included, so it is not the obvious suspect (a render clamping the
-  offset while the document is still short, which the scroll listener would then write back).
-  No theory. Reopen with a reproduction; the cost if real is landing in the wrong place once,
-  after which the wrong value sticks.
-  *2026-09-20: #4 of the review is a mechanism that fits — `rememberScroll` banked the outgoing
-  page's offset onto the incoming entry when a second tab switch landed before the first had
-  loaded. Fixed in 0cbadf1. Leave open until a release has gone by without a recurrence.*
-
-## Needs a Mac, a Dependabot run, or an older build
+## Needs a Mac or a Linux install
 
 - [ ] **Mac keeps folder access across an update.** 1.5.8 was the first signed build and 1.5.9
   the first signed-to-signed update. CI proves both carry the cert (SHA-1 `53effb03…`). Only a
   Mac updating 1.5.8 → 1.5.9 without a new Documents/Desktop/Downloads prompt proves 929fe3a
-  did its job. Any later signed-to-signed step (1.5.10, 1.5.11, 1.6.0 are all signed) is the
-  same proof.
+  did its job. Any later signed-to-signed step is the same proof: every release since, through
+  1.6.8, carries the same certificate.
 - [ ] **`.json` / `.jsonc` file registration** (added 2026-09-12, see
   `archive/plans/json-viewer.md`). Only an installed build proves it: on Windows, Explorer's
   *Open with* on a `.json` lists the viewer and the Type column reads "JSON Document" (its own
@@ -59,37 +45,14 @@ section, so this file lists only what is still to do. Finished plans and reviews
   `T4MarkdownViewer.Json` ("JSON Document", icon, open command) and both `.json` and `.jsonc`
   list it under `OpenWithProgids`; `.md` still maps to `T4MarkdownViewer.Document`. macOS and
   deb/rpm still unchecked.*
-- [ ] **Dependabot `ci:` prefix (2bace27).** The release-notes filter (`release.yml`, "Build the
-  release notes") drops `ci: Bump …`, checked locally; a plain `Bump …` still gets through.
-  Confirm the next weekly Dependabot PR is titled `ci: …`.
-  *Not yet seen. PR #2 ("Bump softprops/action-gh-release", 2026-09-10) predates 2bace27, so
-  it's no evidence either way. The cargo entry's prefix does work: PR #3 (2026-09-12) is titled
-  `chore: bump the cargo group …`. Wait for the next github-actions bump.*
-- [ ] **An update restart still restores the session** (added 2026-09-17, 1.6.3). `snapshot`
-  claims `session.json` for the restart and sets `AppState.installing`, which stands ordinary
-  saves down until the install lands or fails, and the `restart` flag makes the session come
-  back whatever **Reopening** says. All of it is verified by reading the code and by the
-  `session.rs` tests; none of it has survived a real install, which needs a published release
-  to update from. The next in-app update is the proof: tabs, windows and scroll positions
-  should all return, even with **Start fresh** selected.
-- [ ] **2026-09-20 review fixes that nothing here could run** (added 2026-09-21). Each passed
-  the gates and a code read; none has met the thing it fixes.
-  - *#5, a second update refused (769cd54).* The `INSTALLING` guard and its `update-failed`
-    broadcast only run during a real install. Only the page's own `installing` flag was
-    checked, by eval. The next in-app update proves the ordinary path still installs; the
-    refusal itself stays read-only unless Update now is pressed twice on that run.
-  - *#6, a file name that is not Unicode (0d08e71).* Needs a Linux file manager handing over
-    Latin-1 bytes; Windows cannot pass them and a test cannot inject argv. Proof: on a Linux
-    install, open `$'caf\xe9.md'` from the file manager and the app starts.
-  - *#27, a theme listed once (0b1c86c).* The test means something only where names ignore
-    case. Windows passed locally; the macOS leg first runs it on the next push.
-  - *#30 and #31, CI (47e8c0d).* The pinned `checkout` first runs on the next push; the
-    pinned upload/download-artifact and the awk `lock=` line on the next release tag. The awk
-    line was run once by hand against the real lock file and printed 1.6.5.
-  - *#27, #30 and #31 proven 2026-09-21 by 1.6.6: the push's CI run passed on all three legs,
-    macOS included; a `workflow_dispatch` packaging build passed before the tag; the v1.6.6
-    Release run passed `version`, the checks, all three builds and `publish`. #5 and #6 are
-    what keeps this open — 1.6.5 → 1.6.6 is the first in-app update to run #5's guard.*
+- [ ] **The app starts on a file name that is not Unicode** (added 2026-09-25, split from the
+  2026-09-20 review's "fixes that nothing here could run", now in `closed-items.md`; review
+  #6, 0d08e71). `setup` read argv with `std::env::args()`, which panics on a non-UTF-8
+  argument, and a panic there is an abort with no window; it now reads `args_os()` lossily, so
+  the mangled name is simply ignored. Only a Linux file manager can hand such a name over —
+  Windows and macOS pass Unicode, and a test cannot inject argv. Proof: on a deb or rpm
+  install, `touch $'caf\xe9.md'`, open it from the file manager, and the app starts. The file
+  itself does not open; that is #25 under *Accepted limits*.
 
 ## Accepted limits
 

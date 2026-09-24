@@ -185,6 +185,19 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   fixes two autolink DoS issues (GHSA-xg9p-p4jc-c46g), and `autolink` is on. The updater's
   2.11 changes (a Windows installer spawn failure now errors) first run on the update after
   the one that installs this build.*
+- [x] **A restored scroll position degraded once, unreproduced** (added 2026-09-17, 1.6.3).
+  During the 1.6.3 drive run a tab recorded `scrollY: 1500`, and some minutes later the same
+  entry read 500 with nothing having touched that window. Two later runs round-tripped 3000
+  exactly, cold restore included, so it is not the obvious suspect (a render clamping the
+  offset while the document is still short, which the scroll listener would then write back).
+  No theory. Reopen with a reproduction; the cost if real is landing in the wrong place once,
+  after which the wrong value sticks.
+  *2026-09-20: #4 of the review is a mechanism that fits — `rememberScroll` banked the outgoing
+  page's offset onto the incoming entry when a second tab switch landed before the first had
+  loaded. Fixed in 0cbadf1. Leave open until a release has gone by without a recurrence.*
+  *Closed 2026-09-25: two releases have gone by (1.6.7, 1.6.8), and the owner's in-app update
+  brought tabs, windows and scroll positions back as they were. No recurrence seen. Reopen with
+  a reproduction.*
 
 ## Deferred from the 2026-09-20 review
 
@@ -257,6 +270,48 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   - *Tab tear-off still works after 0cbadf1's `reportSoon()` in `onDragEnd`.*
   - *#16, arrow keys pan a zoomed picture (a7fc23e):* needs `Input.dispatchKeyEvent`, which
     `cdp.mjs` does not send yet.
+- [x] **Dependabot `ci:` prefix (2bace27).** The release-notes filter (`release.yml`, "Build the
+  release notes") drops `ci: Bump …`, checked locally; a plain `Bump …` still gets through.
+  Confirm the next weekly Dependabot PR is titled `ci: …`.
+  *Not yet seen. PR #2 ("Bump softprops/action-gh-release", 2026-09-10) predates 2bace27, so
+  it's no evidence either way. The cargo entry's prefix does work: PR #3 (2026-09-12) is titled
+  `chore: bump the cargo group …`. Wait for the next github-actions bump.*
+  *Proven 2026-09-25: PR #5 (2026-09-24), the first github-actions bump since 2bace27, is
+  titled `ci: Bump dtolnay/rust-toolchain …`.*
+- [x] **An update restart still restores the session** (added 2026-09-17, 1.6.3). `snapshot`
+  claims `session.json` for the restart and sets `AppState.installing`, which stands ordinary
+  saves down until the install lands or fails, and the `restart` flag makes the session come
+  back whatever **Reopening** says. All of it is verified by reading the code and by the
+  `session.rs` tests; none of it has survived a real install, which needs a published release
+  to update from. The next in-app update is the proof: tabs, windows and scroll positions
+  should all return, even with **Start fresh** selected.
+  *Proven 2026-09-25 by the owner's in-app update to 1.6.7 / 1.6.8: tabs, windows and scroll
+  positions all came back, through the new restore mark (`040a866`) as well. Under
+  **Restore**, not **Start fresh**: the `restart` flag is what overrides the setting, and it is
+  the same flag either way.*
+- [x] **2026-09-20 review fixes that nothing here could run** (added 2026-09-21). Each passed
+  the gates and a code read; none has met the thing it fixes.
+  - *#5, a second update refused (769cd54).* The `INSTALLING` guard and its `update-failed`
+    broadcast only run during a real install. Only the page's own `installing` flag was
+    checked, by eval. The next in-app update proves the ordinary path still installs; the
+    refusal itself stays read-only unless Update now is pressed twice on that run.
+  - *#6, a file name that is not Unicode (0d08e71).* Needs a Linux file manager handing over
+    Latin-1 bytes; Windows cannot pass them and a test cannot inject argv. Proof: on a Linux
+    install, open `$'caf\xe9.md'` from the file manager and the app starts.
+  - *#27, a theme listed once (0b1c86c).* The test means something only where names ignore
+    case. Windows passed locally; the macOS leg first runs it on the next push.
+  - *#30 and #31, CI (47e8c0d).* The pinned `checkout` first runs on the next push; the
+    pinned upload/download-artifact and the awk `lock=` line on the next release tag. The awk
+    line was run once by hand against the real lock file and printed 1.6.5.
+  - *#27, #30 and #31 proven 2026-09-21 by 1.6.6: the push's CI run passed on all three legs,
+    macOS included; a `workflow_dispatch` packaging build passed before the tag; the v1.6.6
+    Release run passed `version`, the checks, all three builds and `publish`. #5 and #6 are
+    what keeps this open — 1.6.5 → 1.6.6 is the first in-app update to run #5's guard.*
+  - *#5 proven as far as it can be 2026-09-25: the owner's in-app update to 1.6.7 / 1.6.8
+    installed and restarted through the guard. The refusal itself stays read-only — nobody
+    pressed Update now twice. #6 alone keeps this open.*
+  *Retired 2026-09-25: four of five proven. #6 continues as its own item in `open-items.md`,
+  "The app starts on a file name that is not Unicode".*
 
 ## Housekeeping
 

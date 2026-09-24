@@ -1,17 +1,24 @@
 # Full codebase review — 2026-09-20
 
-> **Status (2026-09-21):** closed. Every item is `done`, `wontfix` or `park`: 26 findings are
-> `done`, on `main` as the thirteen commits d952d02 through 47e8c0d (squashed by feature); #23–#26 are
-> `wontfix`; #28 was parked, then fixed on 2026-09-24 (`ff2eef6`). #9 was to be parked
-> behind its stopgap (`d952d02`), but the smoke
-> pass's check Z — the 750 KB file from #1, 33.9 MB of HTML, under the ceiling on purpose —
-> hung the webview for more than 140 s, so the owner promoted it and it was fixed the next day
-> (`../plans/json-fold-weight.md`). Not driven in the app: #12 and the tab tear-off regression check
-> (`cdp.mjs` cannot drag), and #16's arrow-key panning (it cannot send real key presses; the
-> panel does take focus). Unverified by construction: #5's Rust guard and its `update-failed`
-> broadcast (need a real update), #6 (needs a non-UTF-8 argv on Linux), #27 on macOS (the
-> test bites on the Windows and macOS CI legs only), and #30–#31 (`checks.yml` is first
-> exercised by the next push, the release parts by the next tag).
+> **Status (2026-09-25):** closed. 27 findings are `done` and #23–#26 are `wontfix`. 26 landed
+> on `main` as the thirteen commits d952d02 through 47e8c0d (squashed by feature); #28 was
+> parked, then fixed on 2026-09-24 (`ff2eef6`). #9 was to be parked behind its stopgap
+> (`d952d02`), but the smoke pass's check Z — the 750 KB file from #1, 33.9 MB of HTML, under
+> the ceiling on purpose — hung the webview for more than 140 s, so the owner promoted it and
+> it was fixed the next day (`../plans/json-fold-weight.md`).
+>
+> Proven since, beyond the gates and the smoke pass:
+>
+> - #12, the tab tear-off regression check and #16: driven 2026-09-21, once `cdp.mjs` learned
+>   to drag and press keys (`../../closed-items.md`).
+> - #27 on macOS, and #30–#31: the 1.6.6 push and release runs, 2026-09-21.
+> - #4: no recurrence across 1.6.7 and 1.6.8; the owner's in-app update brought scroll
+>   positions back as they were (2026-09-25).
+> - #5: the owner's in-app update to 1.6.7 / 1.6.8 installed through the guard (2026-09-25).
+>   The refusal itself — Update now pressed twice during a real install — was never exercised.
+>
+> Still unverified: #6, which needs a Linux file manager handing over a file name that is not
+> UTF-8. Tracked in `../../open-items.md`.
 
 Reviewed at `a033113` (Release 1.6.5). Five parallel reviewers: Rust IPC / fs / config /
 updater; Rust render / JSON / themes / session; frontend (`app.js`, `index.html`); CI /
