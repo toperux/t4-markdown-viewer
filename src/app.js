@@ -855,8 +855,8 @@ function scheduleReport() {
 
 /**
  * Report now if it has been quiet, and a moment after things settle if it has
- * not. Nothing fires as the last window goes, so a tab closed just before
- * quitting has to be on disk already or it comes back — but a document being
+ * not. Nothing fires on a Cmd+Q or a kill, so a tab closed just before one
+ * has to be on disk already or it comes back — but a document being
  * rewritten under the reader lands here several times a second, and that must
  * not become several writes a second.
  */
@@ -3122,6 +3122,13 @@ async function main() {
   window.addEventListener("resize", scheduleReport);
   window.addEventListener("focus", scheduleReport);
   appWindow.onMoved(scheduleReport).catch(console.error);
+  // A close waits for this window's last report. Anything still inside
+  // REPORT_DELAY — a scroll, a move, a tab change hard on another — would
+  // otherwise go with the window. Tauri holds the close while a listener is
+  // registered and destroys the window once it resolves; Rust closes it
+  // anyway if the page cannot answer (`CLOSE_WAIT`). Registered with the
+  // others, after boot: a window still restoring has nothing to add.
+  appWindow.onCloseRequested(() => reportSession()).catch(console.error);
 
   // Last, and not awaited: the document is already on screen, and a slow or
   // unreachable GitHub must cost the reader nothing.

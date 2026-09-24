@@ -15,7 +15,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindowBuilder, Window,
     WindowEvent,
@@ -42,6 +42,12 @@ const JSON_EXTS: &[&str] = &["json", "jsonc"];
 /// `load_asset` hands the webview a path rather than bytes, so a 40 MB photo
 /// costs nothing here.
 const MAX_DOCUMENT_BYTES: u64 = 32 * 1024 * 1024;
+
+/// How long a close waits for the page before the window goes anyway. The page
+/// holds each close to send its last report (`onCloseRequested` in app.js); one
+/// too busy to answer — a document still laying out — must not leave a window
+/// the X button cannot close.
+const CLOSE_WAIT: Duration = Duration::from_secs(2);
 
 /// How far each window has got through starting up. One struct behind one lock
 /// because the two halves are read against each other — see `open_path`.
@@ -914,8 +920,8 @@ fn open_window(app: AppHandle, path: Option<String>) -> String {
 /// here.
 ///
 /// Each report also goes to disk, which is what makes an ordinary quit
-/// recoverable — there is no event for the last window going, so the file has
-/// to be current before it does.
+/// recoverable — a close waits for the page's last report, but a Cmd+Q or a
+/// kill waits for nothing, so the file has to be current before either.
 #[tauri::command]
 fn set_session(
     state: State<AppState>,
@@ -1459,6 +1465,15 @@ fn main() {
                 // `Destroyed` it is gone, and the chain needs its frame.
                 WindowEvent::CloseRequested { .. } => {
                     session::note_frame(window.app_handle(), window.label());
+                    // The page holds the close to send its last report and
+                    // then destroys the window itself; this is for a page
+                    // that never does. The handle names this window, not its
+                    // label, so one already gone is left alone.
+                    let window = window.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(CLOSE_WAIT);
+                        let _ = window.destroy();
+                    });
                 }
                 WindowEvent::Destroyed => {
                     let label = window.label();
