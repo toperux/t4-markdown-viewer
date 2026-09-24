@@ -67,12 +67,12 @@ Electron build starts around 150 MB.
 | Tabs, tear-off, live reload, themes | ✅ | ✅ | ✅ |
 | Drag a tab **into another window** | ✅ | — | — |
 | Updates itself | ✅ | ✅ | ✅ AppImage |
-| Signed installer | — | self-signed | n/a |
+| Signed installer | ✅ | self-signed | n/a |
 
-Nothing is signed by a certificate the OS trusts. On Windows that means a
-SmartScreen prompt; on macOS, where releases after 1.5.7 carry the project's
-own self-signed certificate, it means a quarantine flag to clear. Both are
-one-time, and both are described below.
+Windows releases after 1.6.7 are signed with a Certum Open Source certificate
+that Windows trusts. macOS releases after 1.5.7 carry the project's own
+self-signed certificate instead, which means a one-time quarantine flag to
+clear. Both are described below.
 
 The one real feature gap is dragging a tab from one window into another. It
 needs to know which window the compositor is drawing under the cursor, which on
@@ -124,10 +124,11 @@ under Tauri's own name, `T4 Markdown Viewer_<version>_x64-setup.exe`.
 It is a **per-user** install — no admin prompt — landing in
 `%LOCALAPPDATA%\T4 Markdown Viewer`. Uninstall from Add/Remove Programs.
 
-**The installer is not code-signed**, so Windows SmartScreen will show
-"Windows protected your PC" the first few times anyone runs it: click **More
-info** → **Run anyway**. A certificate is the only thing that removes that
-prompt, and it is not worth several hundred dollars a year for this.
+Releases after 1.6.7 are code-signed, with "Open Source Developer, Christopher
+Montevirgen" as the publisher. SmartScreen can still show "Windows protected
+your PC" while the certificate is new, until it has built up a download
+reputation: click **More info** → **Run anyway**. 1.6.7 and earlier are not
+signed, so they always show it.
 
 ### macOS
 

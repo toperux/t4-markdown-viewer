@@ -103,14 +103,24 @@ the job, never retagging, and re-running cannot fix a workflow bug. Rotating
 the certificate means updating the fingerprint in *Check the macOS signature*,
 which checks the bundle, the `.app.tar.gz` and the `.dmg`.
 
+`CERTUM_EMAIL` and `CERTUM_OTP` sign the Windows exe and installer with the
+Certum Open Source certificate in SimplySign's cloud, through `ssign`. They are
+secrets in the `signing` **environment**, not repo secrets. Only main and `v*`
+tags may use it, and only the Windows leg asks for it. `CERTUM_OTP` is the TOTP
+seed from the SimplySign activation QR, and can sign as the project until it is
+regenerated. A missing or wrong one fails *Build the packages* on Windows; a
+build signed with anything else fails *Check the Windows signature*. The
+certificate expires **2027-09-22**. Renewing it means updating the thumbprint
+in that check, and a new QR means updating `CERTUM_OTP`.
+
 ## Gotchas
 
 - **Icon changes need `touch src-tauri/build.rs`.** `tauri-build` does not
   declare the icon files as build inputs, so a rebuild silently keeps the old
   icon embedded in the exe. Verify with `[System.Drawing.Icon]::ExtractAssociatedIcon`.
-- **Nothing is signed by a trusted certificate.** Expect SmartScreen on Windows
-  and a quarantine flag on macOS (self-signed, not notarized); both are
-  documented in the README already.
+- **Only Windows has a trusted signature.** SmartScreen can still warn until
+  the Certum certificate builds reputation. macOS is self-signed and not
+  notarized, so it has a quarantine flag. Both are documented in the README.
 - **`.deb`/`.rpm` installs do not self-update** — `update.rs` reports them as
   not installable and sends the user to the download page instead.
 - The macOS updater takes the `.app.tar.gz`, not the `.dmg`. Humans take the

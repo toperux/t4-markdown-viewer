@@ -83,6 +83,10 @@ jobs:
     needs: version
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    # The Certum secrets live in the `signing` environment, which only main
+    # and `v*` tags may use. Only the Windows leg asks for it: the other legs
+    # get an empty name, which means no environment and no Certum secrets.
+    environment: ${{ matrix.environment }}
     strategy:
       fail-fast: false
       matrix:
@@ -90,6 +94,7 @@ jobs:
           - os: windows-latest
             bundles: nsis
             bundle_dir: target/release/bundle
+            environment: signing
           - os: macos-latest
             bundles: app,dmg
             # One .dmg for both Apple Silicon and Intel.
@@ -170,6 +175,45 @@ jobs:
           sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/cert.pem"
           rm "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/cert.pem"
 
+      # Windows code signing with the Certum Open Source certificate, whose key
+      # lives in SimplySign's cloud. ssign reaches SimplySign over HTTPS, so
+      # there is no Certum desktop client to install and no GUI login to
+      # script. It is pinned to the commit tested locally, for the same reason
+      # the actions are pinned: it handles the TOTP seed, which can sign as the
+      # project until it is regenerated. The sign command goes in through
+      # --config, not tauri.conf.json, so a local build still works without
+      # credentials. Verbose on both: Tauri swallows the sign command's output
+      # otherwise, so a failed sign says only "failed to run ssign", and
+      # ssign's -v shows which stage failed (login, certificate or signing).
+      #
+      # ssign signs in place by renaming a signed copy over the original, and
+      # on the runner Windows refuses that rename ("Access is denied"). Writing
+      # the file in place works: Tauri patches the exe that way a moment
+      # earlier. So sign.ps1 has ssign write into a separate folder, then
+      # writes the result back in place, as signtool itself does.
+      - name: Set up Windows code signing
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo install --locked --git https://github.com/Le-Syl21/ssign \
+            --rev 585a88e77443f1cbac7fc63b87155982139208b6 ssign
+          # Forward slashes: the path goes inside JSON, where \a is no escape.
+          tmp=$(cygpath -m "$RUNNER_TEMP")
+          cat > "$tmp/sign.ps1" <<'PS1'
+          param([string]$File)
+          $ErrorActionPreference = 'Stop'
+          $out = Join-Path $env:RUNNER_TEMP 'signed'
+          ssign -v -o $out $File
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $signed = Join-Path $out (Split-Path $File -Leaf)
+          [IO.File]::WriteAllBytes($File, [IO.File]::ReadAllBytes($signed))
+          PS1
+          cat > "$tmp/signing.json" <<JSON
+          {"bundle":{"windows":{"signCommand":{"cmd":"pwsh","args":["-NoProfile","-File","$tmp/sign.ps1","%1"]}}}}
+          JSON
+          echo "SIGNING_ARGS=--verbose --config $tmp/signing.json" >> "$GITHUB_ENV"
+
       - name: Build the packages
         working-directory: src-tauri
         # The signing key is what the updater checks before it will install
@@ -185,10 +229,52 @@ jobs:
           # so users got asked again and again. Self-signed, not notarized: the
           # README's quarantine step still applies.
           APPLE_SIGNING_IDENTITY: T4 Apps Self-Signed Code Signing
+          # Read by ssign when Tauri runs the Windows sign command. Empty on
+          # the other legs, which have no environment to take them from. The
+          # first sign logs in and caches the session on disk, so the app, the
+          # uninstaller and the installer need only one one-time code.
+          CERTUM_EMAIL: ${{ secrets.CERTUM_EMAIL }}
+          CERTUM_OTP: ${{ secrets.CERTUM_OTP }}
         run: >
           cargo tauri build --bundles ${{ matrix.bundles }}
           ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+          ${{ env.SIGNING_ARGS }}
           -- --locked
+
+      # The thumbprint, not just a valid signature, so a build signed with
+      # anything else fails here, as in the macOS check below. The installer
+      # is checked, since it is what people download and what the updater
+      # fetches, and so is every exe inside it, the app included. The app in
+      # target/release proves nothing: Tauri signs a patched copy for the
+      # installer and restores the unsigned build output afterwards. 7-Zip
+      # unpacks NSIS installers. The certificate expires 2027-09-22, and
+      # renewing it means updating this.
+      - name: Check the Windows signature
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: src-tauri
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $thumb = 'F06C1EC1FAC43DFEC92FBE47B0FC959D1CE38151'
+          $installer = @(Get-ChildItem '${{ matrix.bundle_dir }}/nsis/*-setup.exe')
+          if ($installer.Count -ne 1) { throw "expected one installer, found $($installer.Count)" }
+          $unpacked = Join-Path $env:RUNNER_TEMP 'unpacked'
+          7z x $installer[0].FullName "-o$unpacked" -y | Out-Null
+          if ($LASTEXITCODE) { throw '7-Zip could not unpack the installer' }
+          $files = @($installer[0].FullName) +
+            @(Get-ChildItem $unpacked -Recurse -Filter *.exe).FullName
+          if ($files.Count -lt 2) { throw 'no exe inside the installer' }
+          foreach ($f in $files) {
+            $sig = Get-AuthenticodeSignature $f
+            # Printed before checking, so a failure shows what it was signed with.
+            "== $f"
+            "$($sig.Status) | $($sig.SignerCertificate.Subject) | $($sig.SignerCertificate.Thumbprint) | timestamped: $($null -ne $sig.TimeStamperCertificate)"
+            if ($sig.Status -ne 'Valid' -or
+                $sig.SignerCertificate.Thumbprint -ne $thumb -or
+                $null -eq $sig.TimeStamperCertificate) {
+              throw "not signed with the Certum certificate: $f"
+            }
+          }
 
       # The fingerprint, not just the name: macOS keys its grants on the
       # certificate itself, so a regenerated one with the same name would still
