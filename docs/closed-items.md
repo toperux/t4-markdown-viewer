@@ -198,6 +198,15 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   *Closed 2026-09-25: two releases have gone by (1.6.7, 1.6.8), and the owner's in-app update
   brought tabs, windows and scroll positions back as they were. No recurrence seen. Reopen with
   a reproduction.*
+- [x] **`toggle_task` can NUL-pad the file if an editor truncates it between the read and the
+  seek** (an accepted limit from the 2026-09-12 review). The pre-fix behaviour
+  (truncate-then-write) was worse.
+  *Lifted 2026-09-25, at the owner's call: the only limit that could damage a document.
+  `write_box` now reads the three bytes around the offset through the handle that writes, and
+  writes only if they are still `[ ]`, `[x]` or `[X]`; otherwise the reader sees "changed on
+  disk since it was read; try again". What is left is the instant between that check and the
+  write. The new test was red first on the old logic — it wrote into a shortened file — and
+  also covers a file rewritten so the offset holds other text.*
 
 ## Deferred from the 2026-09-20 review
 

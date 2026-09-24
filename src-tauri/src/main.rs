@@ -11,7 +11,7 @@ mod watch;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
-use std::io::{Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex};
@@ -587,13 +587,27 @@ fn toggle_task(path: String, line: usize, checked: bool) -> Result<(), String> {
     let at = (bom.len() + render::toggle_task(text, line)?) as u64;
 
     let mut file = std::fs::OpenOptions::new()
+        .read(true)
         .write(true)
         .open(&path)
         .map_err(|e| format!("{shown}: {e}"))?;
-    file.seek(SeekFrom::Start(at))
-        .map_err(|e| format!("{shown}: {e}"))?;
+    write_box(&mut file, at, checked).map_err(|e| format!("{shown}: {e}"))
+}
+
+/// Put the box's one byte at `at`, but only while the file still holds a box
+/// there. The offset comes from a read made a moment earlier, and an editor
+/// that saved in between may have shortened the file: a write past its end
+/// would fill the gap with NUL bytes. Checked through the handle that writes,
+/// so what is left is the instant between the check and the write.
+fn write_box(file: &mut std::fs::File, at: u64, checked: bool) -> std::io::Result<()> {
+    let changed = || std::io::Error::other("changed on disk since it was read; try again");
+    let mut found = [0u8; 3];
+    file.seek(SeekFrom::Start(at.checked_sub(1).ok_or_else(changed)?))?;
+    if file.read_exact(&mut found).is_err() || !matches!(found, [b'[', b' ' | b'x' | b'X', b']']) {
+        return Err(changed());
+    }
+    file.seek(SeekFrom::Start(at))?;
     file.write_all(&[if checked { b'x' } else { b' ' }])
-        .map_err(|e| format!("{shown}: {e}"))
 }
 
 /// The Markdown behind one heading, for the copy button the webview puts on
@@ -1695,6 +1709,40 @@ mod tests {
         let result = list_dir(file.to_string_lossy().into_owned(), "name".to_string());
         std::fs::remove_file(&file).unwrap();
         assert!(result.is_err());
+    }
+
+    /// The box is written only while it is still where the read found it. An
+    /// editor that shortened the file in between must not have the write land
+    /// past the end, where the gap would fill with NUL bytes.
+    #[test]
+    fn a_box_is_only_written_where_it_still_is() {
+        let path = std::env::temp_dir().join(format!("t4-box-{}.md", std::process::id()));
+        let open = || {
+            std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&path)
+                .unwrap()
+        };
+        std::fs::write(&path, "- [ ] a\n").unwrap();
+        write_box(&mut open(), 3, true).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "- [x] a\n");
+
+        // Shortened under us: nothing written, nothing padded.
+        std::fs::write(&path, "- ").unwrap();
+        let shortened = write_box(&mut open(), 3, false);
+        let after = std::fs::read(&path).unwrap();
+
+        // Rewritten so the offset holds other text: left alone too.
+        std::fs::write(&path, "abcdefgh\n").unwrap();
+        let rewritten = write_box(&mut open(), 3, true);
+        let text = std::fs::read_to_string(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+
+        assert!(shortened.is_err());
+        assert_eq!(after, b"- ");
+        assert!(rewritten.is_err());
+        assert_eq!(text, "abcdefgh\n");
     }
 
     #[test]

@@ -59,8 +59,6 @@ section, so this file lists only what is still to do. Finished plans and reviews
 Parked by ruling in the 2026-09-12 review (`archive/reviews/code-review-2026-09-12.md`,
 *Implementation*). Not bugs to fix; here so nobody rediscovers them.
 
-- `toggle_task` can NUL-pad the file if an editor truncates it between the read and the
-  seek. The pre-fix behaviour (truncate-then-write) was worse.
 - `check_for_update` sends one request per window when several boot together; the negative
   cache only helps windows that open later.
 - Two concurrent config saves are each atomic, but the pair is last-writer-wins.
