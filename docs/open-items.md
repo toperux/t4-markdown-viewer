@@ -52,36 +52,20 @@ section, so this file lists only what is still to do. Finished plans and reviews
   the mangled name is simply ignored. Only a Linux file manager can hand such a name over —
   Windows and macOS pass Unicode, and a test cannot inject argv. Proof: on a deb or rpm
   install, `touch $'caf\xe9.md'`, open it from the file manager, and the app starts. The file
-  itself does not open; that is #25 under *Accepted limits*.
+  itself does not open; that is #25, kept under *Accepted limits* in `closed-items.md`.
+- [ ] **Cmd+Q loses the last 500 ms of changes** (added 2026-09-25, split from the session
+  restore limit; the kill and shutdown half is kept in `closed-items.md`). A report waits
+  500 ms for things to settle, and since 21384f3 closing a window waits for it — but the
+  predefined Quit (`Item::quit` in `macos_menu`) ends in `applicationWillTerminate`, which `tao`
+  turns straight into `RunEvent::Exit` with nothing to hold it. Fix: a Quit item of our own on
+  Cmd+Q that closes every window, so each waits for its report and the app exits with the
+  last; the session code already reads a quit as windows closing one after another. Dock →
+  Quit and logout stay on the terminate path. Reopen on a Mac, and prove it there: scroll, then
+  Cmd+Q within 500 ms, and the next launch comes back at the scroll, every window in order.
 
 ## Accepted limits
 
 Not bugs to fix; here so nobody rediscovers them. The three the 2026-09-12 review parked were
-all lifted or retired on 2026-09-25 (`closed-items.md`).
-
-From session restore (1.6.3), each ruled on while planning it:
-
-- A report waits 500 ms for things to settle — scrolling, moving or resizing a window, or a
-  tab change hard on the heels of another — so quitting inside that wait loses the last of
-  it. (In 1.6.3 a move or resize was not reported at all until the next tab change or scroll;
-  1.6.4 reports them.)
-- `session.json` is a record of a moment, not a log: close one window and read on in another,
-  and the closed one is gone from the record. Closing every window comes back whole.
-
-Ruled on in the 2026-09-20 review (`archive/reviews/code-review-2026-09-20.md`):
-
-- #18, the superseded case: an `openFolder` overtaken by a newer one keeps its unverified
-  pick, because the newer call has already written the tab and the older cannot tell whether
-  its own listing failed. The closed-mid-listing case is fixed (74f2192).
-- #23: a file-association open in the instant a window is closing is dropped.
-- #24: a failed folder watch drops the existing watcher; the next expand, collapse or tab
-  switch asks again.
-- #25: a folder whose name is not valid UTF-8 comes back mangled and then fails as "Not a
-  folder". Linux only, and only through the picker.
-- A link with a leading slash (`/docs/guide.md`, `/home/u/spec.md`) is resolved against the
-  document's folder, not the filesystem root; only drive-letter paths stand on their own (#8).
-- A picture named by a full path outside any folder a tab has been opened from does not show:
-  the asset protocol serves only those folders. A link to it works (#8).
-- A JSON render whose folding would stall the window — nesting thousands deep, or a
-  far-expanded document of very short lines on a re-render — is shown without fold controls
-  (`MAX_FOLD_WEIGHT` in `json.rs`). Everything else about it is as ever (#9).
+all lifted or retired on 2026-09-25 (`closed-items.md`). A limit the owner rules to keep moves
+to `closed-items.md`, under *Accepted limits*. None is waiting for a ruling: every limit was
+ruled on 2026-09-25.

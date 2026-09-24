@@ -159,7 +159,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/drive-app/scr
   `Input.dispatchMouseEvent` accepts coordinates outside the viewport, and
   pointer capture on `#bar` keeps delivering them. Map the target window's
   screen position into the source's client CSS px with `invoke("window_origin")`
-  on both. The windows mustn't overlap, because Rust uses `WindowFromPoint`.
+  on both. The windows mustn't overlap, because Rust uses `WindowFromPoint`,
+  and for the same reason nothing else may sit above the target: call
+  `appWindow.setFocus()` in both windows first, or VS Code lying over it takes
+  the drop and the drag quietly cancels. With a single tab the strip is hidden
+  and the drag handle is `els.docName`.
+- **Waiting for the app to exit.** Watch the spawned child's `exitCode`, not
+  `tasklist | find`: that reported the process gone while it was still running,
+  so a probe restored `session.json` before the app wrote over it.
 - **Closing a window from JS** needs `core:window:allow-close` in
   `capabilities/default.json`. `core:default` doesn't include it, and callers
   that catch and log fail silently.

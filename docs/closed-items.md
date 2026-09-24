@@ -223,6 +223,48 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   save on `ThreadId(1)` ("main"), never two at a time. `write_json`'s comment, which said two
   windows could be inside it at once, now gives the real reason for its unique temp name — an
   update snapshot writing from the install task beside the main thread's saves.*
+- [x] **A link with a leading slash is resolved against the document's folder** (an accepted
+  limit from the 2026-09-20 review, #8).
+  *Lifted 2026-09-25 (320dcaa): `/docs/guide.md` and `/assets/logo.png` are taken from the root
+  of the git repository the document sits in, as GitHub does — the nearest folder above holding
+  `.git`, a worktree's `.git` file included, but never the home folder or a drive root. The
+  asset scope grows to that root so such a picture loads. Outside a repository nothing changed.
+  Driven on the debug build: a page two folders down in a scratch repository opened
+  `/docs/guide.md` in place and showed `/assets/pic.png` (`naturalWidth` 128); the same page in
+  a folder with no repository kept `repo: null` and resolved under its own folder.*
+- [x] **Closing a window inside the 500 ms report wait loses the last of it** (an accepted limit
+  from session restore, 1.6.3).
+  *Lifted 2026-09-25 (21384f3) for a window closed by its X button, the macOS menu, or a tab
+  dragged out of it: the page holds the close until its last report is sent, and Rust destroys
+  the window anyway after 2 s (`CLOSE_WAIT`) if the page never answers. Measured on the debug
+  build, scrolling to 3000 and posting `WM_CLOSE` to the window 50 ms later: `session.json`
+  said `scrollY` 0 without the listener and 3000 with it, closing in about 110 ms. A page made to
+  spin for 8 s still closed after 2073 ms. Dragging a window's only tab into another window
+  still closed the empty window. A Cmd+Q, a kill or a shutdown still lose the wait; that
+  remainder stays under Accepted limits.*
+- [x] **#18, the superseded case: an `openFolder` overtaken by a newer one keeps its
+  unverified pick** (an accepted limit from the 2026-09-20 review; the closed-mid-listing case
+  was fixed in 74f2192).
+  *Lifted 2026-09-25 (dd05778), at the owner's call. Two ways in: a tab switch overtakes a pick
+  whose listing then fails, and the tab keeps the dead folder; or a second pick overtakes the
+  first and fails, and falls back to the first — never verified — instead of the folder that
+  worked. `listTree` now says whether its own listing failed even when a newer one has the
+  tree, so an overtaken call puts its tab back, and each tab's folder from before the calls
+  still out (`folderBefore`) is what a failed pick falls back to. Driven on the debug build with
+  an unreachable share (fails after 21 s): both cases left the tab on the dead share before
+  the fix and on the repo folder after; closing mid-listing still reverts with the filter
+  blank, and a plain pick still lands canonical.*
+- [x] **#23: a file-association open in the instant a window is closing is dropped** (an
+  accepted limit from the 2026-09-20 review).
+  *Lifted 2026-09-25 (d08e9d6), at the owner's call. The review's fix — drop the label from
+  `focus_order` at `CloseRequested` — was turned down because `session::save` orders windows by
+  it; `AppState.closing` holds the label instead, from `CloseRequested` to `Destroyed`, and
+  `last_focused` skips it. The gap had not grown with 21384f3 (close request to destroyed:
+  13.2 ms before, 12.0 ms after), but a page too busy to answer now holds it for `CLOSE_WAIT`,
+  which made it reproducible: one window, its page spinning, `WM_CLOSE`, then a second launch
+  naming a file 300 ms later. Before the fix the file went to the dying window and the app
+  exited with it; after, it opened in a new window and the app stayed up. A plain second
+  launch still lands as a tab in the open window.*
 
 ## Deferred from the 2026-09-20 review
 
@@ -355,3 +397,51 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   `not-configured`, and there's no CodeQL workflow), so there are no alerts to miss. Secret
   scanning and push protection are on. Dependabot alerts cover `Cargo.lock`, so `cargo audit`
   would only repeat them.*
+
+## Accepted limits
+
+Limits the owner has ruled to keep, moved here once ruled on. Still true of the app; listed so
+nobody rediscovers them.
+
+- [x] **`session.json` is a record of a moment, not a log** (session restore, 1.6.3). Close one
+  window and read on in another, and the closed one is gone from the record. Closing every
+  window comes back whole.
+  *Kept 2026-09-25: keeping closed windows in the record would change what closing means —
+  the next launch would bring back windows the reader had closed on purpose.*
+- [x] **#24: a failed folder watch drops the existing watcher** (2026-09-20 review). The next
+  expand, collapse or tab switch asks again.
+  *Kept 2026-09-25: `watch::watch` gives nothing back only when there is nothing to watch —
+  where dropping the old watcher is right — or when every folder asked for failed. Then the
+  old watcher covers either those same folders, as dead as the new one, or a folder no longer
+  on show. Telling the two apart in `watch.rs` and in `set_watch`, which the file watcher
+  shares, would buy nothing.*
+- [x] **#25: a folder whose name is not valid UTF-8 comes back mangled** (2026-09-20 review)
+  and then fails as "Not a folder". Linux only, and only through the picker: the tree hides
+  such entries (`is_visible_entry`).
+  *Kept 2026-09-25: the picker hands the name to the page as a string, so the bytes are gone
+  before any of this app's code sees them. A fix means its own picker command and an encoded
+  path type through all eleven commands that take a path — for an error row that loses
+  nothing, on a platform nothing here can test.*
+- [x] **A picture named by a full path outside any folder a tab has been opened from, or the
+  repository it sits in, does not show** (#8, 2026-09-20 review): the asset protocol serves
+  only those folders. A link to it works.
+  *Kept 2026-09-25: since 320dcaa a leading slash is taken from the repository or the
+  document's folder, so the only full path left is a Windows drive path — the limit is
+  Windows-only. A page-side "allow this file" command would let the page widen its own scope
+  and defeat it; the sound fix, Rust allowing each drive-path picture it renders, is ~25 lines
+  and a change to what `render.rs` hands back, for a form documents rarely use.*
+- [x] **A JSON render whose folding would stall the window is shown without fold controls**
+  (#9, 2026-09-20 review) — nesting thousands deep, or a far-expanded document of very short
+  lines on a re-render (`MAX_FOLD_WEIGHT` in `json.rs`). Everything else about it is as ever.
+  *Kept 2026-09-25: it is the guard that ended #9's hang. A full fix is virtualized rendering.
+  The middle ground — a first pass that finds the deepest level whose folds stay under the
+  weight, and folds only down to it — is ~40 lines in `json.rs` and a fresh WebView2
+  measurement, for documents this heavy are rare. Reopen if one turns up that needs folds.*
+- [x] **A kill or a Windows shutdown loses the last 500 ms of changes** (session restore,
+  1.6.3). A report waits 500 ms for things to settle — scrolling, moving or resizing a window,
+  a tab change hard on another — and what is inside that wait lives only in the page.
+  *Kept 2026-09-25. Closing a window waits for the report since 21384f3, but a kill sends
+  nothing, and a shutdown or logoff reaches `tao` as `WM_ENDSESSION`, which it turns straight
+  into `RunEvent::Exit` (`WM_QUERYENDSESSION` is left unhandled there on purpose), with the
+  event loop gone before any page could be asked. macOS Cmd+Q is fixable and stays open under
+  *Needs a Mac* in `open-items.md`.*
