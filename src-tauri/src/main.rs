@@ -110,6 +110,10 @@ struct AppState {
     /// check came back with nothing. One launch, one request — except the
     /// Settings button, which asks again every time it is pressed.
     update: Mutex<Option<Option<update::UpdateInfo>>>,
+    /// Held for the length of one update check, so windows that boot together
+    /// wait for the first one's answer instead of each asking — see
+    /// `update::check_for_update`. Async, because it is held across the request.
+    update_check: tauri::async_runtime::Mutex<()>,
     next_window: AtomicUsize,
 }
 

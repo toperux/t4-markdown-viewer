@@ -123,10 +123,12 @@ pub fn save(cfg: &Config) {
 /// file — and half a `config.json` parses as nothing, which `load` answers by
 /// silently handing back the defaults the user had changed.
 ///
-/// The temp name carries the process id and a counter, because `set_theme` and
-/// `set_open_mode` are ordinary commands: two windows can be inside this
-/// function at once, and a shared temp name lets one truncate the other's bytes
-/// before either rename lands.
+/// The temp name carries the process id and a counter, because two writes can
+/// be in here at once: an update snapshot writes `session.json` from the
+/// install task while ordinary saves run on the main thread, and a shared temp
+/// name would let one truncate the other's bytes before either rename lands.
+/// The config setters cannot collide this way — they are synchronous commands,
+/// and Tauri runs those on the main thread one at a time.
 pub fn write_json(path: &Path, value: &impl Serialize) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);

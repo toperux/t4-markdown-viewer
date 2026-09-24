@@ -50,16 +50,21 @@ fn release_url() -> String {
 ///
 /// Answered from cache after the first check, so opening three windows costs
 /// one request rather than three — "nothing found" is cached as well, since
-/// that is the answer almost every launch gets. `force` is the Settings button:
-/// it asks even when the automatic check is switched off, and never takes the
-/// cached answer, because a user pressing "Check now" is asking about this
-/// moment rather than about the one the app started in.
+/// that is the answer almost every launch gets. Windows that boot together,
+/// as a restored session's do, all arrive before any answer is cached: the
+/// first one checks while holding `update_check`, and the rest wait for it and
+/// then find its answer in the cache. `force` is the Settings button: it asks
+/// even when the automatic check is switched off, and never takes the cached
+/// answer, because a user pressing "Check now" is asking about this moment
+/// rather than about the one the app started in.
 #[tauri::command]
 pub async fn check_for_update(app: AppHandle, force: bool) -> Result<Option<UpdateInfo>, String> {
+    let state = app.state::<AppState>();
+    let _checking = state.update_check.lock().await;
     if !force {
         // Scoped so the guard is gone before the first await: holding a std
         // Mutex across one is how an async deadlock gets written by accident.
-        let cached = app.state::<AppState>().update.lock().unwrap().clone();
+        let cached = state.update.lock().unwrap().clone();
         if let Some(cached) = cached {
             return Ok(cached);
         }

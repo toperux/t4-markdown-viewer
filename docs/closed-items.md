@@ -207,6 +207,22 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   disk since it was read; try again". What is left is the instant between that check and the
   write. The new test was red first on the old logic — it wrote into a shortened file — and
   also covers a file rewritten so the offset holds other text.*
+- [x] **`check_for_update` sends one request per window when several boot together; the
+  negative cache only helps windows that open later** (an accepted limit from the 2026-09-12
+  review).
+  *Lifted 2026-09-25, at the owner's call — more common since 1.6.3, when every restored
+  multi-window session started booting its windows together. The check now holds an async
+  lock (`AppState.update_check`): the first window asks, the rest wait and read its cached
+  answer. Counted with a temporary log on the debug build, booting a 3-window session: 3
+  requests before, 1 after.*
+- [x] **Two concurrent config saves are each atomic, but the pair is last-writer-wins** (an
+  accepted limit from the 2026-09-12 review).
+  *Retired 2026-09-25: it cannot happen inside the app. Every config writer is a synchronous
+  command, and Tauri runs those on the main thread one at a time. Measured with a temporary
+  probe holding each save open 300 ms, while two windows fired all five setters at once: every
+  save on `ThreadId(1)` ("main"), never two at a time. `write_json`'s comment, which said two
+  windows could be inside it at once, now gives the real reason for its unique temp name — an
+  update snapshot writing from the install task beside the main thread's saves.*
 
 ## Deferred from the 2026-09-20 review
 

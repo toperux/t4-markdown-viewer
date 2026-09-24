@@ -56,14 +56,10 @@ section, so this file lists only what is still to do. Finished plans and reviews
 
 ## Accepted limits
 
-Parked by ruling in the 2026-09-12 review (`archive/reviews/code-review-2026-09-12.md`,
-*Implementation*). Not bugs to fix; here so nobody rediscovers them.
+Not bugs to fix; here so nobody rediscovers them. The three the 2026-09-12 review parked were
+all lifted or retired on 2026-09-25 (`closed-items.md`).
 
-- `check_for_update` sends one request per window when several boot together; the negative
-  cache only helps windows that open later.
-- Two concurrent config saves are each atomic, but the pair is last-writer-wins.
-
-Session restore (1.6.3) adds two, each ruled on while planning it:
+From session restore (1.6.3), each ruled on while planning it:
 
 - A report waits 500 ms for things to settle — scrolling, moving or resizing a window, or a
   tab change hard on the heels of another — so quitting inside that wait loses the last of
