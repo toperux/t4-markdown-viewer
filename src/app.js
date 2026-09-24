@@ -121,10 +121,10 @@ const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
  * A link that names a file by drive and path: `C:\notes\spec.md`, `D:/a/b.md`.
  *
  * Not a leading slash. `/docs/guide.md` is how a repository's README names a
- * file from the repository's root, and resolving it against the document's
- * folder — as every other link is — is what makes that work for a document
- * that sits at the root. Reading it as the filesystem's root instead would
- * break those links to fix ones almost nobody writes.
+ * file from the repository's root, so `resolvePath` takes it from there — the
+ * `repo` Rust found for the document — or, outside a repository, from the
+ * document's folder. Reading it as the filesystem's root instead would break
+ * those links to fix ones almost nobody writes.
  *
  * Not a network path either — `\\host\share\x.png`, `//host/x.png` — and on
  * purpose: a picture is fetched without a click, and a document able to name a
@@ -152,18 +152,22 @@ function unescapeHref(href) {
   }
 }
 
-/** Resolve `rel` against `dir` — or on its own, if it is a full path — collapsing `.` and `..`. Forward-slash output. */
-function resolvePath(dir, rel) {
+/**
+ * Resolve `rel` against `dir` — or on its own, if it is a full path — collapsing `.` and `..`. Forward-slash output.
+ * A leading slash is taken from `repo`, the repository the document sits in, when it has one.
+ */
+function resolvePath(dir, rel, repo) {
   const decoded = unescapeHref(rel);
-  // A full path stands on its own; only a relative one hangs off `dir`.
+  // A full path stands on its own; only a relative one hangs off a folder.
   const absolute = ABSOLUTE_PATH.test(decoded);
-  const joined = (absolute ? decoded : `${dir}/${decoded}`).replace(/\\/g, "/");
+  const base = repo && /^\/(?!\/)/.test(decoded) ? repo : dir;
+  const joined = (absolute ? decoded : `${base}/${decoded}`).replace(/\\/g, "/");
   // A network path is `//server/share/...`: both leading slashes belong to the
   // root, and the server and share are part of it too — `..` climbing past them
-  // would leave a path no longer pointing at any machine. Only `dir` can say
+  // would leave a path no longer pointing at any machine. Only the base can say
   // so; the joined string starts `//` for the POSIX root as well, since the
   // separator lands right behind its own leading slash.
-  const unc = !absolute && dir.replace(/\\/g, "/").startsWith("//");
+  const unc = !absolute && base.replace(/\\/g, "/").startsWith("//");
   const floor = unc ? 4 : 1; // ["", "", server, share], or one leading segment
   const parts = joined.split("/");
   const out = [];
@@ -327,11 +331,11 @@ function bumpAsset(file) {
 }
 
 /** Point relative media at the asset protocol so it loads from disk. */
-function resolveMedia(root, dir) {
+function resolveMedia(root, dir, repo) {
   root.querySelectorAll("img[src], video[src], audio[src], source[src]").forEach((el) => {
     const raw = el.getAttribute("src");
     if (!isLocal(raw)) return;
-    const file = resolvePath(dir, raw);
+    const file = resolvePath(dir, raw, repo);
     // A picture nothing was watching may have changed unseen, so the webview's
     // cached copy cannot be trusted; a bump refetches it. A watched one is left
     // alone — that is what keeps a refresh's scroll restore honest, since the
@@ -444,7 +448,7 @@ function renderDocument(doc, scrollY, hash) {
   if (doc.editable)
     for (const box of els.content.querySelectorAll('li > input[type="checkbox"]'))
       box.disabled = false;
-  resolveMedia(els.content, doc.dir);
+  resolveMedia(els.content, doc.dir, doc.repo);
   wrapTables(els.content);
   highlight(els.content);
   addCopyButtons(els.content);
@@ -677,6 +681,7 @@ async function showActive(scrollY) {
       entry.path = doc.path;
       tab.path = doc.path;
       tab.dir = doc.dir;
+      tab.repo = doc.repo;
       tab.label = baseName(doc.path);
       tab.heading = doc.title ?? "";
       renderDocument(doc, scrollY ?? entry.scrollY ?? 0, entry.hash);
@@ -2389,7 +2394,7 @@ function onLinkClick(event) {
 
   if (isLocal(href)) {
     const [pathPart, ...rest] = href.split("#");
-    const target = resolvePath(activeTab()?.dir ?? "", pathPart);
+    const target = resolvePath(activeTab()?.dir ?? "", pathPart, activeTab()?.repo);
     if (DOC_LINK.test(pathPart)) {
       // `notes.md#fc-29` is one link, not two: the file to load and the place
       // in it to land. Dropping the fragment would open every cross-file

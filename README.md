@@ -259,6 +259,10 @@ document you opened in another. Each entry remembers its scroll position, so
 going Back returns you to the spot you left rather than the top of the page.
 Navigating after going back discards the forward branch.
 
+A link or picture starting with `/` — `/docs/guide.md`, `/assets/logo.png` — is
+taken from the root of the git repository the document sits in, as on GitHub.
+Outside a repository it is taken from the document's own folder.
+
 In-page `#anchor` links get a history entry too, so Back returns to the line you
 clicked the link from rather than skipping the whole document. Stepping between
 two anchors in one file is a scroll, not a reload — no flash, no re-highlight. A

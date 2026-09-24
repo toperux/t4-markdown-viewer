@@ -151,6 +151,9 @@ struct Settings {
 struct Document {
     path: String,
     dir: String,
+    /// The repository the document sits in, for links and pictures written
+    /// from its root (`/docs/guide.md`) — see `repo_root`. `null` outside one.
+    repo: Option<String>,
     title: String,
     html: String,
     /// Whether a clicked box can be written back: true when the bytes are valid
@@ -503,6 +506,24 @@ fn check_size(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// The repository a document sits in: the nearest folder at or above `dir`
+/// holding a `.git` — a folder, or the file a worktree or submodule has. A link
+/// or picture written `/docs/guide.md` is named from there, as GitHub renders
+/// it. `None` outside a repository, and never `home` or a filesystem root: a
+/// dotfiles repository in the home folder would otherwise hand every document
+/// under it the whole home folder, asset scope included.
+fn repo_root(dir: &Path, home: Option<&Path>) -> Option<PathBuf> {
+    for ancestor in dir.ancestors() {
+        if Some(ancestor) == home || ancestor.parent().is_none() {
+            return None;
+        }
+        if ancestor.join(".git").exists() {
+            return Some(ancestor.to_path_buf());
+        }
+    }
+    None
+}
+
 /// `extent` is how far a JSON document had been loaded when it was last on
 /// screen — the frontend's count, handed back so a re-render (a tab switched
 /// back to, a live reload, F5) does not drop every chunk a `more` button had
@@ -542,11 +563,19 @@ fn load_file(app: AppHandle, path: String, extent: Option<usize>) -> Result<Docu
 
     // Let the webview load images and other assets sitting next to the document.
     // Recursive on purpose: documents reference `images/foo.png`, and the scope
-    // is the only thing that lets those load. The cost is that the whole subtree
-    // stays readable to the webview for the rest of the session; comrak's
-    // `unsafe_` being off and the CSP are what keep that from mattering, since
-    // no document can talk the webview into fetching anything from it.
+    // is the only thing that lets those load. A document in a repository gets
+    // the repository too, since a picture written `/assets/logo.png` is named
+    // from its root. The cost is that the whole subtree stays readable to the
+    // webview for the rest of the session; comrak's `unsafe_` being off and the
+    // CSP are what keep that from mattering, since no document can talk the
+    // webview into fetching anything from it.
     app.asset_protocol_scope().allow_directory(&dir, true).ok();
+    // Canonical like `dir`, so the two compare.
+    let home = dirs::home_dir().and_then(|h| std::fs::canonicalize(h).ok());
+    let repo = repo_root(&dir, home.as_deref());
+    if let Some(repo) = &repo {
+        app.asset_protocol_scope().allow_directory(repo, true).ok();
+    }
 
     let file_name = path
         .file_name()
@@ -559,6 +588,7 @@ fn load_file(app: AppHandle, path: String, extent: Option<usize>) -> Result<Docu
     Ok(Document {
         path: strip_unc(&path),
         dir: strip_unc(&dir),
+        repo: repo.as_deref().map(strip_unc),
         title,
         html,
         editable,
@@ -1825,5 +1855,32 @@ mod tests {
             touch_focus(&state, "w1");
         }
         assert_eq!(*state.focus_order.lock().unwrap(), vec!["w1"]);
+    }
+
+    /// A leading slash is named from the repository: the nearest folder at or
+    /// above the document holding `.git`, as a folder or as a worktree's file —
+    /// and never the home folder, where a dotfiles repository would otherwise
+    /// claim every document under it.
+    #[test]
+    fn repo_root_is_the_nearest_folder_with_git() {
+        let base = std::env::temp_dir().join(format!("t4-repo-root-{}", std::process::id()));
+        let docs = base.join("repo").join("docs").join("sub");
+        std::fs::create_dir_all(&docs).unwrap();
+        std::fs::create_dir_all(base.join("repo").join(".git")).unwrap();
+        std::fs::create_dir_all(base.join("plain").join("docs")).unwrap();
+        std::fs::create_dir_all(base.join("wt").join("docs")).unwrap();
+        std::fs::write(base.join("wt").join(".git"), "gitdir: elsewhere\n").unwrap();
+
+        // `base` stands in for the home folder, so nothing above it is searched.
+        let found = repo_root(&docs, Some(&base));
+        let plain = repo_root(&base.join("plain").join("docs"), Some(&base));
+        let worktree = repo_root(&base.join("wt").join("docs"), Some(&base));
+        let at_home = repo_root(&docs, Some(&base.join("repo")));
+        std::fs::remove_dir_all(&base).unwrap();
+
+        assert_eq!(found, Some(base.join("repo")));
+        assert_eq!(plain, None);
+        assert_eq!(worktree, Some(base.join("wt")));
+        assert_eq!(at_home, None);
     }
 }
