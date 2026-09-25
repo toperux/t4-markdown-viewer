@@ -39,6 +39,7 @@
   },
   "bundle": {
     "active": true,
+    "category": "Utility",
     "targets": ["nsis", "app", "dmg", "deb", "rpm", "appimage"],
     "createUpdaterArtifacts": true,
     "icon": [

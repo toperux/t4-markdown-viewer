@@ -88,4 +88,14 @@
   DeleteRegKey SHELL_CONTEXT "Software\T4MarkdownViewer"
 
   System::Call 'shell32::SHChangeNotify(i ${T4_SHCNE_ASSOCCHANGED}, i 0, i 0, i 0)'
+
+  ; Tauri's "Delete application data" removes $APPDATA\<identifier> and
+  ; $LOCALAPPDATA\<identifier> only; the app keeps its own files - settings,
+  ; the session, user themes - in config.rs::dir(). Same guard as Tauri's:
+  ; ticked, and not an update.
+  ${If} $DeleteAppDataCheckboxState = 1
+  ${AndIf} $UpdateMode <> 1
+    SetShellVarContext current
+    RmDir /r "$APPDATA\t4-markdown-viewer"
+  ${EndIf}
 !macroend

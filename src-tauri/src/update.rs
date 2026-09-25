@@ -11,6 +11,7 @@ use crate::AppState;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
 
@@ -73,12 +74,7 @@ pub async fn check_for_update(app: AppHandle, force: bool) -> Result<Option<Upda
         }
     }
 
-    let found = app
-        .updater()
-        .map_err(|e| e.to_string())?
-        .check()
-        .await
-        .map_err(|e| e.to_string())?;
+    let found = updater(&app)?.check().await.map_err(message)?;
 
     let info = found.map(|update| UpdateInfo {
         version: update.version.clone(),
@@ -120,13 +116,38 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
 
 static INSTALLING: AtomicBool = AtomicBool::new(false);
 
+/// The updater, with a limit on how long any one wait may take. Per read, not
+/// in total: a stalled check or download fails instead of holding the update
+/// lock — and every later check — for good, while a slow link that keeps
+/// delivering bytes still finishes.
+fn updater(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, String> {
+    app.updater_builder()
+        .configure_client(|c| {
+            c.connect_timeout(Duration::from_secs(15))
+                .read_timeout(Duration::from_secs(30))
+        })
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+/// What the page shows for a failed check or download. A timeout is said as
+/// one: reqwest words a stalled check as "error sending request for url" and a
+/// stalled download as "error decoding response body", and neither says the
+/// app waited and gave up. Every other failure keeps its own text.
+fn message(e: tauri_plugin_updater::Error) -> String {
+    match &e {
+        tauri_plugin_updater::Error::Reqwest(r) if r.is_timeout() => {
+            "The update server did not respond in time.".to_string()
+        }
+        _ => e.to_string(),
+    }
+}
+
 async fn install(app: AppHandle) -> Result<(), String> {
-    let update = app
-        .updater()
-        .map_err(|e| e.to_string())?
+    let update = updater(&app)?
         .check()
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(message)?
         .ok_or_else(|| "There is no update to install.".to_string())?;
 
     // Broadcast rather than window-scoped: one install is happening to the
@@ -150,7 +171,7 @@ async fn install(app: AppHandle) -> Result<(), String> {
             },
         )
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(message)?;
 
     // Where every reader is, taken after the download rather than before it:
     // a download is long enough to keep reading through. This is the last

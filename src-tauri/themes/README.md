@@ -77,16 +77,17 @@ background so it reads as the front of the document, and a theme that leaves
 `body` alone, or matches it to `--ui-bg`, makes the active tab disappear into
 the strip.
 
-Three more are optional. base.css supplies defaults — `--ui-on-accent` is
+Four more are optional. base.css supplies defaults — `--ui-on-accent` is
 white, `--ui-accent-text` follows `--ui-accent`, `--ui-fg-muted` is `--ui-fg`
-at 75% — so set one only where its default falls short on contrast in your
-theme:
+at 75%, `--ui-error` is red mixed 60/40 with `--ui-fg` — so set one only where
+its default falls short on contrast in your theme:
 
 ```css
 :root {
   --ui-on-accent: #fff; /* text on accent-filled buttons */
   --ui-accent-text: var(--ui-accent); /* accent-colored text: selected file, Update */
   --ui-fg-muted: color-mix(in srgb, var(--ui-fg) 75%, transparent); /* hints, file name */
+  --ui-error: color-mix(in srgb, #d13438 60%, var(--ui-fg)); /* error text: a failed update */
 }
 ```
 

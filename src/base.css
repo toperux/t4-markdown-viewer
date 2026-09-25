@@ -21,6 +21,7 @@
   --ui-on-accent: #fff;
   --ui-accent-text: var(--ui-accent);
   --ui-fg-muted: color-mix(in srgb, var(--ui-fg) 75%, transparent);
+  --ui-error: color-mix(in srgb, #d13438 60%, var(--ui-fg));
   --content-pad: 2.5rem;
 
   /* Themes override this. Must be on :root — see the note in _template.css. */
@@ -783,7 +784,7 @@ select option {
 }
 
 #update-error {
-  color: #d13438;
+  color: var(--ui-error);
   opacity: 1;
 }
 

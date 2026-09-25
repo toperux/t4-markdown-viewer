@@ -35,6 +35,7 @@
   /* --ui-on-accent: #fff; */ /* text on accent-filled buttons */
   /* --ui-accent-text: #0078d4; */ /* accent-colored text: selected file, Update */
   /* --ui-fg-muted: #555555; */ /* secondary text: hints, file name */
+  /* --ui-error: #8a2c2e; */ /* error text: a failed update */
 
   /*
    * Which palette the browser uses for the scrollbars and checkboxes it draws

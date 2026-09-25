@@ -3151,12 +3151,23 @@ async function main() {
   // window's dialog should count along with it.
   await listen("update-progress", (e) => {
     setInstalling(true); // another window's install is this window's too
+    // A dialog already open when another window's install began shows no
+    // progress yet, and may still show an earlier failure's reason.
+    els.updateProgress.hidden = false;
+    els.updateError.hidden = true;
     showUpdateProgress(e.payload);
   });
-  // The window that asked hears of a failure from its own `invoke`; the rest
-  // hear it here, and get their Update button back.
+  // Every window hears of a failure here, and gets its Update button back.
   await listen("update-failed", () => {
     setInstalling(false);
+    els.updateProgress.hidden = true;
+    els.updateProgress.textContent = "";
+    // The window that asked has its own reason from `invoke`, which may have
+    // landed first; every other window says only that it failed.
+    if (els.updateError.hidden) {
+      els.updateError.textContent = "The update failed.";
+      els.updateError.hidden = false;
+    }
   });
   // Rust asks once the update is downloaded and waits for the answer. The
   // reader's place is only noted when they leave a document, so the restart
