@@ -1106,7 +1106,7 @@ async function renderTree(ul, dir, keep = new Set()) {
     for (const path of sidebarTab.expanded) rootKeep.add(path);
   }
   try {
-    await listTree(ul, dir, rootKeep);
+    return await listTree(ul, dir, rootKeep);
   } finally {
     // One from before the folder changed was written off when it did.
     if (epoch === rootEpoch && !--folderLoads) rootKeep = new Set();
@@ -1124,7 +1124,11 @@ async function resortTree() {
   syncFolderWatch();
 }
 
-/** The listing itself. `renderTree` is the way in: it keeps count of the root's. */
+/**
+ * The listing itself. `renderTree` is the way in: it keeps count of the root's.
+ * Resolves `false` when this listing failed, even if a newer one has the tree:
+ * a caller overtaken meanwhile still has to know how its own pick went.
+ */
 async function listTree(ul, dir, keep) {
   const token = (treeTokens.get(ul) ?? 0) + 1;
   treeTokens.set(ul, token);
@@ -1135,14 +1139,14 @@ async function listTree(ul, dir, keep) {
   try {
     listing = await invoke("list_dir", { path: dir, sort });
   } catch (err) {
-    if (token !== treeTokens.get(ul)) return;
+    if (token !== treeTokens.get(ul)) return false;
     treeListings.delete(ul);
     const li = document.createElement("li");
     li.className = "tree-row error";
     li.textContent = String(err);
     ul.replaceChildren(li);
     if (ul === els.tree) els.sidebar.dataset.tree = "error";
-    return;
+    return false;
   }
   if (token !== treeTokens.get(ul)) return; // a newer listing already won
   ul.dataset.dir = listing.dir;
@@ -1298,6 +1302,13 @@ function syncFolderWatch() {
 }
 
 /**
+ * Each tab's folder as it stood before the `openFolder` calls still out for it,
+ * and how many there are. A pick that fails goes back to this, not to what an
+ * overtaken call wrote onto the tab before its own listing had answered.
+ */
+const folderBefore = new Map();
+
+/**
  * Show `path` in the sidebar. `keep` is what was expanded last time this folder
  * was on show and `filter` what the filter box held, if anything. `record` says
  * the reader asked for this folder, so it is worth keeping as the one a picker
@@ -1312,9 +1323,18 @@ async function openFolder(
   state.folder = path;
   state.folderPicked = picked;
   const owner = activeTab(); // not `sidebarTab`, which lags a loading switch
-  const was = owner?.folder;
-  const wasPicked = owner?.picked;
-  const wasFilter = owner?.filter;
+  const writes = !!owner && remember;
+  const before = (writes && folderBefore.get(owner)) || {
+    folder: owner?.folder,
+    picked: owner?.picked,
+    filter: owner?.filter,
+    out: 0,
+  };
+  if (writes) {
+    before.out++;
+    folderBefore.set(owner, before);
+  }
+  const { folder: was, picked: wasPicked, filter: wasFilter } = before;
   els.sidebar.hidden = false;
   els.treeFilter.value = filter;
   // Onto the tab before the listing, not after it: a switch away while it is
@@ -1333,7 +1353,21 @@ async function openFolder(
     rootEpoch++;
     folderLoads = 0;
   }
-  await renderTree(els.tree, path, new Set(keep));
+  let listed;
+  try {
+    listed = await renderTree(els.tree, path, new Set(keep));
+  } finally {
+    if (writes && !--before.out) folderBefore.delete(owner);
+  }
+  // Overtaken by a newer call, which has the sidebar now but not necessarily
+  // this tab: a switch away takes the sidebar to another. A pick whose own
+  // listing failed was never really picked, so the tab goes back — unless
+  // something newer has written it since. Closed is handled below.
+  const overtaken = state.folder !== null && state.folder !== path;
+  if (writes && overtaken && listed === false && owner.folder === path) {
+    Object.assign(owner, { folder: was, picked: wasPicked, filter: wasFilter });
+    reportSoon();
+  }
   if (state.folder === null) {
     // Closed while the listing was out. A folder that then failed to list was
     // never really picked, so the tab goes back to the one it had — unless
