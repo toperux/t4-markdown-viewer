@@ -30,7 +30,16 @@ v1.3.0 shipping an installer named 1.2.0, which the updater then refuses.
 ## Steps
 
 1. **Land the work first.** Feature commits are separate from the release
-   commit. Check `git status` is otherwise clean.
+   commit. Check `git status` is otherwise clean. Two checks nothing else
+   makes:
+   - **highlight.js.** `src/vendor/highlight.min.js` is vendored, so
+     Dependabot never offers a new release. Check for one; a bump swaps the
+     file and its version line in `src-tauri/THIRD-PARTY-LICENSES.md`.
+   - **Actions on the publish path.** If an action in the `publish` job
+     (`softprops/action-gh-release`, `download-artifact`) was bumped since the
+     last tag (`git diff <last tag> -- .github/workflows/release.yml`), run a
+     dry run (below) first. Dependabot's pull requests run only `checks.yml`,
+     so the dry run is the only place those run before a tag.
 2. **Verify** — `cargo test --manifest-path src-tauri/Cargo.toml`. CI runs the
    same suite on all three platforms, so a failure here is a failure there. The
    release build does not run the tests itself; the Release workflow runs the
@@ -62,9 +71,15 @@ v1.3.0 shipping an installer named 1.2.0, which the updater then refuses.
 
 ## Checking the packaging without burning a version
 
-`workflow_dispatch` on the Release workflow builds every artifact and skips the
-publish job (`if: startsWith(github.ref, 'refs/tags/')`). Use it when the doubt
-is about packaging rather than code.
+`workflow_dispatch` on the Release workflow builds every artifact, then
+rehearses the publish job: it writes `latest.json` and the notes, uploads
+everything to a **draft** release tagged `dry-run-<run id>` (named "Dry run —
+…"), checks the draft's assets match `dist/`, and deletes it. A draft never
+creates its tag, so nothing public changes. The `checks` job is skipped. Use
+it when the doubt is about packaging or the publish path rather than code.
+
+A `dry-run-*` draft left on the Releases page means a run never got to clean
+up. It is safe to delete by hand (`gh release delete dry-run-<id> --yes`).
 
 ## Release notes
 
@@ -87,31 +102,44 @@ holding all three platforms' signatures at once. It cannot carry the real notes
 
 ## Signing
 
-`TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` are repo
-secrets. Without them the build still succeeds but emits no `.sig` files, and
-staging fails loudly rather than shipping a release no installed copy can
-accept. If a build fails at staging, suspect the secrets first.
+Every signing secret lives in the `signing` **environment**, not in repo
+secrets. Only main and `v*` tags may use it, and every leg does, so a dispatch
+from any other branch fails every leg. The build is split so the secrets never
+meet the compile: *Build the app* (`cargo tauri build --no-bundle`) runs every
+build script and proc-macro with no secrets in env; *Bundle and sign* (`cargo
+tauri bundle`) compiles nothing and holds the keys.
+
+`TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` sign the
+updater `.sig` files. Without them *Bundle and sign* errors rather than
+shipping a release no installed copy can accept. If it fails there, suspect
+the secrets first.
 
 `APPLE_CERTIFICATE` and `APPLE_CERTIFICATE_PASSWORD` hold the self-signed macOS
 certificate shared with t4-git-ui and kept outside both repos. The workflow
-imports it itself, because Tauri's own import only accepts Apple-named
-certificates. A missing or wrong one fails *Import the macOS signing
-certificate*. Set them before pushing a tag. Before the first tag after any
-change to the signing steps, run a `workflow_dispatch` packaging build and
+imports it itself, after the compile, because Tauri's own import only accepts
+Apple-named certificates. A missing or wrong one fails *Import the macOS
+signing certificate*. Set them before pushing a tag. Before the first tag after
+any change to the signing steps, run a `workflow_dispatch` packaging build and
 check the macOS leg passes: once a tag is public the only fix is re-running
 the job, never retagging, and re-running cannot fix a workflow bug. Rotating
 the certificate means updating the fingerprint in *Check the macOS signature*,
 which checks the bundle, the `.app.tar.gz` and the `.dmg`.
 
 `CERTUM_EMAIL` and `CERTUM_OTP` sign the Windows exe and installer with the
-Certum Open Source certificate in SimplySign's cloud, through `ssign`. They are
-secrets in the `signing` **environment**, not repo secrets. Only main and `v*`
-tags may use it, and only the Windows leg asks for it. `CERTUM_OTP` is the TOTP
-seed from the SimplySign activation QR, and can sign as the project until it is
-regenerated. A missing or wrong one fails *Build the packages* on Windows; a
+Certum Open Source certificate in SimplySign's cloud, through `ssign`. Only the
+Windows leg's *Bundle and sign* is handed them. `CERTUM_OTP` is the TOTP seed
+from the SimplySign activation QR, and can sign as the project until it is
+regenerated. A missing or wrong one fails *Bundle and sign* on Windows; a
 build signed with anything else fails *Check the Windows signature*. The
 certificate expires **2027-09-22**. Renewing it means updating the thumbprint
 in that check, and a new QR means updating `CERTUM_OTP`.
+
+**After any tauri-cli bump, run a dry run before the next tag.** *Pin the
+AppImage tools* seeds the bundler's tool cache with hashed copies under the
+file names tauri-bundler 2.9.4 uses. A bundler that renames or adds a tool
+downloads it again, and *Bundle and sign* fails on the Linux leg when its log
+shows a download. Update the names, URLs and hashes there, and the version in
+*Install the Tauri CLI*.
 
 ## Gotchas
 

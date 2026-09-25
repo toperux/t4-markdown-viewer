@@ -2,8 +2,8 @@ name: Release
 
 # Tag a commit `v<version>` and push the tag; this builds the packages for all
 # three platforms and publishes them. `workflow_dispatch` builds the same
-# artifacts without releasing, for when you want to check the packaging without
-# burning a version number.
+# artifacts and rehearses the publish with a draft release it then deletes,
+# for when you want to check the packaging without burning a version number.
 on:
   push:
     tags: ['v*']
@@ -71,10 +71,9 @@ jobs:
   # published - including no latest.json, so no installed copy is offered a
   # release that did not pass.
   #
-  # Tags only. All this job protects is `publish`, and `publish` is itself
-  # tag-only, so on a workflow_dispatch packaging run the matrix would be
-  # three legs guarding nothing. Skipping it here also skips `publish`, which
-  # is what the dispatch wanted anyway.
+  # Tags only. All this job protects is a real release, and a workflow_dispatch
+  # run only ever makes a draft it deletes again, so there the matrix would be
+  # three legs guarding nothing. `publish` expects it skipped on a dispatch.
   checks:
     if: startsWith(github.ref, 'refs/tags/')
     uses: ./.github/workflows/checks.yml
@@ -83,10 +82,12 @@ jobs:
     needs: version
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    # The Certum secrets live in the `signing` environment, which only main
-    # and `v*` tags may use. Only the Windows leg asks for it: the other legs
-    # get an empty name, which means no environment and no Certum secrets.
-    environment: ${{ matrix.environment }}
+    # Every signing secret lives in the `signing` environment, which only main
+    # and `v*` tags may use, so a run from any other branch fails every leg
+    # rather than build without its keys. Every leg uses it: the updater key
+    # signs all three. The Certum secrets reach only the Windows leg's bundle
+    # step, and the macOS certificate only its import step.
+    environment: signing
     strategy:
       fail-fast: false
       matrix:
@@ -94,7 +95,6 @@ jobs:
           - os: windows-latest
             bundles: nsis
             bundle_dir: target/release/bundle
-            environment: signing
           - os: macos-latest
             bundles: app,dmg
             # One .dmg for both Apple Silicon and Intel.
@@ -131,14 +131,12 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - uses: cargo-bins/cargo-binstall@b874e25ea559687bec77e281e9b271aa1367b624 # v1.23.0
-
       - name: Install the Tauri CLI
-        # `--no-confirm` only. `-y` is its short form, and binstall rejects
-        # being given the same argument twice. Pinned exactly: this job holds the
-        # signing key, and a range would run whichever tauri-cli release came
-        # out last. Bump it deliberately when upgrading Tauri.
-        run: cargo binstall --no-confirm 'tauri-cli@2.11.4'
+        # Built from crates.io with the CLI's own lockfile, so every crate is
+        # checksum-verified. rust-cache keeps ~/.cargo/bin, so this is a no-op
+        # until the toolchain or this version changes (then ~10 min). Pinned
+        # exactly: this job holds the signing key. Bump deliberately with Tauri.
+        run: cargo install tauri-cli --version 2.11.4 --locked
 
       # Staging picks the first file matching each glob, and the cache restores
       # target/ from an earlier run. A leftover installer from a previous
@@ -147,33 +145,6 @@ jobs:
       - name: Clear stale bundle output
         shell: bash
         run: rm -rf "src-tauri/${{ matrix.bundle_dir }}"
-
-      # Tauri's own APPLE_CERTIFICATE import only resolves certificates named
-      # like Apple's ("Developer ID Application: …"), so with a self-signed one
-      # the build fails. Import it here instead and hand Tauri just the name.
-      # The secrets stay in this macOS-only step: whoever holds them can sign
-      # as both T4 apps, and no other leg needs them.
-      - name: Import the macOS signing certificate
-        if: runner.os == 'macOS'
-        shell: bash
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          set -euo pipefail
-          kc="$RUNNER_TEMP/signing.keychain-db"
-          pass=$(openssl rand -base64 24)
-          base64 --decode <<<"$APPLE_CERTIFICATE" > "$RUNNER_TEMP/cert.p12"
-          security create-keychain -p "$pass" "$kc"
-          security set-keychain-settings -lut 21600 "$kc"
-          security unlock-keychain -p "$pass" "$kc"
-          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$pass" "$kc" >/dev/null
-          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
-          # Self-signed: nothing vouches for it until it is trusted here.
-          security find-certificate -p -c "T4 Apps Self-Signed Code Signing" "$kc" > "$RUNNER_TEMP/cert.pem"
-          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/cert.pem"
-          rm "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/cert.pem"
 
       # Windows code signing with the Certum Open Source certificate, whose key
       # lives in SimplySign's cloud. ssign reaches SimplySign over HTTPS, so
@@ -214,13 +185,84 @@ jobs:
           JSON
           echo "SIGNING_ARGS=--verbose --config $tmp/signing.json" >> "$GITHUB_ENV"
 
-      - name: Build the packages
+      # Compile with no secrets in env: every build.rs and proc-macro runs here.
+      # Defence in depth, not a boundary: a malicious build script could still
+      # leave something behind for the steps that hold the keys.
+      - name: Build the app
         working-directory: src-tauri
-        # The signing key is what the updater checks before it will install
-        # anything. Without these the build still succeeds, but emits no .sig
-        # files and the staging step below fails loudly rather than shipping a
-        # release no installed copy can accept.
+        run: >
+          cargo tauri build --no-bundle
+          ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+          -- --locked
+
+      # The AppImage bundler downloads its tools from moving URLs (master,
+      # `continuous`) and runs them with the updater key in env, but skips any
+      # file already in its cache dir. Seed pinned, hashed copies there — and
+      # the runtime appimagetool would otherwise fetch from `continuous`, which
+      # becomes the head of every AppImage shipped. Names are tauri-bundler
+      # 2.9.4's (tauri-cli 2.11.4); "Bundle and sign" fails if a CLI bump makes
+      # the bundler itself download a tool. A fetch by appimagetool would not
+      # show in that log — the runtime pin is checked by the dry run instead.
+      - name: Pin the AppImage tools
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="${XDG_CACHE_HOME:-$HOME/.cache}/tauri"
+          mkdir -p "$dir"
+          fetch() {
+            curl -fsSL --retry 3 -o "$dir/$1" "$2"
+            echo "$3  $dir/$1" | sha256sum -c -
+            chmod 770 "$dir/$1"
+          }
+          rel=https://github.com
+          raw=https://raw.githubusercontent.com
+          fetch AppRun-x86_64 $rel/tauri-apps/binary-releases/releases/download/apprun-old/AppRun-x86_64 f30140a43a0a59e46db21bdefdf749b9e9f2c6946e92afabbacf98b8ae73fb4f
+          fetch linuxdeploy-x86_64.AppImage $rel/tauri-apps/binary-releases/releases/download/linuxdeploy/linuxdeploy-x86_64.AppImage e762bea85c8eb0d4b3508d46e5c1f037f717d0f9303ae3b4aafc8b04991fa1ef
+          fetch linuxdeploy-plugin-gtk.sh $raw/tauri-apps/linuxdeploy-plugin-gtk/dda522bce37387f1b853d9095713bfaa924c8423/linuxdeploy-plugin-gtk.sh 7804c9eef13e59bf2783aad9882ef9db8f3f3f9e8d631874b1d348d550a3693f
+          fetch linuxdeploy-plugin-gstreamer.sh $raw/tauri-apps/linuxdeploy-plugin-gstreamer/2a2e67491c32995a3f279ad0ecbe77abd512b42a/linuxdeploy-plugin-gstreamer.sh c107b49d84edbffc6ab226ed1007e0626a4f7aa2c3a36b7782bef62351d49e94
+          fetch linuxdeploy-plugin-appimage.AppImage $rel/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/1-alpha-20250213-1/linuxdeploy-plugin-appimage-x86_64.AppImage 992d502a248e14ab185448ddf6f6e7d25558cb84d4623c354c3af350c25fccb3
+          fetch runtime-x86_64 $rel/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
+          echo "LDAI_RUNTIME_FILE=$dir/runtime-x86_64" >> "$GITHUB_ENV"
+
+      # Tauri's own APPLE_CERTIFICATE import only resolves certificates named
+      # like Apple's ("Developer ID Application: …"), so with a self-signed one
+      # the build fails. Import it here instead and hand Tauri just the name.
+      # The secrets stay in this macOS-only step: whoever holds them can sign
+      # as both T4 apps, and no other leg needs them. It runs after the
+      # compile, so no build script or proc-macro finds the certificate in an
+      # unlocked keychain open to codesign.
+      - name: Import the macOS signing certificate
+        if: runner.os == 'macOS'
+        shell: bash
         env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          kc="$RUNNER_TEMP/signing.keychain-db"
+          pass=$(openssl rand -base64 24)
+          base64 --decode <<<"$APPLE_CERTIFICATE" > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$pass" "$kc"
+          security set-keychain-settings -lut 21600 "$kc"
+          security unlock-keychain -p "$pass" "$kc"
+          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$pass" "$kc" >/dev/null
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          # Self-signed: nothing vouches for it until it is trusted here.
+          security find-certificate -p -c "T4 Apps Self-Signed Code Signing" "$kc" > "$RUNNER_TEMP/cert.pem"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/cert.pem"
+          rm "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/cert.pem"
+
+      # `cargo tauri bundle` compiles nothing; it packages the build above,
+      # signs it, and writes the updater .sig files.
+      - name: Bundle and sign
+        working-directory: src-tauri
+        shell: bash
+        env:
+          # The signing key is what the updater checks before it will install
+          # anything. Without it this step errors, rather than shipping a
+          # release no installed copy can accept.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           # macOS code signing with the certificate imported above; the other
@@ -229,17 +271,21 @@ jobs:
           # so users got asked again and again. Self-signed, not notarized: the
           # README's quarantine step still applies.
           APPLE_SIGNING_IDENTITY: T4 Apps Self-Signed Code Signing
-          # Read by ssign when Tauri runs the Windows sign command. Empty on
-          # the other legs, which have no environment to take them from. The
-          # first sign logs in and caches the session on disk, so the app, the
-          # uninstaller and the installer need only one one-time code.
-          CERTUM_EMAIL: ${{ secrets.CERTUM_EMAIL }}
-          CERTUM_OTP: ${{ secrets.CERTUM_OTP }}
-        run: >
-          cargo tauri build --bundles ${{ matrix.bundles }}
-          ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
-          ${{ env.SIGNING_ARGS }}
-          -- --locked
+          # Read by ssign when Tauri runs the Windows sign command. Windows
+          # only: the other legs share the environment but have no use for the
+          # TOTP seed. The first sign logs in and caches the session on disk,
+          # so the app, the uninstaller and the installer need only one
+          # one-time code.
+          CERTUM_EMAIL: ${{ runner.os == 'Windows' && secrets.CERTUM_EMAIL || '' }}
+          CERTUM_OTP: ${{ runner.os == 'Windows' && secrets.CERTUM_OTP || '' }}
+        run: |
+          cargo tauri bundle --bundles ${{ matrix.bundles }} \
+            ${{ matrix.target && format('--target {0}', matrix.target) || '' }} \
+            ${{ env.SIGNING_ARGS }} 2>&1 | tee "$RUNNER_TEMP/bundle.log"
+          # Every AppImage tool is pinned in "Pin the AppImage tools".
+          if [ "$RUNNER_OS" = Linux ] && grep -q Downloading "$RUNNER_TEMP/bundle.log"; then
+            echo "bundler downloaded a tool the pins do not cover" >&2; exit 1
+          fi
 
       # The thumbprint, not just a valid signature, so a build signed with
       # anything else fails here, as in the macOS check below. The installer
@@ -373,9 +419,26 @@ jobs:
           name: packages-${{ runner.os }}
           path: dist/*
 
+  # On a tag this is the release. On a workflow_dispatch it is a rehearsal:
+  # Dependabot's pull requests run only checks.yml, so a bumped
+  # download-artifact or action-gh-release would otherwise first run on a real
+  # tag, with nothing left to do but re-run it. The rehearsal makes the same
+  # write against a draft and deletes it again.
+  #
+  # `checks` runs on tags only, and a skipped need skips this job too unless
+  # the `if` says otherwise. `!cancelled()` lifts that default, so every need
+  # is checked by hand: a tag needs `checks` passed; a dispatch needs it
+  # skipped, which is what it always is on a branch. A dispatch on a tag ref
+  # runs `checks` and takes the first branch, and is still only a draft: the
+  # release step keys the draft on the event, not the ref.
   publish:
     needs: [version, checks, build]
-    if: startsWith(github.ref, 'refs/tags/')
+    if: >-
+      ${{ !cancelled()
+      && needs.version.result == 'success'
+      && needs.build.result == 'success'
+      && ((startsWith(github.ref, 'refs/tags/') && needs.checks.result == 'success')
+      || (github.event_name == 'workflow_dispatch' && needs.checks.result == 'skipped')) }}
     runs-on: ubuntu-latest
     # Creating the release is the one write this workflow makes.
     permissions:
@@ -447,26 +510,75 @@ jobs:
       # `generate_release_notes` used to fill this in. It lists merged pull
       # requests, and this repository commits straight to main, so it produced
       # nothing but a compare link.
+      #
+      # HEAD rather than the ref name, which on a dispatch is the branch: the
+      # checkout sits on the run's commit either way, so a rehearsal writes the
+      # notes a tag on that commit would, titled with the version it would get.
       - name: Build the release notes
         id: notes
         shell: bash
+        env:
+          TAG: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', needs.version.outputs.version) || github.ref_name }}
         run: |
           set -euo pipefail
-          prev=$(git describe --tags --abbrev=0 --match 'v*' "${GITHUB_REF_NAME}^" 2>/dev/null || true)
-          changes=$(git log --format='%s' --no-merges "${prev:+$prev..}${GITHUB_REF_NAME}" \
+          prev=$(git describe --tags --abbrev=0 --match 'v*' HEAD^ 2>/dev/null || true)
+          changes=$(git log --format='%s' --no-merges "${prev:+$prev..}HEAD" \
             | grep -Ev '^(Release [0-9]|ci:|docs:|release:|chore:)' || true)
           if [ -n "$changes" ]; then
             sed 's/^/- /' <<<"$changes" > notes.md
-            echo "name=${GITHUB_REF_NAME} — $(head -1 <<<"$changes")" >> "$GITHUB_OUTPUT"
+            echo "name=${TAG} — $(head -1 <<<"$changes")" >> "$GITHUB_OUTPUT"
           else
             echo 'No user-facing changes.' > notes.md
-            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "name=${TAG}" >> "$GITHUB_OUTPUT"
           fi
           cat notes.md
 
+      # On a tag the action names the release after it and publishes. On a
+      # dispatch it makes a draft under a throwaway tag name; a draft only
+      # records the tag as pending, and GitHub creates it on publishing, which
+      # the action skips when `draft` is true.
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: dist/*
-          draft: false
-          name: ${{ steps.notes.outputs.name }}
+          draft: ${{ github.event_name == 'workflow_dispatch' }}
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && format('dry-run-{0}', github.run_id) || '' }}
+          target_commitish: ${{ github.event_name == 'workflow_dispatch' && github.sha || '' }}
+          name: ${{ github.event_name == 'workflow_dispatch' && format('Dry run — {0}', steps.notes.outputs.name) || steps.notes.outputs.name }}
           body_path: notes.md
+
+      # The rehearsal's own check, then its cleanup. It runs whatever failed
+      # above, so a draft left half-uploaded is still removed; if the draft was
+      # never made there is nothing to do, and the step that failed is the
+      # failure the run reports. Not `--cleanup-tag`: the draft never created
+      # its tag, and gh fails deleting a ref that does not exist. A tag found
+      # anyway is removed and fails the run, since a dispatch promised none.
+      - name: Check and delete the dry-run draft
+        if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: dry-run-${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if ! names=$(gh release view "$TAG" --json assets --jq '.assets[].name' 2>"$RUNNER_TEMP/view.err"); then
+            if grep -q 'release not found' "$RUNNER_TEMP/view.err"; then
+              echo "no $TAG draft to check or delete"
+              exit 0
+            fi
+            cat "$RUNNER_TEMP/view.err" >&2
+            exit 1
+          fi
+          ok=true
+          # Sorted name lists, so a missing, extra or renamed asset all show.
+          if ! diff <(ls dist | sort) <(sort <<<"$names"); then
+            echo "the draft's assets do not match dist/ (< dist, > draft)" >&2
+            ok=false
+          fi
+          gh release delete "$TAG" --yes
+          if gh api "repos/$GH_REPO/git/ref/tags/$TAG" --silent 2>/dev/null; then
+            gh api -X DELETE "repos/$GH_REPO/git/refs/tags/$TAG" --silent
+            echo "the draft created tag $TAG; deleted it" >&2
+            ok=false
+          fi
+          $ok
