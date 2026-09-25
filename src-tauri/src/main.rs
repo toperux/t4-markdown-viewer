@@ -109,6 +109,10 @@ struct AppState {
     /// file-association open goes to, and breaks ties between overlapping
     /// windows during a tab drag.
     focus_order: Mutex<Vec<String>>,
+    /// Windows asked to close and not yet gone. A close now waits for the
+    /// page's last report, so a window can be on its way out for a moment —
+    /// up to `CLOSE_WAIT` — and nothing sent to it then would be seen.
+    closing: Mutex<HashSet<String>>,
     /// Window currently showing a drop caret, so it can be told to clear it.
     drag_target: Mutex<Option<String>>,
     /// What the first update check found, reused by every window that asks
@@ -263,14 +267,16 @@ fn touch_focus(state: &AppState, label: &str) {
     order.push(label.to_string());
 }
 
-/// The window a warm open should land in: most recently focused that still exists.
+/// The window a warm open should land in: most recently focused that still
+/// exists and is not on its way out.
 fn last_focused(app: &AppHandle) -> Option<String> {
     let state = app.state::<AppState>();
+    let closing = state.closing.lock().unwrap();
     let order = state.focus_order.lock().unwrap();
     order
         .iter()
         .rev()
-        .find(|l| app.get_webview_window(l).is_some())
+        .find(|l| !closing.contains(*l) && app.get_webview_window(l).is_some())
         .cloned()
 }
 
@@ -1465,6 +1471,13 @@ fn main() {
                 // `Destroyed` it is gone, and the chain needs its frame.
                 WindowEvent::CloseRequested { .. } => {
                     session::note_frame(window.app_handle(), window.label());
+                    // Out of the running for a warm open from now: one sent
+                    // here in the moment before it goes would go with it.
+                    state
+                        .closing
+                        .lock()
+                        .unwrap()
+                        .insert(window.label().to_string());
                     // The page holds the close to send its last report and
                     // then destroys the window itself; this is for a page
                     // that never does. The handle names this window, not its
@@ -1488,6 +1501,7 @@ fn main() {
                     // and written down with it still in — see `window_closed`.
                     session::window_closed(window.app_handle(), label);
                     state.focus_order.lock().unwrap().retain(|l| l != label);
+                    state.closing.lock().unwrap().remove(label);
                     session::reported(&state, label);
                 }
                 _ => {}
