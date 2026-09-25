@@ -18,7 +18,9 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager, Monitor, PhysicalPosition, PhysicalSize, WebviewWindow};
+use tauri::{
+    AppHandle, Emitter, Manager, Monitor, PhysicalPosition, PhysicalSize, Runtime, WebviewWindow,
+};
 
 /// How long `snapshot` waits for the windows to answer. A webview that is
 /// busy for longer than this keeps whatever it last reported.
@@ -28,7 +30,11 @@ const REPORT_TIMEOUT: Duration = Duration::from_secs(1);
 /// window closing one after another, and each close restarts this clock — so
 /// a quit ends with all of them still written down, and a window closed on
 /// purpose while the app carries on drops out once this has passed.
+#[cfg(not(test))]
 pub const CLOSE_GRACE: Duration = Duration::from_secs(4);
+/// Short enough for a test to wait out.
+#[cfg(test)]
+pub const CLOSE_GRACE: Duration = Duration::from_millis(300);
 
 /// How far past the grace the follow-up save runs, so that it lands on the far
 /// side of `chain_expired`'s comparison rather than on it.
@@ -83,7 +89,7 @@ pub struct Frame {
 }
 
 impl Frame {
-    fn of(window: &WebviewWindow) -> Option<Self> {
+    fn of<R: Runtime>(window: &WebviewWindow<R>) -> Option<Self> {
         // Windows parks a minimized window at (-32000, -32000); restoring that
         // would put it off every screen. No frame means default placement.
         if window.is_minimized().unwrap_or(false) {
@@ -109,7 +115,7 @@ impl Frame {
     /// the saved size is the monitor's own and would leave un-maximizing with a
     /// screen-sized window. Maximizing itself is left to the frontend, once it
     /// shows the window — on Windows, maximizing a hidden window shows it.
-    pub fn apply(&self, window: &WebviewWindow) {
+    pub fn apply<R: Runtime>(&self, window: &WebviewWindow<R>) {
         let on_screen = window
             .available_monitors()
             .map(|monitors| monitors.iter().any(|m| self.overlaps(m)))
@@ -271,7 +277,7 @@ pub async fn snapshot(app: &AppHandle, version: String) {
 /// would not do instead: `Frame::of` asks the window where it stands, which
 /// off the main thread is a round trip through the event loop, and a main
 /// thread parked on that lock would never answer it.
-pub fn remember(app: &AppHandle) {
+pub fn remember<R: Runtime>(app: &AppHandle<R>) {
     let state = app.state::<AppState>();
     if *state.reopen.lock().unwrap() == "off" {
         return;
@@ -299,7 +305,7 @@ pub fn remember(app: &AppHandle) {
 
 /// Note where a window stands while it can still be asked — it is about to
 /// close, and the save that follows has only this to go on.
-pub fn note_frame(app: &AppHandle, label: &str) {
+pub fn note_frame<R: Runtime>(app: &AppHandle<R>, label: &str) {
     if let Some(frame) = app.get_webview_window(label).and_then(|w| Frame::of(&w)) {
         app.state::<AppState>()
             .frames
@@ -316,7 +322,7 @@ pub fn note_frame(app: &AppHandle, label: &str) {
 /// drops it if the app is still running by then.
 ///
 /// Runs on the main thread (a window event), as every ordinary save must.
-pub fn window_closed(app: &AppHandle, label: &str) {
+pub fn window_closed<R: Runtime>(app: &AppHandle<R>, label: &str) {
     let state = app.state::<AppState>();
     restored(app, label);
     let open = state.sessions.lock().unwrap().remove(label);
@@ -377,7 +383,7 @@ fn restorable(open: Vec<WindowSession>, chain: &[(Instant, WindowSession)]) -> V
 }
 
 /// Write out every window that has something open.
-fn save(app: &AppHandle, version: String, argv: Vec<String>, restart: bool) {
+fn save<R: Runtime>(app: &AppHandle<R>, version: String, argv: Vec<String>, restart: bool) {
     let state = app.state::<AppState>();
     let order = state.focus_order.lock().unwrap().clone();
     let open = state.sessions.lock().unwrap().clone();
@@ -470,7 +476,7 @@ fn mark_at(path: &Path, session: &Session) {
 ///
 /// Not while an update installs: the file is then the restart's snapshot, and
 /// no ordinary save would follow to put anything back.
-pub fn restored(app: &AppHandle, label: &str) {
+pub fn restored<R: Runtime>(app: &AppHandle<R>, label: &str) {
     let state = app.state::<AppState>();
     let mut restoring = state.restoring.lock().unwrap();
     if restoring.remove(label) && restoring.is_empty() {

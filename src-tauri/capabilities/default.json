@@ -6,14 +6,15 @@
   "//": "Windows opened at runtime are labelled w1, w2, ... — without them here, plugin calls like event.listen and window.show are denied and the new window never finishes booting.",
   "windows": ["main", "w*"],
   "permissions": [
-    "core:default",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:window:allow-get-all-windows",
     "core:window:allow-set-title",
     "core:window:allow-show",
     "core:window:allow-set-focus",
     "core:window:allow-close",
     "core:window:allow-destroy",
     "core:window:allow-maximize",
-    "core:event:default",
     "dialog:allow-open",
     "opener:allow-open-url",
     "opener:allow-default-urls"

@@ -3,6 +3,8 @@
 mod config;
 mod json;
 mod render;
+#[cfg(test)]
+mod routing_tests;
 mod session;
 mod themes;
 mod update;
@@ -17,8 +19,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindowBuilder, Window,
-    WindowEvent,
+    AppHandle, Emitter, Manager, PhysicalPosition, Runtime, State, Url, Webview, WebviewUrl,
+    WebviewWindowBuilder, Window, WindowEvent,
 };
 use tauri_plugin_opener::OpenerExt;
 
@@ -285,7 +287,7 @@ fn touch_focus(state: &AppState, label: &str) {
 
 /// The window a warm open should land in: most recently focused that still
 /// exists and is not on its way out.
-fn last_focused(app: &AppHandle) -> Option<String> {
+fn last_focused<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
     let state = app.state::<AppState>();
     let closing = state.closing.lock().unwrap();
     let order = state.focus_order.lock().unwrap();
@@ -296,7 +298,7 @@ fn last_focused(app: &AppHandle) -> Option<String> {
         .cloned()
 }
 
-fn focus_window(app: &AppHandle, label: &str) {
+fn focus_window<R: Runtime>(app: &AppHandle<R>, label: &str) {
     // Still booting: its page shows and raises the window itself once it has
     // painted, and showing it now would flash an unthemed window. Readiness,
     // not visibility: on macOS a minimized window reports not visible, and
@@ -372,8 +374,8 @@ enum Placement {
 /// `source` is the window a torn-off tab came from, if any. That window has
 /// already dropped the tab by the time the build runs, so a failure has to be
 /// reported back to it or the tab is simply lost.
-fn spawn_window(
-    app: &AppHandle,
+fn spawn_window<R: Runtime>(
+    app: &AppHandle<R>,
     pending: Option<Value>,
     place: Placement,
     source: Option<String>,
@@ -472,7 +474,7 @@ fn hwnd_at(x: f64, y: f64) -> isize {
 /// tab off into its own window; the frontend is told not to offer the
 /// drop-onto-another-window affordance at all, through `Settings`.
 #[cfg(windows)]
-fn window_at(app: &AppHandle, x: f64, y: f64) -> Option<(String, f64, f64)> {
+fn window_at<R: Runtime>(app: &AppHandle<R>, x: f64, y: f64) -> Option<(String, f64, f64)> {
     let target = hwnd_at(x, y);
     if target == 0 {
         return None;
@@ -507,11 +509,11 @@ fn window_at(app: &AppHandle, x: f64, y: f64) -> Option<(String, f64, f64)> {
 }
 
 #[cfg(not(windows))]
-fn window_at(_app: &AppHandle, _x: f64, _y: f64) -> Option<(String, f64, f64)> {
+fn window_at<R: Runtime>(_app: &AppHandle<R>, _x: f64, _y: f64) -> Option<(String, f64, f64)> {
     None
 }
 
-fn clear_drag(app: &AppHandle, state: &AppState) {
+fn clear_drag<R: Runtime>(app: &AppHandle<R>, state: &AppState) {
     if let Some(prev) = state.drag_target.lock().unwrap().take() {
         let _ = app.emit_to(&prev, "tab-drag-out", ());
     }
@@ -522,7 +524,7 @@ fn clear_drag(app: &AppHandle, state: &AppState) {
 /// Hand this window whatever it was created to show. Consumed on first call,
 /// which is also what marks the window as ready to receive events.
 #[tauri::command]
-fn take_pending(state: State<AppState>, window: Window) -> Option<Value> {
+fn take_pending<R: Runtime>(state: State<AppState>, window: Window<R>) -> Option<Value> {
     let label = window.label().to_string();
     let mut boot = state.boot.lock().unwrap();
     boot.ready.insert(label.clone());
@@ -1018,9 +1020,9 @@ fn open_window(app: AppHandle, path: Option<String>) -> String {
 /// recoverable — a close waits for the page's last report, but a Cmd+Q or a
 /// kill waits for nothing, so the file has to be current before either.
 #[tauri::command]
-fn set_session(
+fn set_session<R: Runtime>(
     state: State<AppState>,
-    window: Window,
+    window: Window<R>,
     tabs: Vec<Value>,
     active: usize,
     sidebar: bool,
@@ -1115,10 +1117,10 @@ fn drag_cancel(app: AppHandle, state: State<AppState>) {
 /// false, in which case the drop is cancelled and the tab stays where it was.
 /// The caller drops its own copy on "adopted" and "detached".
 #[tauri::command]
-fn drop_tab(
-    app: AppHandle,
+fn drop_tab<R: Runtime>(
+    app: AppHandle<R>,
     state: State<AppState>,
-    window: Window,
+    window: Window<R>,
     x: f64,
     y: f64,
     tab: Value,
@@ -1217,7 +1219,7 @@ fn set_reopen(app: AppHandle, state: State<AppState>, mode: String) {
 /// button was on — and the rest get windows of their own, exactly as
 /// `restore_session` gives them.
 #[tauri::command]
-fn restore_offered_session(app: AppHandle, window: Window) -> Option<Value> {
+fn restore_offered_session<R: Runtime>(app: AppHandle<R>, window: Window<R>) -> Option<Value> {
     let state = app.state::<AppState>();
     let session = state.offered.lock().unwrap().take()?;
     let mut windows = session.windows.into_iter();
@@ -1306,7 +1308,7 @@ fn reveal_path(app: AppHandle, path: String) -> Result<(), String> {
 /// A booting window that *does* have something pending is a torn-off tab or a
 /// restored session on its way in, and must not be overwritten; the file gets
 /// a window of its own.
-fn open_path(app: &AppHandle, path: &Path) {
+fn open_path<R: Runtime>(app: &AppHandle<R>, path: &Path) {
     let path = strip_unc(path);
     let state = app.state::<AppState>();
 
@@ -1365,7 +1367,11 @@ fn open_path(app: &AppHandle, path: &Path) {
 ///
 /// When `main` is showing a file the reader opened — its own window, or the
 /// saved one that already had it — every other window stands behind it.
-fn restore_session(app: &AppHandle, windows: Vec<session::WindowSession>, held: bool) {
+fn restore_session<R: Runtime>(
+    app: &AppHandle<R>,
+    windows: Vec<session::WindowSession>,
+    held: bool,
+) {
     let state = app.state::<AppState>();
     let mut windows = windows.into_iter();
     let first = windows.next();
@@ -1532,6 +1538,56 @@ fn handle_second_instance(app: &AppHandle, argv: Vec<String>) {
     }
 }
 
+/// The `stay` plugin's navigation guard. A page that has booted never navigates
+/// anywhere else, and a reload of it — an accelerator past the page's handler,
+/// the webview's own context-menu Reload, the Refresh on its "page is having a
+/// problem" screen after a crash — would boot on a pending slot `take_pending`
+/// has drained, and every tab in the window would be gone. So a reload is
+/// handed what the window last reported, as a restart is. Before
+/// `take_pending` it is the window's own first load; the URL cannot tell the
+/// two apart, so readiness does. What changed in the moment since that report
+/// — a zoom, a folder expanded — is gone; and a document that itself crashes
+/// the renderer crashes it again on Refresh, where closing the window is the
+/// way out, as it always was.
+fn stay<R: Runtime>(webview: &Webview<R>, url: &Url) -> bool {
+    // `cargo tauri dev` serves the page itself and reloads it on every edit.
+    if cfg!(dev) && url.port().is_some() {
+        return true;
+    }
+    // WebKit asks about same-document `#id` jumps too; WebView2 does not.
+    if !cfg!(windows) && url.fragment().is_some() {
+        return true;
+    }
+    let state = webview.state::<AppState>();
+    let label = webview.label();
+    let mut boot = state.boot.lock().unwrap();
+    if !boot.ready.contains(label) {
+        return true;
+    }
+    // The app's own page and nothing else: `tauri://localhost/`
+    // on macOS and Linux, `http://tauri.localhost/` on Windows.
+    let own = (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
+        || url.host_str() == Some("tauri.localhost");
+    if !own || url.path() != "/" {
+        return false;
+    }
+    // Not through `claim_in`: that marks the window as restoring,
+    // which is the crash-loop guard for a restore from disk.
+    // Its report in `sessions` stands until the new page reports.
+    let open = state.sessions.lock().unwrap().get(label).cloned();
+    boot.ready.remove(label);
+    if let Some(open) = open {
+        let payload = json!({
+            "kind": "session",
+            "tabs": open.tabs,
+            "active": open.active,
+            "sidebar": open.sidebar,
+        });
+        boot.pending.insert(label.to_string(), payload);
+    }
+    true
+}
+
 fn main() {
     let builder = tauri::Builder::default()
         // Must be registered first: plugins run in registration order, and this
@@ -1547,57 +1603,9 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        // A page that has booted never navigates anywhere else, and a reload of
-        // it — an accelerator past the page's handler, the webview's own
-        // context-menu Reload, the Refresh on its "page is having a problem"
-        // screen after a crash — would boot on a pending slot `take_pending`
-        // has drained, and every tab in the window would be gone. So a reload
-        // is handed what the window last reported, as a restart is. Before
-        // `take_pending` it is the window's own first load; the URL cannot
-        // tell the two apart, so readiness does. What changed in the moment
-        // since that report — a zoom, a folder expanded — is gone; and a
-        // document that itself crashes the renderer crashes it again on
-        // Refresh, where closing the window is the way out, as it always was.
         .plugin(
             tauri::plugin::Builder::<tauri::Wry>::new("stay")
-                .on_navigation(|webview, url| {
-                    // `cargo tauri dev` serves the page itself and reloads it on every edit.
-                    if cfg!(dev) && url.port().is_some() {
-                        return true;
-                    }
-                    // WebKit asks about same-document `#id` jumps too; WebView2 does not.
-                    if !cfg!(windows) && url.fragment().is_some() {
-                        return true;
-                    }
-                    let state = webview.state::<AppState>();
-                    let label = webview.label();
-                    let mut boot = state.boot.lock().unwrap();
-                    if !boot.ready.contains(label) {
-                        return true;
-                    }
-                    // The app's own page and nothing else: `tauri://localhost/`
-                    // on macOS and Linux, `http://tauri.localhost/` on Windows.
-                    let own = (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
-                        || url.host_str() == Some("tauri.localhost");
-                    if !own || url.path() != "/" {
-                        return false;
-                    }
-                    // Not through `claim_in`: that marks the window as restoring,
-                    // which is the crash-loop guard for a restore from disk.
-                    // Its report in `sessions` stands until the new page reports.
-                    let open = state.sessions.lock().unwrap().get(label).cloned();
-                    boot.ready.remove(label);
-                    if let Some(open) = open {
-                        let payload = json!({
-                            "kind": "session",
-                            "tabs": open.tabs,
-                            "active": open.active,
-                            "sidebar": open.sidebar,
-                        });
-                        boot.pending.insert(label.to_string(), payload);
-                    }
-                    true
-                })
+                .on_navigation(stay)
                 .build(),
         )
         .manage(AppState::default())

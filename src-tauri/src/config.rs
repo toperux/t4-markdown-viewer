@@ -90,10 +90,33 @@ pub fn start_dir(candidate: &str, saved: &str) -> String {
 }
 
 /// `%APPDATA%\t4-markdown-viewer`
+#[cfg(not(test))]
 pub fn dir() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("t4-markdown-viewer")
+}
+
+/// Never the reader's own folder under test: each thread gets a temp folder of
+/// its own, gone when the thread is. Per thread because tests run in parallel,
+/// each on its own thread, and every setting and session they write lands in
+/// here — a thread a test spawns writes to a folder of its own, not the test's.
+#[cfg(test)]
+pub fn dir() -> PathBuf {
+    struct Scratch(PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    thread_local! {
+        static SCRATCH: Scratch = Scratch(std::env::temp_dir().join(format!(
+            "t4-test-config-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        )));
+    }
+    SCRATCH.with(|s| s.0.clone())
 }
 
 fn file() -> PathBuf {
@@ -323,5 +346,39 @@ mod tests {
         assert!(temps.is_empty(), "temp files left behind: {temps:?}");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Only an old temp of `write_json`'s own shape goes: a fresh one may be a
+    /// write still under way, and nothing else here is the sweep's to delete.
+    #[test]
+    fn sweep_temps_takes_only_old_write_json_temps() {
+        let dir = dir();
+        std::fs::create_dir_all(dir.join("themes.1-2.tmp")).unwrap();
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(120);
+        for name in [
+            "config.29232-1.tmp",
+            "notes.tmp",
+            "config.abc-1.tmp",
+            "config.json",
+        ] {
+            std::fs::File::create(dir.join(name))
+                .unwrap()
+                .set_modified(old)
+                .unwrap();
+        }
+        std::fs::File::create(dir.join("session.1-3.tmp")).unwrap();
+
+        sweep_temps();
+
+        assert!(!dir.join("config.29232-1.tmp").exists());
+        for kept in [
+            "session.1-3.tmp",
+            "notes.tmp",
+            "config.abc-1.tmp",
+            "config.json",
+            "themes.1-2.tmp",
+        ] {
+            assert!(dir.join(kept).exists(), "{kept} was deleted");
+        }
     }
 }
