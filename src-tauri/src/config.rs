@@ -129,6 +129,11 @@ pub fn save(cfg: &Config) {
 /// name would let one truncate the other's bytes before either rename lands.
 /// The config setters cannot collide this way — they are synchronous commands,
 /// and Tauri runs those on the main thread one at a time.
+///
+/// The temp file is flushed to disk before the rename: otherwise a power cut
+/// can keep the rename but not the bytes, leaving an empty file where the old
+/// one was — the same defaults, by another road. About half a millisecond on
+/// an SSD, and saves are already debounced.
 pub fn write_json(path: &Path, value: &impl Serialize) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
@@ -136,10 +141,45 @@ pub fn write_json(path: &Path, value: &impl Serialize) {
     if let Ok(json) = serde_json::to_string_pretty(value) {
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
         let tmp = path.with_extension(format!("{}-{n}.tmp", std::process::id()));
-        if std::fs::write(&tmp, json).is_err() || std::fs::rename(&tmp, path).is_err() {
+        let written = std::fs::File::create(&tmp).and_then(|mut f| {
+            std::io::Write::write_all(&mut f, json.as_bytes())?;
+            f.sync_all()
+        });
+        if written.is_err() || std::fs::rename(&tmp, path).is_err() {
             let _ = std::fs::remove_file(&tmp);
         }
     }
+}
+
+/// Delete the temp files `write_json` left behind: a process killed between
+/// the write and the rename leaves its `<name>.<pid>-<n>.tmp` beside the target
+/// for good. Only that shape of name, only in this folder — never the themes
+/// under it — and only once a minute old, so a write still in flight is never
+/// pulled out from under its rename. Failure is silent, as it is for the write.
+pub fn sweep_temps() {
+    let Ok(entries) = std::fs::read_dir(dir()) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let old = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age > std::time::Duration::from_secs(60));
+        if old && is_temp(&entry.file_name().to_string_lossy()) {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
+/// `<something>.<digits>-<digits>.tmp`, the name `write_json` gives its temp.
+fn is_temp(name: &str) -> bool {
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    name.strip_suffix(".tmp")
+        .and_then(|s| s.rsplit_once('.'))
+        .and_then(|(stem, tail)| Some((stem, tail.split_once('-')?)))
+        .is_some_and(|(stem, (pid, n))| !stem.is_empty() && digits(pid) && digits(n))
 }
 
 #[cfg(test)]

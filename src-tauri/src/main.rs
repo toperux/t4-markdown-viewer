@@ -297,6 +297,20 @@ fn last_focused(app: &AppHandle) -> Option<String> {
 }
 
 fn focus_window(app: &AppHandle, label: &str) {
+    // Still booting: its page shows and raises the window itself once it has
+    // painted, and showing it now would flash an unthemed window. Readiness,
+    // not visibility: on macOS a minimized window reports not visible, and
+    // must still be brought back.
+    if !app
+        .state::<AppState>()
+        .boot
+        .lock()
+        .unwrap()
+        .ready
+        .contains(label)
+    {
+        return;
+    }
     if let Some(w) = app.get_webview_window(label) {
         let _ = w.unminimize();
         let _ = w.show();
@@ -378,6 +392,9 @@ fn spawn_window(
         match WebviewWindowBuilder::new(&app, &target, WebviewUrl::App("index.html".into()))
             .title("Markdown Viewer")
             .inner_size(1100.0, 860.0)
+            // The same minimum `main` has from the config; a saved smaller
+            // frame is clamped to it.
+            .min_inner_size(420.0, 320.0)
             .visible(false)
             .build()
         {
@@ -464,6 +481,17 @@ fn window_at(app: &AppHandle, x: f64, y: f64) -> Option<(String, f64, f64)> {
         let Ok(handle) = w.hwnd() else { continue };
         if handle.0 as isize != target {
             continue;
+        }
+        // On its way out, as `last_focused` treats it: a tab handed over now
+        // would go with it. `None` makes the drop a tear-off.
+        if app
+            .state::<AppState>()
+            .closing
+            .lock()
+            .unwrap()
+            .contains(&label)
+        {
+            return None;
         }
         let Ok(pos) = w.inner_position() else {
             continue;
@@ -995,14 +1023,18 @@ fn set_session(
     window: Window,
     tabs: Vec<Value>,
     active: usize,
+    sidebar: bool,
     settled: bool,
 ) {
     let label = window.label();
-    state
-        .sessions
-        .lock()
-        .unwrap()
-        .insert(label.to_string(), session::OpenTabs { tabs, active });
+    state.sessions.lock().unwrap().insert(
+        label.to_string(),
+        session::OpenTabs {
+            tabs,
+            active,
+            sidebar,
+        },
+    );
     // A restored window is restored once a report finds nothing still loading.
     if settled {
         session::restored(window.app_handle(), label);
@@ -1197,6 +1229,13 @@ fn restore_offered_session(app: AppHandle, window: Window) -> Option<Value> {
         .lock()
         .unwrap()
         .insert(window.label().to_string());
+    // The window's tabs are in the record from now, as `claim_in` does for a
+    // pending restore, so a save before it reports keeps them.
+    state
+        .sessions
+        .lock()
+        .unwrap()
+        .insert(window.label().to_string(), first.open.clone());
 
     if let (Some(frame), Some(w)) = (&first.frame, app.get_webview_window(window.label())) {
         frame.apply(&w);
@@ -1372,6 +1411,7 @@ fn session_payload(w: &session::WindowSession, behind_main: bool) -> Value {
         "kind": "session",
         "tabs": w.open.tabs,
         "active": w.open.active,
+        "sidebar": w.open.sidebar,
         "maximized": w.frame.as_ref().is_some_and(|f| f.maximized),
     });
     if behind_main {
@@ -1471,6 +1511,16 @@ fn macos_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     Menu::with_items(app, &[&about, &edit, &window])
 }
 
+/// A second launch's arguments, read from where it was started rather than
+/// from where this process was: `t4-markdown-viewer notes.md` typed in a
+/// terminal means the `notes.md` in that terminal's folder. An absolute path
+/// replaces the base; a flag or a URL is still no file.
+fn resolve_args(argv: Vec<String>, cwd: &str) -> Vec<String> {
+    argv.into_iter()
+        .map(|a| Path::new(cwd).join(a).to_string_lossy().into_owned())
+        .collect()
+}
+
 fn handle_second_instance(app: &AppHandle, argv: Vec<String>) {
     match file_from_args(&argv) {
         Some(path) => open_path(app, &path),
@@ -1486,17 +1536,70 @@ fn main() {
     let builder = tauri::Builder::default()
         // Must be registered first: plugins run in registration order, and this
         // one has to intercept the second process before anything else starts.
-        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             // Off the calling thread — the event loop, on Windows and Linux:
             // `file_from_args` stats the path, and one on a share that has gone
             // away would hold every window still for ~21 s. `open_path` takes
             // its locks itself, and its window calls go through the event loop.
             let app = app.clone();
-            std::thread::spawn(move || handle_second_instance(&app, argv));
+            std::thread::spawn(move || handle_second_instance(&app, resolve_args(argv, &cwd)));
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // A page that has booted never navigates anywhere else, and a reload of
+        // it — an accelerator past the page's handler, the webview's own
+        // context-menu Reload, the Refresh on its "page is having a problem"
+        // screen after a crash — would boot on a pending slot `take_pending`
+        // has drained, and every tab in the window would be gone. So a reload
+        // is handed what the window last reported, as a restart is. Before
+        // `take_pending` it is the window's own first load; the URL cannot
+        // tell the two apart, so readiness does. What changed in the moment
+        // since that report — a zoom, a folder expanded — is gone; and a
+        // document that itself crashes the renderer crashes it again on
+        // Refresh, where closing the window is the way out, as it always was.
+        .plugin(
+            tauri::plugin::Builder::<tauri::Wry>::new("stay")
+                .on_navigation(|webview, url| {
+                    // `cargo tauri dev` serves the page itself and reloads it on every edit.
+                    if cfg!(dev) && url.port().is_some() {
+                        return true;
+                    }
+                    // WebKit asks about same-document `#id` jumps too; WebView2 does not.
+                    if !cfg!(windows) && url.fragment().is_some() {
+                        return true;
+                    }
+                    let state = webview.state::<AppState>();
+                    let label = webview.label();
+                    let mut boot = state.boot.lock().unwrap();
+                    if !boot.ready.contains(label) {
+                        return true;
+                    }
+                    // The app's own page and nothing else: `tauri://localhost/`
+                    // on macOS and Linux, `http://tauri.localhost/` on Windows.
+                    let own = (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
+                        || url.host_str() == Some("tauri.localhost");
+                    if !own || url.path() != "/" {
+                        return false;
+                    }
+                    // Not through `claim_in`: that marks the window as restoring,
+                    // which is the crash-loop guard for a restore from disk.
+                    // Its report in `sessions` stands until the new page reports.
+                    let open = state.sessions.lock().unwrap().get(label).cloned();
+                    boot.ready.remove(label);
+                    if let Some(open) = open {
+                        let payload = json!({
+                            "kind": "session",
+                            "tabs": open.tabs,
+                            "active": open.active,
+                            "sidebar": open.sidebar,
+                        });
+                        boot.pending.insert(label.to_string(), payload);
+                    }
+                    true
+                })
+                .build(),
+        )
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             take_pending,
@@ -1584,6 +1687,7 @@ fn main() {
             let state = app.state::<AppState>();
             touch_focus(&state, "main");
 
+            config::sweep_temps();
             let reopen = config::load().reopen;
             *state.reopen.lock().unwrap() = reopen.clone();
             let saved = session::read(app.handle());
@@ -1923,6 +2027,25 @@ mod tests {
             "does-not-exist.md".to_string(),
         ];
         assert_eq!(file_from_args(&args), None);
+    }
+
+    /// A second launch's relative path is read from where that launch was
+    /// started; an absolute one and a flag are unchanged.
+    #[test]
+    fn second_instance_args_resolve_against_their_cwd() {
+        let dir = std::env::temp_dir().join(format!("t4-cwd-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("n.md"), "# n\n").unwrap();
+        let cwd = dir.to_string_lossy().into_owned();
+        let args = resolve_args(vec!["exe".into(), "n.md".into()], &cwd);
+        assert_eq!(file_from_args(&args), Some(dir.join("n.md")));
+        let abs = dir.join("n.md").to_string_lossy().into_owned();
+        assert_eq!(resolve_args(vec![abs.clone()], "C:\\elsewhere"), vec![abs]);
+        assert_eq!(
+            file_from_args(&resolve_args(vec!["exe".into(), "--flag".into()], &cwd)),
+            None
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

@@ -294,8 +294,9 @@ function rememberScroll() {
   // the old document is still what is on screen, so banking now would hand
   // the new entry the old one's offset. Here rather than in each caller — a
   // second Ctrl+Tab before the first has loaded comes through `activateTab`,
-  // not the scroll listener.
-  if (shownToken !== renderToken) return;
+  // not the scroll listener. Nor while the error panel is up: it collapses the
+  // page, and the clamp's scroll would bank 0 over the entry's real spot.
+  if (shownToken !== renderToken || !els.error.hidden) return;
   const entry = currentEntry(activeTab());
   if (!entry) return;
   // A picture scrolls inside its own box, and in two directions; it also has a
@@ -480,18 +481,18 @@ function renderDocument(doc, scrollY, hash) {
   requestAnimationFrame(() => {
     /*
      * Arriving through a cross-file link: land on the section it named. Only
-     * on arrival — `scrollY` is zero exactly when nothing has been recorded
+     * on arrival — `scrollY` is null exactly when nothing has been recorded
      * yet, and once this entry has a position of its own, Back and Forward
      * must return to that rather than jumping to the anchor a second time.
      */
-    if (hash && scrollY === 0 && jumpToAnchor(hash)) {
+    if (hash && scrollY == null && jumpToAnchor(hash)) {
       requestAnimationFrame(() => {
         const entry = currentEntry(activeTab());
         if (entry?.hash === hash) entry.scrollY = window.scrollY;
       });
       return;
     }
-    window.scrollTo(0, scrollY);
+    window.scrollTo(0, scrollY ?? 0);
   });
 }
 
@@ -601,6 +602,9 @@ function actualSize() {
 
 /** Bank zoom and pan on the history entry, so a tab switch returns to them. */
 function rememberImage() {
+  // Not while a switch is loading, for the reason `rememberScroll` gives:
+  // `picture` still describes the old image, and the entry is the new one's.
+  if (shownToken !== renderToken) return;
   const entry = currentEntry(activeTab());
   if (!entry || !picture) return;
   entry.scale = picture.fit ? null : picture.width / picture.base;
@@ -706,7 +710,7 @@ async function showActive(scrollY) {
       tab.repo = doc.repo;
       tab.label = baseName(doc.path);
       tab.heading = doc.title ?? "";
-      renderDocument(doc, scrollY ?? entry.scrollY ?? 0, entry.hash);
+      renderDocument(doc, scrollY ?? entry.scrollY, entry.hash);
       // Only a rendered document has pictures the webview can be holding stale;
       // recording them here covers exactly those, and the list survives a tab
       // switch, so a document in the background stays watched.
@@ -873,6 +877,7 @@ function reportSession() {
   return invoke("set_session", {
     tabs: tabs.map(packTab),
     active: Math.max(0, tabs.findIndex((t) => t.id === activeId)),
+    sidebar: state.folder !== null,
     // Nothing still loading. A restored window is only restored once its
     // document is on screen, and a focus or move can report before that.
     settled: shownToken === renderToken,
@@ -1017,16 +1022,34 @@ async function adoptTab(data, at) {
   appWindow.setFocus().catch(() => {});
 }
 
-/** Put back every tab an update restart carried over, in order. */
-async function restoreTabs(list, active) {
+/**
+ * Put back every tab an update restart carried over, in order, and the sidebar
+ * if the window had it open.
+ */
+async function restoreTabs(list, active, sidebar) {
   const rebuilt = list.map(rebuildTab);
-  tabs = rebuilt.filter(Boolean);
-  // `active` counts the list as it was saved. A tab that names nothing any
-  // more rebuilds to null and shifts everything after it, so the one to
-  // activate is picked before the filter, not after.
-  activeId = (rebuilt[active] ?? tabs[0])?.id ?? null;
+  // A tab that got here first — a file opened or a tab dropped once
+  // `take_pending` had answered — stays, and stays in front: the reader has
+  // just asked for it.
+  const early = tabs.length > 0;
+  tabs = [...rebuilt.filter(Boolean), ...tabs];
   syncWatch();
-  await showActive();
+  // The early tab is already on screen: showing it again would load it twice
+  // and put it back at the last scroll position banked, not where it is.
+  if (early) updateChrome();
+  else {
+    // `active` counts the list as it was saved. A tab that names nothing any
+    // more rebuilds to null and shifts everything after it, so the one to
+    // activate is picked before the filter, not after.
+    activeId = (rebuilt[active] ?? tabs[0])?.id ?? null;
+    await showActive();
+  }
+  // Opened the way the sidebar button opens it, for whichever tab is in
+  // front — the early one too: the sidebar belongs to the window, and a
+  // file joining it adds a tab without closing anything. Only with a folder
+  // to name, so a restore never puts a picker up; and not if the reader has
+  // opened it already.
+  if (sidebar && state.folder === null && activeDir()) await showFolder();
 }
 
 /* ---------------- folder sidebar ---------------- */
@@ -1364,6 +1387,9 @@ async function openFolder(
   const last = state.folder;
   state.folder = path;
   state.folderPicked = picked;
+  // Whether the sidebar is open is part of the session. Opening it on the
+  // folder the tab already had is news the report further down never sees.
+  if (last === null) reportSoon();
   const owner = activeTab(); // not `sidebarTab`, which lags a loading switch
   const writes = !!owner && remember;
   const before = (writes && folderBefore.get(owner)) || {
@@ -1469,6 +1495,7 @@ function closeFolder() {
   for (const tab of [...tabs, ...closedTabs]) tab.filter = "";
   els.tree.replaceChildren();
   syncFolderWatch();
+  reportSoon(); // whether the sidebar is open is part of the session
 }
 
 /** `samePath` for folders: the picker may hand back a trailing separator. */
@@ -1670,10 +1697,10 @@ async function loadPath(path, hash) {
   if (!entry || !samePath(entry.path, path)) {
     rememberScroll();
     tab.entries.length = tab.index + 1; // drop the forward branch
-    tab.entries.push({ path, scrollY: 0, hash: id });
+    tab.entries.push({ path, scrollY: null, hash: id });
     tab.index = tab.entries.length - 1;
     syncWatch();
-    await showActive(0);
+    await showActive();
     return;
   }
   // The document already on screen, named without a fragment. Read again where
@@ -1699,7 +1726,7 @@ async function go(delta) {
    * scroll, not a load — re-rendering would flash the page, re-run highlighting
    * and lose nothing but time. The watcher is already pointed at this file too.
    */
-  if (from && to && samePath(from.path, to.path)) {
+  if (from && to && samePath(from.path, to.path) && shownToken === renderToken) {
     window.scrollTo(0, to.scrollY ?? 0);
     updateChrome();
     return;
@@ -1753,7 +1780,7 @@ function pushAnchorEntry(raw) {
 
   rememberScroll(); // the spot being left, captured before the browser moves
   tab.entries.length = tab.index + 1; // drop the forward branch
-  tab.entries.push({ path: entry.path, scrollY: 0, hash: id });
+  tab.entries.push({ path: entry.path, scrollY: null, hash: id });
   tab.index = tab.entries.length - 1;
   updateChrome();
 
@@ -1778,8 +1805,9 @@ async function refresh() {
   // them would leave the page short of their height when the scroll is restored.
   if (isImage(entry.path)) bumpAsset(entry.path);
   // Mid-switch the page on screen is the document being left, and its offset
-  // is not this entry's to keep: the entry's own saved spot stands.
-  await showActive(shownToken === renderToken ? window.scrollY : undefined);
+  // is not this entry's to keep: the entry's own saved spot stands. Nor while
+  // the error panel is up, whose scroll position is 0.
+  await showActive(shownToken === renderToken && els.error.hidden ? window.scrollY : undefined);
 }
 
 /** Where a newly opened file goes, per the Settings choice. */
@@ -1839,7 +1867,7 @@ async function reopenSession() {
   if (!session) return;
   // The other windows are already being built, each with its own tabs; this
   // one takes the first, the same three steps the boot arm for a restart runs.
-  await restoreTabs(session.tabs, session.active);
+  await restoreTabs(session.tabs, session.active, session.sidebar);
   if (session.maximized) await appWindow.maximize().catch(() => {});
 }
 
@@ -2099,6 +2127,7 @@ function onDocNamePointerDown(event) {
 
 function onDragMove(event) {
   if (!drag || event.pointerId !== drag.pointerId) return;
+  if (event.buttons === 0) return onDragCancel(); // a release the page never heard (Alt+Tab, a UAC prompt)
 
   if (!drag.moved) {
     const dx = event.clientX - drag.startX;
@@ -2219,6 +2248,13 @@ function onDragCancel() {
   if (!drag) return;
   const d = drag;
   drag = null;
+  // No `pointerup` follows a cancel from `onDragMove`, so nothing else would
+  // hand the mouse back.
+  try {
+    els.bar.releasePointerCapture(d.pointerId);
+  } catch {
+    /* capture already gone */
+  }
   hideGhost();
   paintDrag();
   if (d.detached) d.ipc = d.ipc.then(() => invoke("drag_cancel")).catch(() => {});
@@ -2462,7 +2498,15 @@ function onLinkClick(event) {
     return;
   }
   const href = a.getAttribute("href");
-  if (!href) return;
+  // Nothing to follow: an emptied link — comrak writes `href=""` for a
+  // `file:`, `javascript:` or `data:` link — or a page that is not yet the
+  // active tab's, a switch or a load still under way. Either way the webview
+  // must not follow it on its own: following `""` reloads the page, and every
+  // tab in the window goes with it.
+  if (!href || shownToken !== renderToken) {
+    event.preventDefault();
+    return;
+  }
 
   // In-page anchor: the browser performs the jump, we just record it.
   if (href.startsWith("#")) {
@@ -2654,6 +2698,7 @@ function onImagePointerDown(event) {
 
 function onImagePointerMove(event) {
   if (!pan || event.pointerId !== pan.pointerId) return;
+  if (event.buttons === 0) return onImagePointerUp(event);
   const dx = event.clientX - pan.x;
   const dy = event.clientY - pan.y;
   if (!pan.moved && Math.hypot(dx, dy) < PAN_THRESHOLD) return;
@@ -2752,19 +2797,32 @@ async function onKeydown(event) {
    * browser it reloads index.html, which restarts the app — and since the
    * pending file was consumed at boot, that lands on the empty state having
    * thrown away every tab and its history. Ctrl+R is the same action, handled
-   * below; both suppress the default.
+   * here too; both suppress the default.
    *
    * Handled before the modal guard, and with any modifier, so no spelling of
    * a reload key can get past it — Ctrl+F5 and Shift+F5 included.
    */
-  if (event.key === "F5") {
+  const ctrl = event.ctrlKey || event.metaKey;
+  // `keyCode` too: WebView2's accelerator reads the virtual key, so Ctrl+К on
+  // a Cyrillic layout reloads although `key` is "к". Not `code`: on Dvorak
+  // `KeyR` is where P is.
+  if (
+    event.key === "F5" ||
+    event.key === "BrowserRefresh" ||
+    (ctrl && !event.altKey && (event.key.toLowerCase() === "r" || event.keyCode === 82))
+  ) {
     event.preventDefault();
     refresh();
     return;
   }
 
-  // Otherwise a dialog is modal: let it own the keyboard, Escape included.
-  if (els.settings.open || els.updateDialog.open) return;
+  // Otherwise a dialog is modal: let it own the keyboard, Escape included —
+  // but not WebView2's Back and Forward, which would walk the `#id` history
+  // under it.
+  if (els.settings.open || els.updateDialog.open) {
+    if (event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) event.preventDefault();
+    return;
+  }
 
   if (event.key === "Escape" && !els.openMenu.hidden) {
     showOpenMenu(false);
@@ -2785,7 +2843,6 @@ async function onKeydown(event) {
     }
   }
 
-  const ctrl = event.ctrlKey || event.metaKey;
   // Windows reports AltGr as Ctrl+Alt, and on a German or Nordic keyboard
   // AltGr is how `[` and `]` are typed. Nothing below is a Ctrl+Alt shortcut.
   if (!ctrl || event.altKey) return;
@@ -2855,9 +2912,6 @@ async function onKeydown(event) {
   } else if (key === "w") {
     event.preventDefault();
     if (activeId !== null) await closeTab(activeId);
-  } else if (key === "r") {
-    event.preventDefault();
-    refresh();
   } else if (key === ",") {
     // Cmd+, is the Mac idiom for preferences, and the editors copied it onto
     // the other two platforms. Same door as the gear.
@@ -3058,6 +3112,11 @@ async function main() {
   els.bar.addEventListener("pointermove", onDragMove);
   els.bar.addEventListener("pointerup", onDragEnd);
   els.bar.addEventListener("pointercancel", onDragCancel);
+  // Only the element that holds the capture: a touch captures the tab or the
+  // picture itself first, and handing that over to the bar fires this on the
+  // child — which bubbles here and would cancel every touch drag.
+  els.bar.addEventListener("lostpointercapture", (e) => e.target === els.bar && onDragCancel());
+  els.imageView.addEventListener("lostpointercapture", (e) => e.target === els.imageView && onImagePointerUp(e));
   els.tabs.addEventListener("click", onTabClick);
 
   // onKeydown is async, so a failed open or close comes back as a rejected
@@ -3205,8 +3264,10 @@ async function main() {
   } else if (pending?.kind === "tab") {
     await adoptTab(pending.tab, 0);
   } else if (pending?.kind === "session") {
-    await restoreTabs(pending.tabs, pending.active);
-  } else {
+    await restoreTabs(pending.tabs, pending.active, pending.sidebar);
+  } else if (!tabs.length) {
+    // A file that arrived and rendered first must not be hidden behind the
+    // empty screen.
     show("empty");
     updateChrome();
     // Nothing to open, but something waiting to be: the empty screen grows a

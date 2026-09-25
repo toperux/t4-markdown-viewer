@@ -40,6 +40,10 @@ const GRACE_MARGIN: Duration = Duration::from_millis(50);
 pub struct OpenTabs {
     pub tabs: Vec<Value>,
     pub active: usize,
+    /// Whether the window's sidebar was open. Missing means closed: nothing
+    /// written before this field ever brought a sidebar back.
+    #[serde(default)]
+    pub sidebar: bool,
 }
 
 impl OpenTabs {
@@ -50,10 +54,12 @@ impl OpenTabs {
             "path" => Some(Self {
                 tabs: vec![json!({ "path": payload.get("path")? })],
                 active: 0,
+                sidebar: false,
             }),
             "tab" => Some(Self {
                 tabs: vec![payload.get("tab")?.clone()],
                 active: 0,
+                sidebar: false,
             }),
             // An offer opens nothing: the window shows the empty screen with a
             // button on it. Spelled out rather than left to the catch-all,
@@ -523,6 +529,7 @@ mod tests {
                 open: OpenTabs {
                     tabs: vec![json!({ "path": r"C:\notes\a.md", "entries": [], "index": 0 })],
                     active: 0,
+                    sidebar: true,
                 },
                 frame: Some(Frame {
                     x: 10,
@@ -604,6 +611,7 @@ mod tests {
             open: OpenTabs {
                 tabs: paths.iter().map(|p| json!({ "path": p })).collect(),
                 active: 0,
+                sidebar: false,
             },
             frame: None,
         };
@@ -644,6 +652,7 @@ mod tests {
             open: OpenTabs {
                 tabs: vec![json!({ "path": path })],
                 active: 0,
+                sidebar: false,
             },
             frame: None,
         };
@@ -737,6 +746,33 @@ mod tests {
         )
         .unwrap();
         assert_eq!(s.windows[0].frame, None);
+    }
+
+    /// Files written before the sidebar was saved bring every window back with
+    /// it closed, as those windows always came back.
+    #[test]
+    fn a_window_without_sidebar_comes_back_closed() {
+        let s: Session = serde_json::from_str(
+            r#"{"version":"1.6.6","argv":[],"windows":[{"tabs":[],"active":0,"frame":null}]}"#,
+        )
+        .unwrap();
+        assert!(!s.windows[0].open.sidebar);
+    }
+
+    /// An open sidebar survives the trip to disk, and the payload a restored
+    /// window is created with counts it until the window reports.
+    #[test]
+    fn an_open_sidebar_round_trips() {
+        let path = temp_path("sidebar");
+        config::write_json(&path, &sample());
+        assert!(read_from(&path, "1.4.6").unwrap().windows[0].open.sidebar);
+        discard_at(&path);
+
+        let pending = OpenTabs::from_pending(
+            &json!({ "kind": "session", "tabs": [{ "path": "c.md" }], "active": 0, "sidebar": true }),
+        )
+        .unwrap();
+        assert!(pending.sidebar);
     }
 
     /// Every kind of payload a window can be created with stands in for its
