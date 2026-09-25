@@ -437,10 +437,27 @@ function clearHash() {
 }
 
 function renderDocument(doc, scrollY, hash) {
+  // A box ticked from the keyboard comes back as a new element when the
+  // watcher re-renders; put focus back on it — but only if it is still the
+  // same task, or the next Space ticks a neighbour. Only a keyboard focus
+  // (`:focus-visible`): a clicked box is focused too, and bringing that back
+  // would let a Space meant to scroll untick it. Focus in the sidebar or a
+  // dialog stays where it is. Read before `dataset.path` is overwritten below.
+  const f = document.activeElement;
+  const ticked =
+    f?.type === "checkbox" &&
+    f.matches(":focus-visible") &&
+    els.content.contains(f) &&
+    doc.path === els.content.dataset.path
+      ? f.closest("li[data-sourcepos]")
+      : null;
+  const refocus = ticked && { pos: ticked.dataset.sourcepos, text: ticked.textContent };
+
   clearHash();
 
   els.content.innerHTML = doc.html;
   els.content.dataset.path = doc.path;
+  els.content.dataset.stamp = doc.stamp ?? "";
   // comrak marks every task box disabled; here they are live, because a click
   // goes back to the file — unless the file cannot be written back. A file
   // decode had to repair is not valid UTF-8, so its boxes stay as comrak left
@@ -453,6 +470,11 @@ function renderDocument(doc, scrollY, hash) {
   highlight(els.content);
   addCopyButtons(els.content);
   show("content");
+  if (refocus) {
+    const again = els.content.querySelector(`li[data-sourcepos="${refocus.pos}"]`);
+    if (again?.textContent === refocus.text)
+      again.querySelector(':scope > input[type="checkbox"]')?.focus({ preventScroll: true });
+  }
 
   // Restore after layout, so the offset being scrolled to actually exists yet.
   requestAnimationFrame(() => {
@@ -2452,10 +2474,13 @@ function onLinkClick(event) {
 }
 
 /**
- * A ticked box goes straight to the file; the watcher brings the new render
- * back. The box is flipped by the browser already, so only a failed write
- * needs undoing here.
+ * Ticks go one at a time, each against the stamp the last one left: two quick
+ * ones must not both claim the render's. A tick the file has moved on from is
+ * refused; the page then shows the file as it is — on a share that sends no
+ * change notices nothing else would.
  */
+let ticking = Promise.resolve();
+
 function onTaskToggle(event) {
   const box = event.target;
   const li = box.closest("li[data-sourcepos]");
@@ -2463,11 +2488,22 @@ function onTaskToggle(event) {
   const line = Number(li.dataset.sourcepos.split(":")[0]);
   // The tab's entry moves on as soon as a navigation starts, before the new
   // page is on screen; the line number belongs to the document still in the
-  // DOM, so take the path from there too.
+  // DOM, so take the path — and the stamp — from there too.
   const path = els.content.dataset.path;
-  invoke("toggle_task", { path, line, checked: box.checked }).catch((err) => {
-    box.checked = !box.checked;
-    toast(err);
+  const checked = box.checked;
+  ticking = ticking.then(async () => {
+    // Re-rendered while it waited: the new page already shows the file as it is.
+    if (!box.isConnected) return toast("The file changed; tick it again.");
+    try {
+      const next = await invoke("toggle_task", { path, line, checked, stamp: els.content.dataset.stamp });
+      if (box.isConnected) els.content.dataset.stamp = next;
+    } catch (err) {
+      toast(err);
+      if (box.isConnected) {
+        box.checked = !checked;
+        refresh().catch(console.error);
+      }
+    }
   });
 }
 
@@ -2488,7 +2524,7 @@ function onCopySection(event) {
   // As in `onTaskToggle`: the line belongs to the document in the DOM, so the
   // path has to come from there too, not from a tab entry that may have moved on.
   const path = els.content.dataset.path;
-  const md = invoke("section_source", { path, line });
+  const md = invoke("section_source", { path, line, stamp: els.content.dataset.stamp });
   // WebKit only honours a clipboard write started inside the click itself, so
   // the write begins now and the text lands when the backend has it.
   const item = new ClipboardItem({
@@ -2502,7 +2538,15 @@ function onCopySection(event) {
     })
     // A backend refusal surfaces through the write as a generic clipboard
     // error; the message worth showing is the backend's own.
-    .catch((err) => md.then(() => toast(err), toast))
+    .catch((err) =>
+      md.then(
+        () => toast(err),
+        (e) => {
+          toast(e);
+          refresh().catch(console.error);
+        },
+      ),
+    )
     .finally(() => (btn.disabled = false));
 }
 

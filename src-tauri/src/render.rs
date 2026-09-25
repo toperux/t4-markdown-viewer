@@ -215,23 +215,27 @@ pub fn decode(bytes: &[u8]) -> String {
 pub fn toggle_task(md: &str, line: usize) -> Result<usize, String> {
     let arena = Arena::new();
     let root = parse_document(&arena, md, &options());
-    let symbol = root
+    let (want, symbol) = root
         .descendants()
         .find_map(|node| {
             let data = node.data.borrow();
             match &data.value {
-                NodeValue::TaskItem(item) if data.sourcepos.start.line == line => {
-                    Some(item.symbol_sourcepos.start)
-                }
+                NodeValue::TaskItem(item) if data.sourcepos.start.line == line => Some((
+                    item.symbol.map_or(b' ', |c| c as u8),
+                    item.symbol_sourcepos.start,
+                )),
                 _ => None,
             }
         })
         .ok_or_else(|| format!("Line {line} is not a task item"))?;
 
-    // Columns are 1-based bytes; the symbol is one ASCII byte between the brackets.
+    // Columns are 1-based bytes; the symbol is one ASCII byte between the
+    // brackets. It must be the box comrak parsed: an item that opens with a
+    // link reference definition reports the definition's label instead.
+    let bytes = md.as_bytes();
     line_start(md, symbol.line)
         .map(|start| start + symbol.column - 1)
-        .filter(|&at| matches!(md.as_bytes().get(at), Some(b' ' | b'x' | b'X')))
+        .filter(|&at| bytes.get(at) == Some(&want) && bytes.get(at + 1) == Some(&b']'))
         .ok_or_else(|| format!("Line {line} does not hold the box comrak saw"))
 }
 
@@ -722,6 +726,17 @@ fn main() {}
     fn toggle_task_ignores_boxes_in_code() {
         assert!(toggle_task("```\n- [ ] x\n```\n", 2).is_err());
         assert!(toggle_task("    - [ ] x\n", 1).is_err());
+    }
+
+    /// comrak reports the box of an item that opens with a link reference
+    /// definition at the definition's label. The byte there must agree with
+    /// the box comrak parsed, and be followed by `]`, or the tick is refused.
+    #[test]
+    fn toggle_task_refuses_a_reference_label_for_the_box() {
+        assert!(toggle_task("- [x]: /u\n  [ ] a\n", 1).is_err());
+        assert!(toggle_task("- [X]: /u\n  [ ] a\n", 1).is_err());
+        assert!(toggle_task("- [xy]: /u\n  [x] a\n", 1).is_err());
+        assert!(toggle_task("- [X] a\n", 1).is_ok());
     }
 
     #[test]

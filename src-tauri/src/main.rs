@@ -171,6 +171,20 @@ struct Document {
     /// repair renders fine, but its boxes stay disabled — there is no text to
     /// put back that would not lose what could not be decoded.
     editable: bool,
+    /// The raw bytes' stamp, BOM included — see `stamp_of`. Sent back with a
+    /// tick or a copy, which are refused once the file no longer matches it.
+    stamp: String,
+}
+
+/// What a page was rendered from, so a tick or a copy can tell the file has
+/// moved on since. Hex, because a `u64` does not survive a JavaScript number.
+/// `DefaultHasher::new()` is fixed-key SipHash, not `RandomState`'s random
+/// keys, so the same bytes stamp the same in every call.
+fn stamp_of(bytes: &[u8]) -> String {
+    use std::hash::Hasher;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    h.write(bytes);
+    format!("{:016x}", h.finish())
 }
 
 /// An image the webview will fetch for itself over the asset protocol. There is
@@ -559,6 +573,7 @@ fn load_file(app: AppHandle, path: String, extent: Option<usize>) -> Result<Docu
 
     let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let editable = std::str::from_utf8(&bytes).is_ok();
+    let stamp = stamp_of(&bytes);
     let text = render::decode(&bytes);
     // JSON is shown as source rather than rendered, and highlighted here rather
     // than in the webview — see `json.rs`.
@@ -604,11 +619,13 @@ fn load_file(app: AppHandle, path: String, extent: Option<usize>) -> Result<Docu
         title,
         html,
         editable,
+        stamp,
     })
 }
 
-/// Write a ticked or unticked box back to the document. The watcher sees the
-/// save and the window re-renders from disk, so nothing is updated here.
+/// Write a ticked or unticked box back to the document, and return the file's
+/// new stamp for the page's next tick. The watcher sees the save and the window
+/// re-renders from disk.
 ///
 /// This is the app's only write to a document, and it is one byte written over
 /// the box on a line that already holds one — `render::toggle_task` refuses
@@ -618,26 +635,38 @@ fn load_file(app: AppHandle, path: String, extent: Option<usize>) -> Result<Docu
 /// open keeps its handle, and its creation date, permissions and hard links are
 /// untouched.
 #[tauri::command]
-fn toggle_task(path: String, line: usize, checked: bool) -> Result<(), String> {
+fn toggle_task(path: String, line: usize, checked: bool, stamp: String) -> Result<String, String> {
     let (path, _) = locate(path)?;
     // Errors end up on screen, so name the file the way the user knows it.
     let shown = strip_unc(&path);
-    let bytes = std::fs::read(&path).map_err(|e| format!("{shown}: {e}"))?;
-    let (bom, body) = match bytes.strip_prefix(render::BOM) {
-        Some(b) => (render::BOM, b),
-        None => (&[][..], &bytes[..]),
+    let mut bytes = std::fs::read(&path).map_err(|e| format!("{shown}: {e}"))?;
+    // The line was read off a page. If the file is not what that page was
+    // made from, the line may name a different task now.
+    if stamp_of(&bytes) != stamp {
+        return Err(format!(
+            "{shown} changed on disk since it was shown; showing it again."
+        ));
+    }
+    let at = {
+        let (bom, body) = match bytes.strip_prefix(render::BOM) {
+            Some(b) => (render::BOM, b),
+            None => (&[][..], &bytes[..]),
+        };
+        let text = std::str::from_utf8(body)
+            .map_err(|_| format!("{shown}: not UTF-8, leaving it alone"))?;
+        // The offset is into the text after the BOM, and the file still has it.
+        bom.len() + render::toggle_task(text, line)?
     };
-    let text =
-        std::str::from_utf8(body).map_err(|_| format!("{shown}: not UTF-8, leaving it alone"))?;
-    // The offset is into the text after the BOM, and the file still has it.
-    let at = (bom.len() + render::toggle_task(text, line)?) as u64;
-
     let mut file = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
         .open(&path)
         .map_err(|e| format!("{shown}: {e}"))?;
-    write_box(&mut file, at, checked).map_err(|e| format!("{shown}: {e}"))
+    write_box(&mut file, at as u64, checked).map_err(|e| format!("{shown}: {e}"))?;
+    // The page's next tick is made against this. Wrong only if someone wrote
+    // between the read and the write — then that tick is refused: safe.
+    bytes[at] = if checked { b'x' } else { b' ' };
+    Ok(stamp_of(&bytes))
 }
 
 /// Put the box's one byte at `at`, but only while the file still holds a box
@@ -659,15 +688,19 @@ fn write_box(file: &mut std::fs::File, at: u64, checked: bool) -> std::io::Resul
 /// The Markdown behind one heading, for the copy button the webview puts on
 /// it. Read-only, so a file `decode` had to repair is fine to copy from.
 ///
-/// The file is read again here rather than kept from the render: if it changed
-/// in between, the watcher is already re-rendering, so the window in which the
-/// line could name a different heading is milliseconds wide. Guard it by
-/// sending the heading text along if that ever bites.
+/// The file is read again here rather than kept from the render, and refused
+/// if it is no longer what the page was made from: the line may name a
+/// different heading now.
 #[tauri::command(async)]
-fn section_source(path: String, line: usize) -> Result<String, String> {
+fn section_source(path: String, line: usize, stamp: String) -> Result<String, String> {
     let (path, _) = locate(path)?;
     let shown = strip_unc(&path);
     let bytes = std::fs::read(&path).map_err(|e| format!("{shown}: {e}"))?;
+    if stamp_of(&bytes) != stamp {
+        return Err(format!(
+            "{shown} changed on disk since it was shown; showing it again."
+        ));
+    }
     render::section(&render::decode(&bytes), line)
 }
 
@@ -1644,6 +1677,40 @@ mod tests {
         assert!(is_document(Path::new("a.json")));
         assert!(is_document(Path::new("a.md")));
         assert!(!is_document(Path::new("a.png")));
+    }
+
+    /// A tick is sent against the page it was clicked on. Once the file has
+    /// moved on, the line it names may hold a different task, so it is refused
+    /// and nothing is written; quick ticks chain, each on the stamp the last left.
+    #[test]
+    fn a_tick_on_a_page_older_than_the_file_is_refused() {
+        let dir = std::env::temp_dir().join(format!("t4-stamp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("t.md");
+        let path = file.to_string_lossy().into_owned();
+        std::fs::write(&file, "- [ ] a\n- [ ] b\n").unwrap();
+        let s0 = stamp_of(&std::fs::read(&file).unwrap());
+
+        let s1 = toggle_task(path.clone(), 1, true, s0.clone()).unwrap();
+        assert_eq!(s1, stamp_of(&std::fs::read(&file).unwrap()));
+        let s2 = toggle_task(path.clone(), 2, true, s1).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "- [x] a\n- [x] b\n"
+        );
+
+        std::fs::write(&file, "new\n- [ ] a\n- [ ] b\n").unwrap();
+        assert!(toggle_task(path.clone(), 2, true, s2).is_err());
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "new\n- [ ] a\n- [ ] b\n"
+        );
+
+        std::fs::write(&file, "\u{feff}- [ ] a\n").unwrap();
+        let s = stamp_of(&std::fs::read(&file).unwrap());
+        let next = toggle_task(path.clone(), 1, true, s).unwrap();
+        assert_eq!(next, stamp_of(&std::fs::read(&file).unwrap()));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// Numbers read as numbers, so a run of digits is worth what it says and
