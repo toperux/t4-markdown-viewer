@@ -826,6 +826,12 @@ function setCaret(index) {
 let watching = null;
 /** The same paths in comparison form, so `isWatched` need not rebuild them. */
 const watched = new Set();
+/**
+ * The last `watch_files` call. The command runs off the main thread, so two
+ * calls could finish out of order and the older watcher would win; each waits
+ * for the one before, so they cannot.
+ */
+let watchCall = Promise.resolve();
 
 /** Keep the Rust watcher pointed at exactly the files this window has open. */
 function syncWatch() {
@@ -839,7 +845,11 @@ function syncWatch() {
   watching = key;
   watched.clear();
   for (const p of paths) watched.add(normPath(p));
-  invoke("watch_files", { paths }).catch(console.error);
+  // Skipped if a newer call is queued behind it: that one installs the set
+  // that counts, and on a share that has gone away each call can take ~21 s.
+  watchCall = watchCall.then(
+    () => watching === key && invoke("watch_files", { paths }).catch(console.error),
+  );
 }
 
 /** Whether a change to this file would be reported, or would pass unnoticed. */
@@ -1149,7 +1159,8 @@ async function resortTree() {
 /**
  * The listing itself. `renderTree` is the way in: it keeps count of the root's.
  * Resolves `false` when this listing failed, even if a newer one has the tree:
- * a caller overtaken meanwhile still has to know how its own pick went.
+ * a caller overtaken meanwhile still has to know how its own pick went. And
+ * `"same"` when the listing had not changed, so nothing was rebuilt.
  */
 async function listTree(ul, dir, keep) {
   const token = (treeTokens.get(ul) ?? 0) + 1;
@@ -1180,7 +1191,7 @@ async function listTree(ul, dir, keep) {
   // new sort still has to rebuild, because that is what re-lists the folders
   // open inside it.
   const signature = sort + JSON.stringify(entries);
-  if (signature === treeListings.get(ul)) return;
+  if (signature === treeListings.get(ul)) return "same";
   treeListings.set(ul, signature);
 
   // Every level, not just this one: the lists below are about to be replaced.
@@ -1275,10 +1286,17 @@ async function expandRow(row, open, keep) {
   row.parentElement.setAttribute("aria-expanded", String(open));
   const children = row.nextElementSibling;
   children.hidden = !open;
-  if (open) await renderTree(children, row.dataset.path, keep);
+  if (!open) return;
+  // Unchanged here, but nothing watched the folders left open inside while
+  // this one was shut: ask each again. A rebuild re-lists them itself.
+  if ((await renderTree(children, row.dataset.path, keep)) !== "same") return;
+  const inner = children.querySelectorAll(':scope > li[aria-expanded="true"] > .tree-row');
+  await Promise.all([...inner].map((r) => expandRow(r, true)));
 }
 
 let watchingFolders = null;
+/** The last `watch_folders` call, chained for the reason `watchCall` is. */
+let folderWatchCall = Promise.resolve();
 
 /**
  * Keep the Rust watcher on exactly the folders on show: the root and every
@@ -1320,7 +1338,9 @@ function syncFolderWatch() {
   const key = dirs.join("\0");
   if (key === watchingFolders) return;
   watchingFolders = key;
-  invoke("watch_folders", { dirs }).catch(console.error);
+  folderWatchCall = folderWatchCall.then(
+    () => watchingFolders === key && invoke("watch_folders", { dirs }).catch(console.error),
+  );
 }
 
 /**
@@ -1351,7 +1371,9 @@ async function openFolder(
     picked: owner?.picked,
     filter: owner?.filter,
     out: 0,
+    n: 0, // calls made for this tab while any is out; the last one answers for it
   };
+  const n = writes ? ++before.n : 0;
   if (writes) {
     before.out++;
     folderBefore.set(owner, before);
@@ -1386,16 +1408,18 @@ async function openFolder(
   // listing failed was never really picked, so the tab goes back — unless
   // something newer has written it since. Closed is handled below.
   const overtaken = state.folder !== null && state.folder !== path;
-  if (writes && overtaken && listed === false && owner.folder === path) {
+  const latest = writes && before.n === n;
+  if (latest && overtaken && listed === false && owner.folder === path) {
     Object.assign(owner, { folder: was, picked: wasPicked, filter: wasFilter });
     reportSoon();
   }
   if (state.folder === null) {
-    // Closed while the listing was out. A folder that then failed to list was
-    // never really picked, so the tab goes back to the one it had — unless
-    // something newer has written it since. Not the filter: closing blanked it.
-    if (owner && remember && owner.folder === path && els.sidebar.dataset.tree === "error") {
+    // Closed while the listing was out. A folder whose own listing failed was
+    // never really picked, so the tab goes back to the one it had — unless a
+    // newer call has answered for it since. Not the filter: closing blanked it.
+    if (latest && listed === false && owner.folder === path) {
       Object.assign(owner, { folder: was, picked: wasPicked });
+      reportSoon();
     }
     return;
   }
@@ -1416,7 +1440,7 @@ async function openFolder(
     // Not when the listing failed, because `dataset.dir` is then still the path
     // that failed — recording an unplugged drive would lose the folder that
     // works, and leave the next picker opening in home instead.
-    if (record && state.folder && !failed) {
+    if (record && state.folder && !failed && listed !== false) {
       invoke("set_last_folder", { path: state.folder }).catch(console.error);
     }
     // The tab's own folder, unplugged: show the document's folder this time
@@ -2592,12 +2616,14 @@ function onJsonClick(event) {
       // innermost button left always has the smallest start, so everything
       // before it is here; with none left the whole document is. A re-render
       // can only restore a prefix, which is exactly what a budget is.
-      // With none left, the chunk just fetched ran to the end of its range,
-      // which for the last button is the end of the document. `reduce`, not
-      // a spread: a deeply nested cut leaves one button per open container.
+      // With none left the whole document is loaded, whichever button was
+      // clicked last, and `render_within` clamps the extent to `MAX_EXTENT`.
+      // Never `Infinity`: `JSON.stringify` turns it into `null` — extent 0,
+      // chunk one. `reduce`, not a spread: a deeply nested cut leaves one
+      // button per open container.
       const loaded = [...els.content.querySelectorAll("button.more")]
         .map((b) => Number(b.dataset.range.split(":")[0]))
-        .reduce((a, b) => Math.min(a, b), end);
+        .reduce((a, b) => Math.min(a, b), Number.MAX_SAFE_INTEGER);
       // Only if this is still the document on screen: a navigation during
       // the fetch would otherwise stamp the count on whatever replaced it.
       if (owner && owner === currentEntry(activeTab()) && els.content.dataset.path === path)

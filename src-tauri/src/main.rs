@@ -34,14 +34,16 @@ const IMG_EXTS: &[&str] = &[
 /// installers register these for Open With, never as the default handler.
 const JSON_EXTS: &[&str] = &["json", "jsonc"];
 
-/// How big a document `load_file` will read. `.txt` is in `MD_EXTS`, so the
-/// sidebar happily offers a multi-gigabyte log, and reading, decoding and
-/// rendering it all happen before the command returns — on a worker thread, so
-/// nothing freezes, but the tab stands empty for as long as that takes and the
-/// webview then has to swallow the result. Images are deliberately not capped:
-/// `load_asset` hands the webview a path rather than bytes, so a 40 MB photo
-/// costs nothing here.
-const MAX_DOCUMENT_BYTES: u64 = 32 * 1024 * 1024;
+/// How big a JSON document `load_file` will read — see `json.rs`, which shows
+/// it a chunk at a time. Images are deliberately not capped: `load_asset`
+/// hands the webview a path rather than bytes, so a 40 MB photo costs nothing.
+const MAX_JSON_BYTES: u64 = 32 * 1024 * 1024;
+
+/// How big a document parsed as Markdown may be, `.txt` included. comrak's
+/// tree costs hundreds of bytes per input byte on inline-heavy text — 4 MB of
+/// `*a* ` peaked at about 1 GB — so this bounds a render at a size a machine
+/// can afford, where 32 MB could take many gigabytes and the app with it.
+const MAX_MARKDOWN_BYTES: u64 = 4 * 1024 * 1024;
 
 /// How long a close waits for the page before the window goes anyway. The page
 /// holds each close to send its last report (`onCloseRequested` in app.js); one
@@ -346,10 +348,12 @@ enum Placement {
 /// Create a window.
 ///
 /// The build runs on a worker thread on purpose. `build()` waits on the event
-/// loop to construct the webview, and both callers here — a synchronous command
-/// and the single-instance hook — already run *on* that loop, so building
-/// inline deadlocks the app. Reserving the label and stashing `pending` happens
-/// first and synchronously, so the new window's `take_pending` cannot race it.
+/// loop to construct the webview, and a synchronous command calling this runs
+/// *on* that loop, so building inline would deadlock the app. The
+/// single-instance hook no longer does: it hands off to a thread of its own
+/// (and on macOS the plugin never called it on the loop). Reserving the label
+/// and stashing `pending` happens first and synchronously, so the new window's
+/// `take_pending` cannot race it.
 ///
 /// `source` is the window a torn-off tab came from, if any. That window has
 /// already dropped the tab by the time the build runs, so a failure has to be
@@ -514,19 +518,21 @@ fn locate(path: String) -> Result<(PathBuf, PathBuf), String> {
     Ok((path, dir))
 }
 
-/// Refuse a file this side would have to read, decode and render whole. Shared
-/// by `load_file` and `json_region` so that a file too big to open is also too
-/// big to fetch a chunk of.
-fn check_size(path: &Path) -> Result<(), String> {
+/// Refuse a file past `limit` that this side would have to read, decode and
+/// parse whole. Every command that does is checked — `load_file`, `json_region`,
+/// `toggle_task`, `section_source` — so a file too big to open is also too big
+/// to fetch a chunk of, tick or copy from, and none of them can be made to
+/// parse what the render refused.
+fn check_size(path: &Path, limit: u64) -> Result<(), String> {
     let size = std::fs::metadata(path)
         .map_err(|e| format!("{}: {e}", path.display()))?
         .len();
-    if size > MAX_DOCUMENT_BYTES {
+    if size > limit {
         return Err(format!(
-            "{} is too big to open: {} MB, and the limit is {} MB.",
+            "{} is too big to open: {:.1} MB, and the limit is {} MB.",
             strip_unc(path),
-            size / (1024 * 1024),
-            MAX_DOCUMENT_BYTES / (1024 * 1024)
+            size as f64 / (1024.0 * 1024.0),
+            limit / (1024 * 1024)
         ));
     }
     Ok(())
@@ -559,9 +565,10 @@ fn repo_root(dir: &Path, home: Option<&Path>) -> Option<PathBuf> {
 /// `section_source`, `json_region`, `list_dir` — only to get off the main
 /// thread, as `picker_dir` does: a synchronous command runs on the event loop,
 /// and a big file, a folder of ten thousand entries or a share that has gone
-/// away would hold every window still for as long as it took. Not the watch
-/// commands: being taken in turn on the main thread is what stops two quick
-/// calls installing the older watcher last.
+/// away would hold every window still for as long as it took. The watch
+/// commands, `toggle_task` and `reveal_path` are async for the same reason;
+/// two quick watch calls could then finish out of order, so the page chains
+/// its own, and the older can never be installed last.
 // ponytail: a slow call still occupies one of the async runtime's workers for
 // as long as it takes; move the body into `spawn_blocking` if enough of them
 // at once — a tree of folders on a dead share — ever starve the other async
@@ -569,15 +576,22 @@ fn repo_root(dir: &Path, home: Option<&Path>) -> Option<PathBuf> {
 #[tauri::command(async)]
 fn load_file(app: AppHandle, path: String, extent: Option<usize>) -> Result<Document, String> {
     let (path, dir) = locate(path)?;
-    check_size(&path)?;
+    // JSON is shown as source rather than rendered, and highlighted here rather
+    // than in the webview — see `json.rs`.
+    let as_json = is_json(&path);
+    check_size(
+        &path,
+        if as_json {
+            MAX_JSON_BYTES
+        } else {
+            MAX_MARKDOWN_BYTES
+        },
+    )?;
 
     let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let editable = std::str::from_utf8(&bytes).is_ok();
     let stamp = stamp_of(&bytes);
     let text = render::decode(&bytes);
-    // JSON is shown as source rather than rendered, and highlighted here rather
-    // than in the webview — see `json.rs`.
-    let as_json = is_json(&path);
     let (html, heading) = if as_json {
         (
             json::render_to(&json::source(&text), extent.unwrap_or(0))?,
@@ -585,7 +599,7 @@ fn load_file(app: AppHandle, path: String, extent: Option<usize>) -> Result<Docu
         )
     } else {
         // One parse for both: the title is a heading of the page just rendered.
-        render::render_titled(&text)
+        render::render_titled(&text)?
     };
 
     // Let the webview load images and other assets sitting next to the document.
@@ -634,9 +648,10 @@ fn load_file(app: AppHandle, path: String, extent: Option<usize>) -> Result<Docu
 /// document is truncated, and it stays the same file: whatever else holds it
 /// open keeps its handle, and its creation date, permissions and hard links are
 /// untouched.
-#[tauri::command]
+#[tauri::command(async)]
 fn toggle_task(path: String, line: usize, checked: bool, stamp: String) -> Result<String, String> {
     let (path, _) = locate(path)?;
+    check_size(&path, MAX_MARKDOWN_BYTES)?;
     // Errors end up on screen, so name the file the way the user knows it.
     let shown = strip_unc(&path);
     let mut bytes = std::fs::read(&path).map_err(|e| format!("{shown}: {e}"))?;
@@ -694,6 +709,7 @@ fn write_box(file: &mut std::fs::File, at: u64, checked: bool) -> std::io::Resul
 #[tauri::command(async)]
 fn section_source(path: String, line: usize, stamp: String) -> Result<String, String> {
     let (path, _) = locate(path)?;
+    check_size(&path, MAX_MARKDOWN_BYTES)?;
     let shown = strip_unc(&path);
     let bytes = std::fs::read(&path).map_err(|e| format!("{shown}: {e}"))?;
     if stamp_of(&bytes) != stamp {
@@ -712,12 +728,17 @@ fn section_source(path: String, line: usize, stamp: String) -> Result<String, St
 /// owns, and a document can change under it. `render_slice` refuses a range the
 /// derived source no longer has, so a stale button reports an error and the
 /// watcher's re-render replaces the page moments later.
+///
+/// One at a time: a one-line file reflows to several times its size, and quick
+/// clicks on different buttons would each hold a copy at once.
 // ponytail: a one-line 30 MB file is reflowed again on every click (~0.3 s);
 // cache the derived source per path in a `Mutex<HashMap>` if that becomes felt.
 #[tauri::command(async)]
 fn json_region(path: String, start: usize, end: usize) -> Result<String, String> {
+    static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
     let (path, _) = locate(path)?;
-    check_size(&path)?;
+    check_size(&path, MAX_JSON_BYTES)?;
+    let _turn = ONE_AT_A_TIME.lock().unwrap();
     let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", strip_unc(&path)))?;
     json::render_slice(&json::source(&render::decode(&bytes)), start, end)
 }
@@ -725,7 +746,7 @@ fn json_region(path: String, start: usize, end: usize) -> Result<String, String>
 /// Point this window's sidebar watcher at exactly the folders on show — the
 /// root and whatever is expanded. Collapsed folders are re-listed on expand, so
 /// watching them would only cost handles. Empty `dirs` drops the watcher.
-#[tauri::command]
+#[tauri::command(async)]
 fn watch_folders(app: AppHandle, state: State<AppState>, window: Window, dirs: Vec<String>) {
     let mut dirs: Vec<PathBuf> = dirs
         .into_iter()
@@ -737,7 +758,7 @@ fn watch_folders(app: AppHandle, state: State<AppState>, window: Window, dirs: V
 
     let label = window.label().to_string();
     let handle = watch::watch(
-        app,
+        app.clone(),
         dirs,
         |p| {
             if is_visible_entry(p) {
@@ -749,16 +770,23 @@ fn watch_folders(app: AppHandle, state: State<AppState>, window: Window, dirs: V
         "folder-changed",
         Some(label.clone()),
     );
-    set_watch(&state.folder_watches, label, handle);
+    set_watch(&app, &state.folder_watches, label, handle);
 }
 
 /// Install a window's watcher, dropping the previous one; `None` just drops.
 fn set_watch(
+    app: &AppHandle,
     watches: &Mutex<HashMap<String, watch::Handle>>,
     label: String,
     handle: Option<watch::Handle>,
 ) {
     let mut watches = watches.lock().unwrap();
+    // Built off the main thread, so the window may have gone meanwhile. Tauri
+    // drops it from its own store before our `Destroyed` handler clears this
+    // map under this lock, so nothing is installed that will not be cleared.
+    if app.get_webview_window(&label).is_none() {
+        return;
+    }
     match handle {
         Some(h) => {
             watches.insert(label, h);
@@ -908,7 +936,7 @@ fn list_dir(path: String, sort: String) -> Result<Listing, String> {
 }
 
 /// Replace this window's watcher so it covers exactly the files its tabs hold.
-#[tauri::command]
+#[tauri::command(async)]
 fn watch_files(app: AppHandle, state: State<AppState>, window: Window, paths: Vec<String>) {
     // Each file is kept beside the string the frontend registered it under: the
     // frontend matches events against that, and canonicalizing can change it —
@@ -932,7 +960,7 @@ fn watch_files(app: AppHandle, state: State<AppState>, window: Window, paths: Ve
     let label = window.label().to_string();
     let targets = files;
     let handle = watch::watch(
-        app,
+        app.clone(),
         dirs,
         move |p| {
             targets
@@ -945,7 +973,7 @@ fn watch_files(app: AppHandle, state: State<AppState>, window: Window, paths: Ve
         Some(label.clone()),
     );
 
-    set_watch(&state.watches, label, handle);
+    set_watch(&app, &state.watches, label, handle);
 }
 
 #[tauri::command]
@@ -1220,7 +1248,7 @@ fn set_last_folder(path: String) {
 /// Deliberately not "open it with its default application": the link comes from
 /// a document the user did not write, so `[setup](../tools/setup.bat)` would be
 /// one click away from running. Revealing it leaves that choice with the user.
-#[tauri::command]
+#[tauri::command(async)]
 fn reveal_path(app: AppHandle, path: String) -> Result<(), String> {
     app.opener()
         .reveal_item_in_dir(path)
@@ -1459,7 +1487,12 @@ fn main() {
         // Must be registered first: plugins run in registration order, and this
         // one has to intercept the second process before anything else starts.
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            handle_second_instance(app, argv);
+            // Off the calling thread — the event loop, on Windows and Linux:
+            // `file_from_args` stats the path, and one on a share that has gone
+            // away would hold every window still for ~21 s. `open_path` takes
+            // its locks itself, and its window calls go through the event loop.
+            let app = app.clone();
+            std::thread::spawn(move || handle_second_instance(&app, argv));
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())

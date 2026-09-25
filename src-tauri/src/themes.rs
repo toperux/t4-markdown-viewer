@@ -153,6 +153,11 @@ fn mode_from_css(css: &str) -> Option<Mode> {
                 let Some(value) = cleaned[i + PROP.len()..].trim_start().strip_prefix(':') else {
                     continue;
                 };
+                // Bounded, by characters: a value is a word or two, and slicing
+                // bytes could cut a character in half. `list_themes` runs on the
+                // main thread with `panic = "abort"`.
+                let value = value.trim_start();
+                let value = &value[..value.char_indices().nth(64).map_or(value.len(), |(i, _)| i)];
                 let value = &value[..value.find([';', '}']).unwrap_or(value.len())];
                 // `light dark` means light first; `only dark` means dark.
                 if let Some(word) = value
@@ -258,7 +263,9 @@ fn scan(dir: &PathBuf, builtin: bool, out: &mut Vec<ThemeInfo>) {
         }
         // A theme that cannot be read still belongs in the picker — a locked
         // file should cost it the right mode, not its place in the list.
-        let css = std::fs::read_to_string(&path).ok();
+        // Decoded as `read` decodes it, so a theme saved in a code page is
+        // classified by its own declaration rather than by its name.
+        let css = std::fs::read(&path).map(|b| crate::render::decode(&b)).ok();
         let info = ThemeInfo {
             name: stem.to_string(),
             label: label_for(stem),
@@ -325,7 +332,12 @@ pub fn path_for(app: &AppHandle, name: &str) -> Option<PathBuf> {
 
 pub fn read(app: &AppHandle, name: &str) -> Result<String, String> {
     let path = path_for(app, name).ok_or_else(|| format!("theme '{name}' not found"))?;
-    std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))
+    // Decoded like a document: a theme saved in a code page still applies, as
+    // a browser would take it, and a BOM would otherwise reach `<style>` as
+    // part of the first selector and silently drop that rule.
+    std::fs::read(&path)
+        .map(|b| crate::render::decode(&b))
+        .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// Directories to watch for live theme reloading. Creates the user directory so
@@ -718,5 +730,42 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(&bundled);
         let _ = std::fs::remove_dir_all(&user);
+    }
+
+    #[test]
+    fn color_scheme_scan_is_bounded_and_char_safe() {
+        assert_eq!(
+            mode_from_css(&format!(
+                ":root {{ color-scheme: {} dark }}",
+                "é".repeat(42)
+            )),
+            Some(Mode::Dark)
+        );
+        assert_eq!(
+            mode_from_css(&format!(
+                ":root {{ color-scheme:\n{}dark; }}",
+                " ".repeat(90)
+            )),
+            Some(Mode::Dark)
+        );
+        let t = std::time::Instant::now();
+        mode_from_css(&format!(":root{{{}", "color-scheme:".repeat(5_000)));
+        assert!(t.elapsed().as_secs() < 2, "{:?}", t.elapsed());
+    }
+
+    /// A theme saved in a code page, or with a BOM, is still read — its mode
+    /// from its own declaration, not guessed from its name.
+    #[test]
+    fn a_theme_that_is_not_utf8_is_still_scanned() {
+        let dir = scratch("latin1");
+        std::fs::write(
+            dir.join("plain.css"),
+            b"\xef\xbb\xbf:root{color-scheme:dark}/* \xa9 */",
+        )
+        .unwrap();
+        let mut out = Vec::new();
+        scan(&dir, false, &mut out);
+        assert_eq!(out[0].mode, Mode::Dark);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -8,7 +8,7 @@ GPL, LGPL, AGPL or SSPL.
 
 ### highlight.js
 
-`src/vendor/highlight.min.js` — v11.11.1, redistributed verbatim.
+`src/vendor/highlight.min.js` — v11.12.0, redistributed verbatim.
 BSD-3-Clause. Copyright (c) 2006, Ivan Sagalaev. <https://highlightjs.org>
 
 ## Theme colors

@@ -1,20 +1,42 @@
-use comrak::nodes::{AstNode, NodeValue};
-use comrak::{format_html, parse_document, Arena, Options};
+use comrak::adapters::{HeadingAdapter, HeadingMeta};
+use comrak::nodes::{AstNode, NodeValue, Sourcepos};
+use comrak::options::Plugins;
+use comrak::{format_html_with_plugins, parse_document, Anchorizer, Arena, Options};
+use std::collections::{HashMap, HashSet};
+use std::fmt;
+use std::sync::Mutex;
 
 /// What comrak leaves behind for each raw-HTML node when `unsafe_` is off.
 /// One per dropped node, in document order — which is what lets `render` put
 /// anchor targets back in the right places.
 const OMITTED: &str = "<!-- raw HTML omitted -->";
 
-fn options() -> Options<'static> {
+/// The most HTML one Markdown render hands the webview — the same ceiling JSON
+/// has. `[^1]` written a million times comes to 80 times its own size.
+pub const MAX_HTML_BYTES: usize = 64 * 1024 * 1024;
+pub const TOO_MUCH: &str =
+    "This document is too much to show: rendered, it comes to more than 64 MB.";
+
+/// Past these, a document is parsed without tables or description lists and
+/// those lines read as text — see `table_cost` and `details`. About a third of
+/// a second each at the limit.
+const MAX_TABLE_PADDING: usize = 500_000;
+const MAX_TABLE_WORK: usize = 1_000_000_000;
+const MAX_DETAILS: usize = 5_000;
+
+/// The options every parse of `md` uses — the render, `toggle_task` and
+/// `section` alike — so the line the page sends back is read against the
+/// parse that put it there. They depend on the text, never on anything else.
+fn options(md: &str) -> Options<'static> {
     let mut o = Options::default();
 
-    o.extension.table = true;
+    let (padding, work) = table_cost(md);
+    o.extension.table = padding <= MAX_TABLE_PADDING && work <= MAX_TABLE_WORK;
     o.extension.strikethrough = true;
     o.extension.tasklist = true;
     o.extension.autolink = true;
     o.extension.footnotes = true;
-    o.extension.description_lists = true;
+    o.extension.description_lists = details(md) <= MAX_DETAILS;
     // Empty prefix: heading anchors are plain slugs, so `#some-section` links work.
     o.extension.header_id_prefix = Some(String::new());
     // YAML frontmatter is metadata for other tools, not content: without this
@@ -30,6 +52,144 @@ fn options() -> Options<'static> {
     o.render.sourcepos = true;
 
     o
+}
+
+/// Lines as comrak counts them: `\n`, `\r\n` or a bare `\r` ends one.
+fn lines(md: &str) -> impl Iterator<Item = &str> {
+    md.split('\n')
+        .flat_map(|l| l.strip_suffix('\r').unwrap_or(l).split('\r'))
+}
+
+/// What comrak's tables would cost, at most: the empty cells it pads short
+/// rows out with, and the square of each row's width, since it finds every
+/// cell's column by walking the row from its start. A table runs from its
+/// delimiter row to the next blank line and is as wide as that row, so each
+/// line is charged the widest delimiter row seen since the last blank line.
+/// Quote markers and indentation come off first; a line of `-|: ` that is not
+/// a delimiter row only overcharges, never under.
+fn table_cost(md: &str) -> (usize, usize) {
+    let (mut padding, mut work, mut width) = (0usize, 0usize, 0usize);
+    for line in lines(md) {
+        if line.bytes().all(|b| matches!(b, b' ' | b'\t')) {
+            width = 0;
+            continue;
+        }
+        let body = line.trim_start_matches([' ', '\t', '>']);
+        let cells = row_cells(body);
+        if body.contains('-')
+            && body
+                .bytes()
+                .all(|b| matches!(b, b'|' | b'-' | b':' | b' ' | b'\t' | b'\x0b' | b'\x0c'))
+        {
+            width = width.max(cells);
+        }
+        padding += width.saturating_sub(cells);
+        work += width * width;
+    }
+    (padding, work)
+}
+
+/// The fewest cells a table row makes of `line`: one after each `|` but a
+/// leading one, and one more for anything after the last. Exact for a
+/// delimiter row. comrak's cell scanner takes the longest match, so a `|`
+/// straight after a `\` — `\\|` included — may be part of a cell and is not
+/// counted, which only undercounts cells.
+fn row_cells(line: &str) -> usize {
+    let b = line.as_bytes();
+    let pipes = (0..b.len())
+        .filter(|&i| b[i] == b'|' && (i == 0 || b[i - 1] != b'\\'))
+        .count();
+    let lead = usize::from(line.starts_with('|'));
+    let tail = usize::from(
+        !line
+            .trim_end_matches([' ', '\t', '\x0b', '\x0c'])
+            .ends_with('|'),
+    );
+    (pipes + tail).saturating_sub(lead).max(1)
+}
+
+/// Lines that could open a description's details: `:` or `~` then a space or
+/// tab, once quote markers and indentation are off.
+fn details(md: &str) -> usize {
+    lines(md)
+        .filter(|l| {
+            let body = l.trim_start_matches([' ', '\t', '>']).as_bytes();
+            matches!(body, [b':' | b'~', b' ' | b'\t', ..])
+        })
+        .count()
+}
+
+/// comrak's heading ids, made in linear time. Its own anchorizer tries `-1`,
+/// `-2`, … from 1 again for every repeat of a slug, so 20,000 identical
+/// headings took 12 s; this remembers where each slug got to. Every suffix
+/// below that was taken then and still is — nothing is ever given back — so
+/// the ids are the ones comrak would have given.
+#[derive(Default)]
+struct HeadingIds(Mutex<Ids>);
+
+#[derive(Default)]
+struct Ids {
+    taken: HashSet<String>,
+    next: HashMap<String, usize>,
+    open: String,
+}
+
+impl HeadingAdapter for HeadingIds {
+    fn enter(
+        &self,
+        out: &mut dyn fmt::Write,
+        heading: &HeadingMeta,
+        sourcepos: Option<Sourcepos>,
+    ) -> fmt::Result {
+        let ids = &mut *self.0.lock().unwrap();
+        // A fresh anchorizer has nothing to avoid, so this is the bare slug.
+        let slug = Anchorizer::new().anchorize(&heading.content);
+        let mut n = ids.next.get(&slug).copied().unwrap_or(0);
+        let id = loop {
+            let id = if n == 0 {
+                slug.clone()
+            } else {
+                format!("{slug}-{n}")
+            };
+            if !ids.taken.contains(&id) {
+                break id;
+            }
+            n += 1;
+        };
+        ids.next.insert(slug, n);
+        ids.taken.insert(id.clone());
+        write!(out, "<h{} id=\"{id}\"", heading.level)?;
+        if let Some(sp) = sourcepos.filter(|sp| sp.start.line > 0) {
+            write!(out, " data-sourcepos=\"{sp}\"")?;
+        }
+        out.write_str(">")?;
+        ids.open = id;
+        Ok(())
+    }
+
+    fn exit(&self, out: &mut dyn fmt::Write, heading: &HeadingMeta) -> fmt::Result {
+        let id = &self.0.lock().unwrap().open;
+        write!(out, "<a href=\"#{id}\" aria-label=\"Link to heading '")?;
+        comrak::html::escape(out, &heading.content)?;
+        out.write_str("'\" data-heading-content=\"")?;
+        comrak::html::escape(out, &heading.content)?;
+        // comrak's adapter path skips the newline its own path writes after `</hN>`.
+        writeln!(out, "\" class=\"anchor\"></a></h{}>", heading.level)
+    }
+}
+
+/// A `String` that refuses to grow past `MAX_HTML_BYTES`: comrak passes the
+/// error up rather than building the rest.
+struct Capped(String);
+
+impl fmt::Write for Capped {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        if self.0.len() + s.len() > MAX_HTML_BYTES {
+            return Err(fmt::Error);
+        }
+        self.0.push_str(s);
+        Ok(())
+    }
 }
 
 /// Ids we are willing to reproduce. Deliberately narrow — the value is pasted
@@ -129,26 +289,28 @@ fn anchor_target(raw: &str) -> Option<String> {
 /// `anchor_target`. They are rebuilt from the parsed name alone, so this adds
 /// no path by which document HTML reaches the webview. The title comes back
 /// with it — see `title_of` — so the document is parsed once for both.
-pub fn render_titled(md: &str) -> (String, Option<String>) {
-    let o = options();
+///
+/// A render whose HTML would pass `MAX_HTML_BYTES` is refused with `TOO_MUCH`.
+pub fn render_titled(md: &str) -> Result<(String, Option<String>), String> {
+    let o = options(md);
     let arena = Arena::new();
     let root = parse_document(&arena, md, &o);
-    (html_of(root, &o), title_of(root))
+    Ok((html_of(root, &o)?, title_of(root)))
 }
 
 /// The HTML alone, which is all most of the tests below are about.
 #[cfg(test)]
 fn render(md: &str) -> String {
-    render_titled(md).0
+    render_titled(md).unwrap().0
 }
 
 /// The title alone, likewise.
 #[cfg(test)]
 fn first_heading(md: &str) -> Option<String> {
-    render_titled(md).1
+    render_titled(md).unwrap().1
 }
 
-fn html_of<'a>(root: &'a AstNode<'a>, o: &Options) -> String {
+fn html_of<'a>(root: &'a AstNode<'a>, o: &Options) -> Result<String, String> {
     // Raw-HTML nodes in document order, which is the order comrak drops them.
     let targets: Vec<Option<String>> = root
         .descendants()
@@ -167,13 +329,16 @@ fn html_of<'a>(root: &'a AstNode<'a>, o: &Options) -> String {
         })
         .collect();
 
-    let mut html = String::new();
-    if format_html(root, o, &mut html).is_err() {
-        return String::new();
-    }
+    let ids = HeadingIds::default();
+    let mut plugins = Plugins::default();
+    plugins.render.heading_adapter = Some(&ids);
+    let mut html = Capped(String::new());
+    // Writing to a `String` cannot fail, so an error is `Capped` refusing.
+    format_html_with_plugins(root, o, &mut html, &plugins).map_err(|_| TOO_MUCH.to_string())?;
+    let html = html.0;
 
     if targets.iter().all(Option::is_none) {
-        return html;
+        return Ok(html);
     }
 
     let mut out = String::with_capacity(html.len());
@@ -189,7 +354,11 @@ fn html_of<'a>(root: &'a AstNode<'a>, o: &Options) -> String {
         rest = &rest[at + OMITTED.len()..];
     }
     out.push_str(rest);
-    out
+    // Each `<span>` put back is longer than nothing, so this can pass the cap.
+    if out.len() > MAX_HTML_BYTES {
+        return Err(TOO_MUCH.to_string());
+    }
+    Ok(out)
 }
 
 /// The UTF-8 byte-order mark, which Windows editors leave on files this app
@@ -214,7 +383,7 @@ pub fn decode(bytes: &[u8]) -> String {
 /// face value.
 pub fn toggle_task(md: &str, line: usize) -> Result<usize, String> {
     let arena = Arena::new();
-    let root = parse_document(&arena, md, &options());
+    let root = parse_document(&arena, md, &options(md));
     let (want, symbol) = root
         .descendants()
         .find_map(|node| {
@@ -251,7 +420,7 @@ pub fn toggle_task(md: &str, line: usize) -> Result<usize, String> {
 /// owns the rest of that quote or item rather than the rest of the file.
 pub fn section(md: &str, line: usize) -> Result<String, String> {
     let arena = Arena::new();
-    let root = parse_document(&arena, md, &options());
+    let root = parse_document(&arena, md, &options(md));
     let (heading, level) = root
         .descendants()
         .find_map(|node| {
@@ -319,18 +488,13 @@ fn title_of<'a>(root: &'a AstNode<'a>) -> Option<String> {
         if !matches!(node.data.borrow().value, NodeValue::Heading(_)) {
             return None;
         }
-        // Inline markup contributes what it says, not how it is spelled. The
-        // walk goes through an image too, so a heading holding nothing but a
-        // picture is titled by its alt text — the one piece of that image the
-        // author already wrote for somewhere it cannot be shown.
-        let mut text = String::new();
-        for inner in node.descendants() {
-            match &inner.data.borrow().value {
-                NodeValue::Text(t) => text.push_str(t),
-                NodeValue::Code(c) => text.push_str(&c.literal),
-                _ => {}
-            }
-        }
+        // Inline markup contributes what it says, not how it is spelled, and a
+        // line break inside the heading reads as a space — comrak's own
+        // flattening, the one it names the heading's id by. It goes through an
+        // image too, so a heading holding nothing but a picture is titled by
+        // its alt text — the one piece of that image the author already wrote
+        // for somewhere it cannot be shown.
+        let text = node.collect_text();
         let text = text.trim();
         (!text.is_empty()).then(|| text.to_string())
     })
@@ -357,6 +521,9 @@ mod tests {
 fn main() {}
 ```
 "#;
+
+    /// The repo's own showcase, for checks that want a real document.
+    const EXAMPLE: &str = include_str!("../../examples/kitchen-sink.md");
 
     #[test]
     fn gfm_constructs_render() {
@@ -405,7 +572,7 @@ fn main() {}
     #[test]
     fn dropped_html_leaves_one_ordered_placeholder_each() {
         // options() leaves raw HTML disabled, which is what produces placeholders.
-        let raw = comrak::markdown_to_html("a <b>c</b> d <i>e</i>\n", &options());
+        let raw = comrak::markdown_to_html("a <b>c</b> d <i>e</i>\n", &options(""));
         assert_eq!(
             raw.matches(OMITTED).count(),
             4,
@@ -900,9 +1067,131 @@ fn main() {}
 
     #[test]
     fn render_titled_gives_the_page_and_its_title_from_one_parse() {
-        let (html, title) = render_titled("intro\n\n## Deeper\n");
+        let (html, title) = render_titled("intro\n\n## Deeper\n").unwrap();
         assert!(html.contains("<h2"));
         assert_eq!(title, Some("Deeper".into()));
-        assert_eq!(render_titled("just text\n").1, None);
+        assert_eq!(render_titled("just text\n").unwrap().1, None);
+    }
+
+    /// A wide header over short rows made comrak pad every row out to it —
+    /// 20,000 × 20,000 (140 KB) asked for 61 GB and aborted the app — and a
+    /// wide row costs the square of its width to render. Past either limit the
+    /// lines read as text, and the task and section lookups use that same parse.
+    #[test]
+    fn tables_comrak_cannot_afford_read_as_text() {
+        let bomb = |cols: usize, rows: usize| {
+            format!(
+                "{}|\n{}|\n{}\n- [ ] t\n\n# H\n",
+                "|a".repeat(cols),
+                "|-".repeat(cols),
+                "|x\n".repeat(rows)
+            )
+        };
+        let md = bomb(20_000, 20_000);
+        assert!(!render(&md).contains("<table"));
+        let line = 20_004;
+        assert_eq!(
+            flip(&md, line, true).unwrap(),
+            md.replace("- [ ] t", "- [x] t")
+        );
+        assert_eq!(section(&md, line + 2).unwrap(), "# H\n");
+        // Under the limits it is a table.
+        assert!(render(&bomb(3, 2)).contains("<table"));
+        assert!(table_cost(&bomb(1_000, 499)).0 <= MAX_TABLE_PADDING);
+        assert!(table_cost(&bomb(1_000, 501)).0 > MAX_TABLE_PADDING);
+        // Wide but full: nothing padded, yet 30,000 columns is 30,000² steps a row.
+        let wide = format!(
+            "{}|\n{}|\n{}|\n",
+            "|a".repeat(30_000),
+            "|-".repeat(30_000),
+            "|x".repeat(30_000)
+        );
+        assert!(!render(&wide).contains("<table"));
+    }
+
+    /// The estimate may overcharge, never undercharge: each of these tables
+    /// is padded by comrak, through a quote, a list, CRLF, a bare CR, escaped
+    /// pipes and the spacing characters only tables treat as space.
+    #[test]
+    fn table_cost_never_undercounts_padding() {
+        for md in [
+            "|a|b|c|\n|-|-|-|\nx\n|y\n",
+            "|a|b|c|\r\n|-|-|-|\r\nx\r\n",
+            "|a|b|c|\r|-|-|-|\rx\r",
+            "> |a|b|c|\n> |-|-|-|\n> x\n",
+            "- i\n\n  |a|b|c|\n  |-|-|-|\n  x\n",
+            "a|b|c\n-\x0b|-|-\n\\|\\|x\n\\\\|\\\\|x\n",
+        ] {
+            let arena = Arena::new();
+            let root = parse_document(&arena, md, &options(md));
+            let padded = root
+                .descendants()
+                .filter(|n| {
+                    let d = n.data.borrow();
+                    matches!(d.value, NodeValue::TableCell)
+                        && n.first_child().is_none()
+                        && d.sourcepos.start.column == d.sourcepos.end.column
+                })
+                .count();
+            assert!(padded > 0, "{md:?} is not a padded table");
+            assert!(
+                table_cost(md).0 >= padded,
+                "{md:?}: {padded} padded, charged {}",
+                table_cost(md).0
+            );
+        }
+        // An ordinary full table costs no padding at all.
+        assert_eq!(table_cost("| a | b |\n|---|---|\n| 1 | 2 |\n").0, 0);
+    }
+
+    /// Repeated headings get comrak's own ids — `a`, `a-1`, stepping past an
+    /// `a-2` the document wrote itself — in markup byte for byte comrak's, and
+    /// in linear time: 20,000 identical headings took 10 s.
+    #[test]
+    fn repeated_headings_get_comraks_ids_quickly() {
+        let md = "# a\n# a-2\n# a\n## A\n# a\n\n# *Emph* & `code`\nSetext\nheading\n===\n";
+        assert_eq!(render(md), comrak::markdown_to_html(md, &options(md)));
+        assert_eq!(
+            render(KITCHEN_SINK),
+            comrak::markdown_to_html(KITCHEN_SINK, &options(KITCHEN_SINK))
+        );
+        assert_eq!(
+            render(EXAMPLE),
+            comrak::markdown_to_html(EXAMPLE, &options(EXAMPLE))
+        );
+        let html = render(md);
+        for id in ["\"a\"", "\"a-2\"", "\"a-1\"", "\"a-3\""] {
+            assert!(html.contains(&format!("id={id}")), "{id}: {html}");
+        }
+        let t = std::time::Instant::now();
+        let html = render(&"# a\n".repeat(20_000));
+        assert!(html.contains("id=\"a-19999\""));
+        assert!(t.elapsed().as_secs() < 5, "{:?}", t.elapsed());
+    }
+
+    /// Blank-line-separated terms made comrak reparse the whole list for each
+    /// one; past `MAX_DETAILS` the lines read as text.
+    #[test]
+    fn a_description_list_past_the_limit_reads_as_text() {
+        assert!(render("T\n: d\n").contains("<dl"));
+        let md = "T\n: d\n\n".repeat(MAX_DETAILS + 1);
+        assert!(!render(&md).contains("<dl"));
+    }
+
+    /// Markdown gets the ceiling JSON has: `[^1]` comes to ~80 times its size.
+    #[test]
+    fn markdown_past_the_ceiling_is_refused() {
+        let md = format!("{}\n\n[^1]: x\n", "[^1]".repeat(300_000));
+        assert_eq!(render_titled(&md).unwrap_err(), TOO_MUCH);
+    }
+
+    /// A heading's line breaks read as spaces in the title.
+    #[test]
+    fn first_heading_reads_a_line_break_as_a_space() {
+        assert_eq!(
+            first_heading("Release notes\nfor 2.0\n===\n"),
+            Some("Release notes for 2.0".into())
+        );
+        assert_eq!(first_heading("a\\\nb\n===\n"), Some("a b".into()));
     }
 }

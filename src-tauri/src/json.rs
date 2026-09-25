@@ -41,8 +41,9 @@ const MAX_EXTENT: usize = 8 * 1024 * 1024;
 // say.
 const MAX_HTML_BYTES: usize = 64 * 1024 * 1024;
 
-const TOO_MUCH: &str = "This is too much to show at once: rendered, it comes to more than 64 MB. \
-    That usually means brackets nested thousands deep.";
+const TOO_MUCH: &str = "This is too much to show at once: rendered, it comes to more than 64 MB \
+    with nowhere to split it — values with no comma between them, one very long value, or \
+    brackets nested thousands deep.";
 
 /// What folding may cost one render before the render is made without it.
 ///
@@ -425,9 +426,11 @@ fn emit(src: &str, base: usize, budget: usize) -> String {
 /// `depth` is how many containers are already open where `src` begins — none
 /// for a document, `depth_at` for a chunk of one. Where the chunk is cut does
 /// not depend on which: the budget and the commas are the same either way, so
-/// a re-render stops where it did.
+/// a re-render stops where it did. Folds are markup as well as weight, so a
+/// folded render over the ceiling is tried flat too.
 fn emit_within(src: &str, base: usize, budget: usize, ceiling: usize, depth: usize) -> String {
     emit_as(src, base, budget, ceiling, Some(depth))
+        .filter(|h| h.len() <= ceiling)
         .or_else(|| emit_as(src, base, budget, ceiling, None))
         .unwrap_or_default()
 }
@@ -468,8 +471,9 @@ fn emit_as(
     let mut weight = 0usize;
 
     for token in Tokens::new(src, 0) {
-        // Past the ceiling the caller refuses this whatever else it holds, so
-        // there is no point building — or allocating — the rest of it.
+        // Past the ceiling the caller discards this whatever else it holds — a
+        // folded render is tried flat, a flat one refused — so there is no
+        // point building — or allocating — the rest of it.
         if out.len() > ceiling {
             return Some(out);
         }
@@ -1335,6 +1339,15 @@ mod tests {
         assert!(!html.contains("fold"), "fold markup in a flat render");
         assert!(balanced(&html));
         assert_eq!(strip(&html), escaped(&src));
+    }
+
+    /// Folds can push a document with nowhere to cut over the ceiling while it
+    /// fits flat — one `[1]` a line, no commas — so it is shown flat, not
+    /// refused.
+    #[test]
+    fn a_folded_render_over_the_ceiling_is_tried_flat() {
+        let html = render_within(&"[1]\n".repeat(393_000), 0, MAX_HTML_BYTES);
+        assert!(html.is_ok_and(|h| !h.contains("class=\"fold")));
     }
 
     /// Deep is not heavy: five hundred levels is a few hundred thousand, and
