@@ -512,6 +512,17 @@ main:has(#content:not([hidden]))::before {
   font-weight: 600;
 }
 
+/* Focus sits on the treeitem, which wraps its whole subtree, so the ring goes
+   on its row alone. Inset, because the sidebar scrolls and clips the edges. */
+#tree li:focus-visible {
+  outline: none;
+}
+
+#tree li:focus-visible > .tree-row {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: -2px;
+}
+
 .tree-row.error {
   cursor: default;
   color: var(--ui-fg-muted);
@@ -884,6 +895,12 @@ select option {
   /* No underline: the page colour and the glow already say which tab is live,
      and this also keeps the hover preview off the active tab. */
   border-bottom-color: transparent;
+}
+
+/* Inset: the strip is a scroller, and clips whatever is drawn outside a tab. */
+.tab:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: -2px;
 }
 
 .tab-label {

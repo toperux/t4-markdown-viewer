@@ -1302,6 +1302,7 @@ function applyTreeFilter() {
     return any;
   };
   pass(els.tree, !q);
+  setTreeStop(); // the filter may just have hidden the row that was it
 }
 
 /** Open or close a folder row. Leaves the watcher alone — see syncFolderWatch. */
@@ -1309,7 +1310,7 @@ async function expandRow(row, open, keep) {
   row.parentElement.setAttribute("aria-expanded", String(open));
   const children = row.nextElementSibling;
   children.hidden = !open;
-  if (!open) return;
+  if (!open) return setTreeStop(); // the tab stop may have been inside
   // Unchanged here, but nothing watched the folders left open inside while
   // this one was shut: ask each again. A rebuild re-lists them itself.
   if ((await renderTree(children, row.dataset.path, keep)) !== "same") return;
@@ -1525,13 +1526,32 @@ function markTreeSelection() {
   for (const row of els.tree.querySelectorAll(".tree-row[data-path]")) {
     const on = !!path && !row.dataset.dir && samePath(row.dataset.path, path);
     row.classList.toggle("active", on);
-    // The state is the treeitem's, not the row's, and the selected one is the
-    // single stop the tab order needs in a tree.
+    // The state is the treeitem's, not the row's.
     const li = row.parentElement;
     if (on) li.setAttribute("aria-selected", "true");
     else li.removeAttribute("aria-selected");
-    li.tabIndex = on ? 0 : -1;
   }
+  setTreeStop();
+}
+
+/** The treeitems on show, in order: what the arrow keys walk. */
+function visibleTreeItems() {
+  return [...els.tree.querySelectorAll('li[role="treeitem"]')].filter((li) => !li.closest("[hidden]"));
+}
+
+/**
+ * Keep exactly one treeitem in the tab order, as a tree should have: the one
+ * with focus, else the selected one, else the first on show. Only one on show
+ * will do — Tab skips a row the filter or a collapsed folder hides, and the
+ * tree would drop out of the tab order altogether.
+ */
+function setTreeStop() {
+  const items = visibleTreeItems();
+  const stop =
+    items.find((li) => li === document.activeElement) ??
+    items.find((li) => li.getAttribute("aria-selected") === "true") ??
+    items[0];
+  for (const li of els.tree.querySelectorAll('li[role="treeitem"]')) li.tabIndex = li === stop ? 0 : -1;
 }
 
 async function onTreeClick(event) {
@@ -1563,6 +1583,36 @@ async function onTreeAuxClick(event) {
   if (!row || row.dataset.dir) return;
   event.preventDefault();
   await openTab(row.dataset.path);
+}
+
+/**
+ * The tree's keys, as the WAI-ARIA tree pattern has them. Enter, Space and the
+ * arrows that open or shut a folder click the row, so they do exactly what the
+ * mouse does. Unmodified keys only: Alt+←/→ is Back and Forward, and the rest
+ * belong to `onKeydown` too. Stopped here once handled, or an arrow would also
+ * dismiss a menu there.
+ */
+function onTreeKeydown(event) {
+  const li = event.target;
+  if (li.getAttribute("role") !== "treeitem") return;
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  const row = li.querySelector(":scope > .tree-row");
+  const expanded = li.getAttribute("aria-expanded"); // null on a file
+  const items = visibleTreeItems();
+  let to = null;
+  if (event.key === "ArrowDown") to = items[items.indexOf(li) + 1];
+  else if (event.key === "ArrowUp") to = items[items.indexOf(li) - 1];
+  else if (event.key === "ArrowRight") {
+    if (expanded === "false") row.click();
+    else if (expanded === "true") to = li.querySelector(':scope > ul > li[role="treeitem"]:not([hidden])');
+  } else if (event.key === "ArrowLeft") {
+    if (expanded === "true") row.click();
+    else to = li.parentElement.closest('li[role="treeitem"]');
+  } else if (event.key === "Enter" || event.key === " ") row.click();
+  else return;
+  event.preventDefault(); // Space and the arrows would scroll the sidebar too
+  event.stopPropagation();
+  to?.focus(); // the tab stop follows, from the tree's `focusin`
 }
 
 /* ---------------- the tree's right-click menu ---------------- */
@@ -1971,11 +2021,26 @@ function showUpdateProgress(percent) {
     percent == null ? "Downloading…" : `Downloading… ${percent}%`;
 }
 
-/** `undefined` toggles. */
+/** `undefined` toggles. Opening focuses the first item, as the other menus do. */
 function showOpenMenu(open) {
   const next = open ?? els.openMenu.hidden;
   els.openMenu.hidden = !next;
   els.openMore.setAttribute("aria-expanded", String(next));
+  if (next) els.openMenu.querySelector("button").focus();
+}
+
+/**
+ * ↑ and ↓ walk a menu's items, round the ends, for all three menus. Enter and
+ * Space are the items' own, being buttons; Escape and Tab are `onKeydown`'s.
+ * Stopped here, or `onKeydown` would take the arrow for a key that dismisses.
+ */
+function onMenuKeydown(event) {
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  event.preventDefault();
+  event.stopPropagation();
+  const items = [...event.currentTarget.querySelectorAll("button")];
+  const step = event.key === "ArrowDown" ? 1 : -1;
+  items[(items.indexOf(document.activeElement) + step + items.length) % items.length].focus();
 }
 
 /* ---------------- dragging ---------------- */
@@ -2273,6 +2338,37 @@ function onTabClick(event) {
   if (!close) return;
   const el = close.closest(".tab");
   if (el) closeTab(Number(el.dataset.id)).catch(toast);
+}
+
+/**
+ * A focused tab's keys, as the WAI-ARIA tabs pattern has them: ←/→ move focus
+ * round the strip without switching, Enter or Space switches to the tab, and
+ * Delete closes it by the close button's path. Unmodified keys only, so
+ * Ctrl+Tab, Ctrl+W and Alt+←/→ still reach `onKeydown`; stopped once handled.
+ */
+function onTabsKeydown(event) {
+  const el = event.target;
+  if (!el.classList.contains("tab")) return;
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  const id = Number(el.dataset.id);
+  if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+    const all = [...els.tabs.querySelectorAll(".tab")];
+    const step = event.key === "ArrowRight" ? 1 : -1;
+    const to = all[(all.indexOf(el) + step + all.length) % all.length];
+    for (const t of all) t.tabIndex = t === to ? 0 : -1;
+    to.focus();
+  } else if (event.key === "Enter" || event.key === " ") {
+    activateTab(id).then(focusActiveTab).catch(toast);
+  } else if (event.key === "Delete") {
+    closeTab(id).then(focusActiveTab).catch(toast);
+  } else return;
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+/** The strip is rebuilt on every change, so focus has to be put back on it by hand. */
+function focusActiveTab() {
+  els.tabs.querySelector(".tab.active")?.focus();
 }
 
 /* ---------------- themes ---------------- */
@@ -2759,9 +2855,11 @@ async function onKeydown(event) {
   // the document rather than inside the tree, so a shortcut that hides the
   // sidebar would otherwise leave it pointing at a row that is no longer there.
   // Not the keys the menu itself is listening for, though: dismissing on Enter
-  // would take the row away before the item it activates could read it.
+  // would take the row away before the item it activates could read it, and
+  // `onMenuKeydown` keeps the arrows. Tab does dismiss: focus goes back to the
+  // row first, so the browser's own move carries on from there.
   const forMenu =
-    els.treeMenu.contains(document.activeElement) && ["Enter", " ", "Tab"].includes(event.key);
+    els.treeMenu.contains(document.activeElement) && ["Enter", " "].includes(event.key);
   if (
     !els.treeMenu.hidden &&
     !forMenu &&
@@ -2775,7 +2873,7 @@ async function onKeydown(event) {
 
   // The sidebar's sort menu goes the same way, back to the button it came from.
   const forSortMenu =
-    els.sortMenu.contains(document.activeElement) && ["Enter", " ", "Tab"].includes(event.key);
+    els.sortMenu.contains(document.activeElement) && ["Enter", " "].includes(event.key);
   if (
     !els.sortMenu.hidden &&
     !forSortMenu &&
@@ -2824,10 +2922,11 @@ async function onKeydown(event) {
     return;
   }
 
-  if (event.key === "Escape" && !els.openMenu.hidden) {
+  // Tab closes it too, from its button, for the reason the tree's menu does.
+  if ((event.key === "Escape" || event.key === "Tab") && !els.openMenu.hidden) {
     showOpenMenu(false);
     els.openMore.focus();
-    return;
+    if (event.key === "Escape") return;
   }
 
   if (event.altKey && !event.ctrlKey && !event.metaKey) {
@@ -2992,7 +3091,11 @@ async function main() {
     if (e.button === 1) e.preventDefault();
   });
   els.tree.addEventListener("contextmenu", onTreeContextMenu);
+  els.tree.addEventListener("keydown", onTreeKeydown);
+  // Roving tabindex: the tab stop goes wherever focus lands, by key or by click.
+  els.tree.addEventListener("focusin", setTreeStop);
   els.treeMenu.addEventListener("click", (e) => onTreeMenuClick(e).catch(toast));
+  for (const menu of [els.openMenu, els.sortMenu, els.treeMenu]) menu.addEventListener("keydown", onMenuKeydown);
   // The tree answers metaKey as well as ctrlKey; on the Mac only one of those
   // is the one people reach for, and Ctrl+click is the right-click that opened
   // this menu in the first place.
@@ -3005,6 +3108,7 @@ async function main() {
     const item = e.target.closest("button[data-mode]");
     if (!item) return;
     showOpenMenu(false);
+    els.openMore.focus(); // hiding the focused item would drop it to the body
     const p = await pickFile();
     if (!p) return;
     // Deliberately bypasses openDocument: the point of this menu is to override
@@ -3118,6 +3222,7 @@ async function main() {
   els.bar.addEventListener("lostpointercapture", (e) => e.target === els.bar && onDragCancel());
   els.imageView.addEventListener("lostpointercapture", (e) => e.target === els.imageView && onImagePointerUp(e));
   els.tabs.addEventListener("click", onTabClick);
+  els.tabs.addEventListener("keydown", onTabsKeydown);
 
   // onKeydown is async, so a failed open or close comes back as a rejected
   // promise no listener would ever look at: a shortcut would just do nothing.
