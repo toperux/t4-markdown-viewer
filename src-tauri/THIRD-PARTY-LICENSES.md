@@ -1,8 +1,8 @@
 # Third-party notices
 
-This app is MIT-licensed (see [`../LICENSE`](../LICENSE)). Everything it
-depends on is permissively licensed and compatible with that. Nothing here is
-GPL, LGPL, AGPL or SSPL.
+This app is MIT-licensed (see [`../LICENSE`](../LICENSE)). No Rust crate here
+is GPL, LGPL, AGPL or SSPL. The Linux AppImage also bundles system libraries;
+see below.
 
 ## Bundled at runtime
 
@@ -33,24 +33,27 @@ endorsed by those projects.
 
 ## Rust dependencies
 
-306 crates reach the Windows release build. Audited against
+349 crates reach the Windows release build. Audited against
 `cargo metadata --filter-platform x86_64-pc-windows-msvc`, dev-dependencies
 excluded. Every crate declares an SPDX license; none relies on a bare
 `license-file`.
 
 | License | Crates | Obligation |
 | --- | --- | --- |
-| `MIT OR Apache-2.0` (incl. legacy `MIT/Apache-2.0` spellings) | 254 | attribution |
-| `MIT` | 56 | attribution |
-| `Unicode-3.0` | 21 | attribution |
+| `MIT OR Apache-2.0` (incl. legacy `MIT/Apache-2.0` spellings, and a third option: `Zlib`, `ISC`, `0BSD`) | 227 | attribution |
+| `MIT` | 70 | attribution |
+| `Unicode-3.0` (incl. `(MIT OR Apache-2.0) AND Unicode-3.0` and `… AND Unicode-DFS-2016`) | 21 | attribution |
 | `Unlicense OR MIT` | 10 | none |
 | `MPL-2.0` | 5 | see below |
-| `BSD-3-Clause` (incl. `… AND MIT`) | 6 | attribution, no-endorsement |
+| `BSD-3-Clause` (incl. `… AND MIT`, `BSD-3-Clause/MIT`) | 5 | attribution, no-endorsement |
 | `BSD-2-Clause` | 1 — `comrak` | attribution |
-| `CC0-1.0` | 2 — `notify`, `dunce` | none (public-domain dedication) |
+| `ISC` | 2 — `rustls-webpki`, `untrusted` | attribution |
+| `CC0-1.0` (incl. `… OR MIT-0 OR Apache-2.0`) | 2 — `notify`, `dunce` | none (public-domain dedication) |
 | `Zlib` | 1 — `foldhash` | attribution |
 | `MITNFA` | 1 — `fmt2io` | MIT plus no-false-attribution |
-| `Apache-2.0` only | 1 — `tao` | preserve `NOTICE`, patent grant |
+| `Apache-2.0` only | 2 — `tao`, `sync_wrapper` | preserve `NOTICE`, patent grant |
+| `Apache-2.0 AND ISC` | 1 — `ring` | preserve `NOTICE`, patent grant, attribution |
+| `Apache-2.0 AND MIT` | 1 — `dpi` | preserve `NOTICE`, patent grant, attribution |
 
 Direct dependencies: `tauri`, `tauri-build`, `tauri-plugin-dialog`,
 `tauri-plugin-opener`, `tauri-plugin-single-instance`, `tauri-plugin-updater`
@@ -60,7 +63,7 @@ Direct dependencies: `tauri`, `tauri-build`, `tauri-plugin-dialog`,
 ### The MPL-2.0 crates
 
 `cssparser`, `cssparser-macros`, `dtoa-short` and `selectors` arrive through
-`tauri → dom_query`; `option-ext` through `dirs → dirs-sys`. All five are
+`tauri → tauri-utils → dom_query`; `option-ext` through `dirs → dirs-sys`. All five are
 transitive — none is used directly and none is modified here.
 
 MPL-2.0 is **file-level** copyleft. Its §3.3 explicitly permits combining the
@@ -72,11 +75,30 @@ upstream.
 
 ### Regenerating
 
-For a per-crate manifest with full license texts:
+The table counts every crate reachable from this package through normal and
+build dependencies, from the resolved graph for the Windows target:
 
 ```
-cargo install cargo-about && cargo about generate about.hbs
+cargo metadata --format-version 1 --locked --filter-platform x86_64-pc-windows-msvc --manifest-path src-tauri/Cargo.toml
 ```
+
+Walk `resolve.nodes` from `resolve.root`, following each dependency whose
+`dep_kinds` includes a kind other than `dev`, and group the crates reached by
+their `license` field.
+
+## Linux AppImage
+
+The AppImage also carries shared libraries that linuxdeploy copies from the
+Ubuntu 22.04 build machine — GTK 3, WebKitGTK, GLib, GStreamer, libsoup and
+what they link to (the full list is `usr/lib` after `--appimage-extract`). They
+are unmodified Ubuntu binaries under their own licences: mostly
+LGPL-2.1-or-later, some MIT/BSD/ICU, and `libjbig` (through libtiff) under
+GPL-2.0-or-later. The app loads them dynamically; any of them can be replaced
+by extracting the AppImage and running `AppRun` from the extracted tree. Their
+source is the matching Ubuntu 22.04 (jammy) source package
+(`apt-get source <package>`), and the author will provide it on request — open
+an issue at <https://github.com/toperux/t4-markdown-viewer/issues> — for three
+years after each release. The .deb and .rpm bundle none of these.
 
 ## Not redistributed
 

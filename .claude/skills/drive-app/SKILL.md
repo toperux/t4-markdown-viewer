@@ -18,6 +18,27 @@ Scripts in `.claude/skills/drive-app/scripts/` (run from the repo root):
   install.
 - `dialog.ps1` — answers the native open dialog: `-ProcId <pid> -Path <path>`,
   `-Cancel`, or `-Dump`.
+- `cdpraw.mjs` — `node cdpraw.mjs <port> <method> [jsonParams]`: sends one raw
+  CDP command to the first tauri page, for methods `cdp.mjs` has no verb for
+  (e.g. `Page.crash`).
+- `click.ps1` — `-ProcId <pid> -X <x> -Y <y>`: brings the process's window to
+  the front and sends a real OS left click at screen coordinates, for buttons
+  CDP input events can't reach (a browser error page).
+- `winshot.ps1` — `-Out <path.png> [-Exe <path>]`: captures the debug app's
+  main window with `PrintWindow` and prints its screen rect, for finding
+  screen coordinates to feed `click.ps1`.
+- `sendkeys.ps1` — `-ProcId <pid> -Keys <SendKeys string>`: brings the
+  process's main window to the front and types through the OS (`^r` is
+  Ctrl+R), so WebView2's browser accelerators see a real key press — CDP's
+  `Input.dispatchKeyEvent` goes straight to the renderer and skips them.
+- `drag-corner.ps1` — `-Hwnd <handle>`: resizes a window as a user would, by
+  dragging its bottom-right corner up to its top-left, and prints the client
+  size left. The only way to test a minimum size — see *Window size* below.
+- `second.ps1` — `-Path <arg>`: launches a second instance naming `<arg>`, from
+  PowerShell so a UNC path keeps its leading `\\`.
+
+A helper written for one run lives in that session's scratchpad and goes with
+it. Copy it here if a later run will want it.
 
 ## 1. Before launching
 
@@ -151,7 +172,33 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/drive-app/scr
   and every dialog call failed.
 
 - **Window size.** `core:window:allow-set-size` isn't granted, so resize with
-  Win32 `MoveWindow` from PowerShell.
+  Win32 `MoveWindow` from PowerShell — but `MoveWindow` ignores the window's
+  minimum size and will happily set it smaller. Test a minimum with a real
+  corner drag instead (`drag-corner.ps1`).
+- **A reload now comes back with the window's last-reported tabs**, not a
+  boot at 0 tabs: `location.reload()` reopens whatever the window last
+  reported, so a clean page needs a fresh relaunch, not a reload.
+- **Driving the crash screen.** CDP `Page.crash` (raw command — `cdpraw.mjs`)
+  puts WebView2 on "This page is having a problem"; a real OS click on its
+  Refresh button (`click.ps1`, with the window rect from `winshot.ps1`) drives
+  the recovery, since CDP can't see or click that page.
+- **Stubbing or delaying one IPC command to test a race.** Wrap
+  `window.chrome.webview.postMessage` and hold back messages naming the
+  command you want to stall — `__TAURI_INTERNALS__.invoke` is non-writable
+  and the CSP blocks the IPC `fetch`, so Tauri falls back to `postMessage`.
+  E.g. a `set_session` that never answers holds a window in `closing`.
+- **Real OS keystrokes for reload and Back accelerators.** CDP key events
+  skip WebView2's browser accelerators; F5/Ctrl+R and Alt+←/→ need a real
+  keystroke through `sendkeys.ps1` (`WScript.Shell` `AppActivate` +
+  `SendKeys`), not `key` in `cdp.mjs`.
+- **Never install a local NSIS build on the host.** Use Windows Sandbox.
+- **Git Bash collapses a leading `\\` in an argument**, so a UNC path passed
+  to a second instance on the command line arrives mangled. Launch a second
+  instance naming a UNC path with `second.ps1` instead.
+- **A dead host's failure cache is unreliable.** Windows caches a failed
+  `canonicalize`/connect for a while, but a repeat probe against the same
+  host is not reliably fast — use a fresh IP per probe rather than assuming
+  the second call is cheap.
 - **Clipboard.** Seed it with `powershell Set-Clipboard -Value x` and read it
   back with `Get-Clipboard -Raw`. The copy-section button uses a promise-valued
   `ClipboardItem`; that's been checked on WebView2 only.
@@ -167,9 +214,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/drive-app/scr
 - **Waiting for the app to exit.** Watch the spawned child's `exitCode`, not
   `tasklist | find`: that reported the process gone while it was still running,
   so a probe restored `session.json` before the app wrote over it.
-- **Closing a window from JS** needs `core:window:allow-close` in
-  `capabilities/default.json`. `core:default` doesn't include it, and callers
-  that catch and log fail silently.
+- **The page holds only the Tauri permissions it uses** (`capabilities/default.json`
+  lists them; no `core:default`). Anything else rejects with "… not allowed":
+  window getters (`isMaximized` — read `IsZoomed` from Win32 instead),
+  `event.emit`, `app.getVersion`, `setSize`. A new window/event call in `app.js`
+  needs its permission added there, and callers that catch and log fail silently.
 - **Several windows.** `CDP_PAGE=<n> node cdp.mjs …` picks the nth tauri page in
   `/json/list` (default 0). The order is not the window order —
   `eval "appWindow.label"` says which window a page is.

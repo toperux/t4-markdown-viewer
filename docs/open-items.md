@@ -4,8 +4,11 @@
 
 Collected on 2026-09-11, after v1.5.9. Sources: a review of history since v1.5.0, CI and
 GitHub state, and a smoke run of the debug build using the `drive-app` skill. Swept after
-v1.6.5 and the full review of 2026-09-20, and again on 2026-09-25 after v1.6.8: what is left
-needs a Mac, a Linux install or a date. Nothing here blocks a release.
+v1.6.5 and the full review of 2026-09-20, again on 2026-09-25 after the full review of
+2026-09-25 and v1.6.8, and again on 2026-09-26 after that review's follow-up round closed
+#37, #43, #44, #46, #47, #48 and the sidebar-after-restore item. What's left: the
+release-pipeline owner steps and dry run below, and whatever the other sections above still
+hold. Nothing here blocks a release.
 
 Tick an item as it closes, then move it with its notes to `closed-items.md`, under the same
 section, so this file lists only what is still to do. Finished plans and reviews live in
@@ -62,6 +65,18 @@ section, so this file lists only what is still to do. Finished plans and reviews
   last; the session code already reads a quit as windows closing one after another. Dock →
   Quit and logout stay on the terminate path. Reopen on a Mac, and prove it there: scroll, then
   Cmd+Q within 500 ms, and the next launch comes back at the scroll, every window in order.
+
+## Deferred from the 2026-09-25 review
+
+- [ ] **Task 15's release-pipeline hardening is done in code (08606a8) but not yet run.** Owner
+  steps, in order: (1) ~~add the four signing secrets to the `signing` environment~~ done
+  2026-09-25, repo copies left in place until step 5; (2) clear the
+  `v0-rust-build` caches; (3) push; (4) a `workflow_dispatch` dry run on `main` and check it;
+  (5) delete the four repo secrets and dry-run again; (6) turn on "require actions pinned to a
+  full-length commit SHA". With the dry run, also: extract its AppImage (`--appimage-extract`)
+  and check `usr/lib` against THIRD-PARTY-LICENSES' "Linux AppImage" section, `libjbig`
+  included; and check that the dry run also rehearses publish (#46) — the draft release
+  `dry-run-<run id>` was created, its assets matched `dist/`, and it was deleted.
 
 ## Accepted limits
 

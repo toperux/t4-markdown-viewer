@@ -168,7 +168,7 @@ caches, so `.md` opens on double-click and the app appears under *Open With*.
 Set it as the default with:
 
 ```sh
-xdg-mime default t4-markdown-viewer.desktop text/markdown
+xdg-mime default "T4 Markdown Viewer.desktop" text/markdown
 ```
 
 **An AppImage is not installed into the system MIME database**, so it will not
@@ -490,13 +490,16 @@ listener either, so `open_path` stashes the path for it to collect rather than
 emitting into the void. That is the normal case on a cold start, where the OS
 hands over the file before the webview exists.
 
-**Tauri's Linux `.desktop` template omits the `%F` field code**, so the desktop
+**Tauri's Linux `.desktop` template gives `Exec` no field code**, so the desktop
 environment would launch the app with no path at all and land it on the empty
-state. `src-tauri/linux/main.desktop` is a copy of that template with `%F`
-added, wired up through `bundle.linux.deb.desktopTemplate`; the AppImage
-bundler reuses the deb's data directory, so one file covers both. The `MimeType`
-key is likewise only written when `fileAssociations[].mimeType` is set
-explicitly — it is never inferred from the extensions.
+state. `src-tauri/linux/main.desktop` is a copy of that template with `%f`
+added — `%f`, not `%F`: the app reads only the first path, and the desktop
+environment starts one process per file, which the single-instance hook turns
+into tabs. It is wired up through `bundle.linux.deb.desktopTemplate` and
+`bundle.linux.rpm.desktopTemplate`; the AppImage bundler reuses the deb's data
+directory, so one file covers all three. The `MimeType` key is likewise only
+written when `fileAssociations[].mimeType` is set explicitly — it is never
+inferred from the extensions.
 
 **Dragging is pointer capture, not HTML5 drag-and-drop.** DnD cannot cross a
 webview boundary and every window here is its own webview. Instead the bar
@@ -550,10 +553,12 @@ src-tauri/
     themes.rs         theme discovery
     watch.rs          debounced per-window file + theme watching
     config.rs         persisted settings
+    session.rs        open documents, kept across restarts and updates
+    update.rs         update check and install
   capabilities/       permission scope — must cover runtime windows
   themes/             bundled theme catalog
   windows/            NSIS installer hooks
-  linux/              .desktop template, MIME package, post-install script
+  linux/              .desktop template, MIME package, post-install/remove scripts
 examples/             kitchen-sink fixture
 ```
 
@@ -561,8 +566,10 @@ examples/             kitchen-sink fixture
 
 MIT — see [`LICENSE`](LICENSE).
 
-Every dependency is permissively licensed and compatible with that; nothing in
-the tree is GPL, LGPL, AGPL or SSPL. Five transitive crates are MPL-2.0, whose
-file-level copyleft expressly allows combining them into an MIT-licensed larger
-work. Per-license breakdown and attribution in
+Every Rust crate is permissively licensed and compatible with that; none is
+GPL, LGPL, AGPL or SSPL. Five transitive crates are MPL-2.0, whose file-level
+copyleft expressly allows combining them into an MIT-licensed larger work. The
+Linux AppImage also carries unmodified Ubuntu system libraries under their own
+licences, some LGPL and one GPL. Per-license breakdown, attribution and the
+AppImage's source offer in
 [`src-tauri/THIRD-PARTY-LICENSES.md`](src-tauri/THIRD-PARTY-LICENSES.md).

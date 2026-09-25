@@ -306,6 +306,52 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   before; renders of every `examples/*.md` (the defect-96194 file's 18 raw anchors among them)
   and the README were byte-identical before and after.*
 
+## Deferred from the 2026-09-25 review
+
+- [x] **#37: the folder tree, menus and tab strip carry ARIA roles and a roving tabindex but no
+  keyboard handling** (`docs/archive/reviews/code-review-2026-09-25.md`). No arrows/Enter/Space in the
+  tree, no tab stop when no row is selected; arrow keys dismiss the menus; Enter/Delete do
+  nothing on a focused tab. Reopen when keyboard or screen-reader use is asked for.
+  *Done 2026-09-26, 70e935c: tree ↑/↓/←/→/Enter/Space and one tab stop, menus ↑/↓ and Esc/Tab
+  back to their button, tabs ←/→/Enter/Space/Delete, and focus rings. Scope B (Home/End,
+  type-ahead, `*`) not included.*
+- [x] **#43: `write_json` renames without flushing**, so after a power loss NTFS can keep the
+  rename but not the bytes, and `config.json` loads as defaults. Standard hazard, not
+  reproduced. Reopen on a report of a session or settings lost after a crash or power cut.
+  *Done 2026-09-26, folded into 7060f25: `write_json` now flushes before the rename.*
+- [x] **#44: `core:default` grants more than the page uses** — tray, menus, and
+  `image:allow-from-path`; `core:event:default` is listed twice. Matters only if script ever
+  got into the page, which the CSP and `unsafe_` off prevent. Reopen with the next capability
+  change.
+  *Done 2026-09-26, a049765: the capability was trimmed to the 12 permissions the page
+  actually uses.*
+- [x] **#46: an action bump on the publish path first runs on a real tag.** Dependabot PRs only
+  run `checks.yml`, and a dispatch skips `publish`. Reopen when a Dependabot bump touches
+  `softprops/action-gh-release` or `download-artifact`.
+  *Done in code 2026-09-26, 08606a8: a dry run now rehearses publish too — it drafts a release
+  `dry-run-<run id>`, checks its assets against `dist/`, then deletes it. First real run is the
+  pre-release dry run, tracked in `open-items.md`.*
+- [x] **#47: each `more` click re-reflows a one-line JSON file, up to 8× its size, per click.**
+  Memory, not just time. Reopen on an out-of-memory report; N concurrent clicks hold N copies
+  at once.
+  *Done 2026-09-26, folded into e904196: `json_region` calls are now serialized, so quick
+  "more" clicks don't each hold a reflowed copy at once.*
+- [x] **#48: window routing and session saving have no tests** — only their pure helpers do,
+  because they need an `AppHandle`. Mock-runtime tests for window routing and session saving —
+  do next, after the 2026-09-25 fixes.
+  *Done 2026-09-26, a049765: an 18-test mock-runtime harness for routing and session saving,
+  with a per-thread temp data folder under test. Not reachable under the mock: adoption via
+  the Win32 hit-test, frame placement, and more than one spawned window per test.*
+- [x] **The sidebar stays closed after a reload or a session restore, although each tab still
+  holds its folder** — `followTab` returns while `state.folder === null`, and boot has no path
+  that reopens it. Predates the 2026-09-25 fixes.
+  *Done 2026-09-26, folded into 7060f25: the session now records whether each window's sidebar
+  was open, and a restore or reload reopens it.*
+- [x] **Task 7's watch-call skip** — checked live 2026-09-26, no change: works as intended.
+- [x] **Window labels swapping after a restore** — checked 2026-09-26, no change: by design.
+  Windows are saved least-recently-focused first and the first goes to `main`; labels
+  themselves are not saved.
+
 ## Needs a Mac, a Dependabot run, or an older build
 
 - [x] **"Update available" in Settings (586560c).** Only the up-to-date path has been seen
@@ -445,3 +491,47 @@ nobody rediscovers them.
   into `RunEvent::Exit` (`WM_QUERYENDSESSION` is left unhandled there on purpose), with the
   event loop gone before any page could be asked. macOS Cmd+Q is fixable and stays open under
   *Needs a Mac* in `open-items.md`.*
+- [x] **#49: Add/Remove Programs shows the publisher as "montevirgen", not the signer's name**
+  (2026-09-25 review). *Kept 2026-09-25: `bundle.publisher` also moves the NSIS registry key,
+  losing the remembered install folder once and leaving the old key behind — worse than the
+  cosmetic it would fix.*
+- [x] **#50: a `//` comment in a JSONC file with bare-CR line endings runs to the end of the
+  file** (2026-09-25 review) — colouring only, no text lost. *Kept 2026-09-25: old-Mac CR-only
+  files are vanishingly rare.*
+- [x] **A reload brings a window back as it last reported** (the navigation guard, 7060f25):
+  a zoom or a folder expanded in the moment since is gone.
+  *Kept 2026-09-26: the page reports within half a second of a change, and without the
+  guard's recovery a reload lost every tab.*
+- [x] **A document that crashes the page crashes it again on Refresh** (7060f25): the reload
+  brings its tab back. Closing the window is the way out, as it always was.
+  *Kept 2026-09-26: telling that document apart from the rest would mean a crash counter
+  kept across reloads, for a case #51's 4 MB cap and the render bounds make rare.*
+- [x] **A tab on a share that has gone away slows live reload in its window** (e904196). Each
+  watch request re-checks every open file, and one on a dead host waits ~21 s whenever
+  Windows' failure cache has lapsed; the other tabs' changes wait behind it. The window
+  itself stays responsive, and requests a newer one replaced are skipped.
+  *Kept 2026-09-26: watching per file, so a dead one cannot hold the rest, is a rewrite of
+  `watch.rs` for a share that has already failed.*
+- [x] **Each `more` click on a 32 MB one-line JSON file still takes ~0.3 s** (#47, e904196):
+  the file is reflowed again per click, one click at a time.
+  *Kept 2026-09-26: caching the reflow would hold up to 151 MB for as long as the tab is
+  open; `json_region`'s `ponytail:` note says how, if the wait is ever felt.*
+- [x] **The keyboard handling is the core keys only** (#37, 70e935c): no Home/End, no
+  type-ahead and no `*` in the tree; focus is lost when the tab strip or the tree rebuilds for
+  some other reason, such as Ctrl+Tab or a watcher re-listing; each tab's close button is a
+  Tab stop of its own.
+  *Kept 2026-09-26: every control works from the keyboard; the rest is polish to add when
+  keyboard or screen-reader use asks for it.*
+- [x] **Three routing paths have no tests** (#48, a049765): a tab dropped onto another window
+  (the adopt branch hit-tests with Win32 `WindowFromPoint`), where a restored window is
+  placed (the mock runtime reports no monitors), and a restore that builds several windows at
+  once (the mock's window table is not thread-safe). Noted where the tests would go in
+  `routing_tests.rs`.
+  *Kept 2026-09-26: out of the mock runtime's reach; the drive-app skill covers them.*
+- [x] **A session saved before 1.6.9 restores with every sidebar closed**: those files do not
+  say whether it was open.
+  *Kept 2026-09-26: the next save records it.*
+- [x] **The uninstaller's "Delete the application data" was checked by hand** (04a3fdc), in
+  Windows Sandbox — the silent uninstaller cannot tick it. The unticked and update cases ran
+  scripted.
+  *Kept 2026-09-26: re-check by hand if the NSIS hook changes.*
