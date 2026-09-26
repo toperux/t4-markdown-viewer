@@ -936,8 +936,13 @@ function renderDocument(doc, scrollY, hash) {
       again.querySelector(':scope > input[type="checkbox"]')?.focus({ preventScroll: true });
   }
 
-  // Restore after layout, so the offset being scrolled to actually exists yet.
+  // Restore after layout, so the offset being scrolled to actually exists yet —
+  // unless by then another render has been shown, or the page has passed to
+  // another entry (a picture's panel, an anchor sibling), whose scroll this is not.
+  const token = renderToken;
+  const entry = shownEntry;
   requestAnimationFrame(() => {
+    if (token !== shownToken || shownEntry !== entry) return;
     /*
      * Arriving through a cross-file link: land on the section it named. Only
      * on arrival — `scrollY` is null exactly when nothing has been recorded
@@ -1183,8 +1188,8 @@ async function showActive(scrollY) {
       // switch leaves it on its own entry.
       rememberScroll();
       swapped = true;
+      shownEntry = entry; // before the render, which ties its scroll restore to it
       renderDocument(doc, scrollY ?? entry.scrollY, entry.hash);
-      shownEntry = entry;
       // Only a rendered document has pictures the webview can be holding stale;
       // recording them here covers exactly those, and the list survives a tab
       // switch, so a document in the background stays watched.
@@ -1401,7 +1406,6 @@ async function openTab(path) {
     if (state.folder !== null) tab.filter = els.treeFilter.value;
   }
   tabs.push(tab);
-  rememberScroll();
   activeId = tab.id;
   syncWatch();
   await showActive(0);
@@ -1409,7 +1413,6 @@ async function openTab(path) {
 
 async function activateTab(id) {
   if (id === activeId) return;
-  rememberScroll();
   activeId = id;
   await showActive();
 }
@@ -1448,7 +1451,6 @@ async function closeTab(id) {
 async function reopenClosed() {
   const tab = closedTabs.pop();
   if (!tab) return;
-  rememberScroll();
   tab.id = nextTabId++;
   tabs.push(tab);
   activeId = tab.id;
@@ -1493,7 +1495,6 @@ async function adoptTab(data, at) {
   const tab = rebuildTab(data);
   if (!tab) return;
 
-  rememberScroll();
   tabs.splice(Math.max(0, Math.min(tabs.length, at)), 0, tab);
   activeId = tab.id;
   syncWatch();
@@ -2224,7 +2225,6 @@ async function loadPath(path, hash) {
   }
 
   if (!entry || !samePath(entry.path, path)) {
-    rememberScroll();
     tab.entries.length = tab.index + 1; // drop the forward branch
     tab.entries.push({ path, scrollY: null, hash: id });
     tab.index = tab.entries.length - 1;
@@ -2371,13 +2371,10 @@ function bankLanding(hash) {
 async function refresh() {
   const entry = currentEntry(activeTab());
   if (!entry) return;
-  // Bank the position of the page on screen. For this entry's own page that
-  // is where the paint lands: the scroll listener goes on banking while this
-  // loads, and `showActive` banks once more at the swap, so the reader can
-  // scroll on as its diagrams draw. Mid-switch the page on screen is another
-  // entry's and keeps its own spot; over the error panel nothing is banked,
-  // and this entry's saved spot stands.
-  rememberScroll();
+  // The paint lands where this entry's page stands at the swap: the scroll
+  // listener banks while this loads and `showActive` banks at the swap, so the
+  // reader can scroll on as its diagrams draw. Mid-switch, or over the error
+  // panel, the page on screen is not this entry's, and its saved spot stands.
   // A re-saved picture keeps its path, and the webview would serve the copy it
   // already has. Documents are re-read by Rust, and their pictures are watched
   // in their own right, so nothing else needs invalidating here — refetching
@@ -3824,6 +3821,16 @@ async function main() {
     },
     { passive: true },
   );
+  // A picture pans in its own box, by wheel, scrollbar and keys as well as by
+  // drag; the same holds for it.
+  els.imageView.addEventListener(
+    "scroll",
+    () => {
+      rememberImage();
+      scheduleReport();
+    },
+    { passive: true },
+  );
   // Chromium fires auxclick for the thumb buttons too; swallow it so the
   // default "navigate" behaviour cannot fight our own handling.
   document.addEventListener("auxclick", (e) => {
@@ -3909,9 +3916,9 @@ async function main() {
       els.updateError.hidden = false;
     }
   });
-  // Rust asks once the update is downloaded and waits for the answer. The
-  // reader's place is only noted when they leave a document, so the restart
-  // would otherwise land them where they last switched tabs.
+  // Rust asks once the update is downloaded and waits for the answer. A scroll
+  // is reported only once it has settled for `REPORT_DELAY`, and the restart
+  // will not wait for that, so bank and report the reader's place now.
   await listen("update-installing", () => {
     rememberScroll();
     reportSession();
