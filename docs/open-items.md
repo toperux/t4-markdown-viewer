@@ -49,17 +49,9 @@ section, so this file lists only what is still to do. Finished plans and reviews
   deb/rpm still unchecked.*
   *deb proven 2026-09-26 on dry run 36186470162's .deb, in WSL Ubuntu 24.04:
   `xdg-mime query filetype x.jsonc` gives `application/json`, `gio mime application/json` and
-  `text/markdown` list the app (and default to it), and `desktop-file-validate` passes. The rpm
-  carries the same desktop and MIME files but was not installed. macOS alone keeps this open.*
-- [ ] **The rpm has never been installed** (added 2026-09-26, owner kept it open rather than
-  accept it). The .deb was checked in WSL Ubuntu on dry run 36186470162: MIME registration,
-  `desktop-file-validate`, and a start on a non-Unicode file name. The rpm carries the same
-  desktop and MIME files, but nothing has installed it: dependency names, the install
-  scriptlets and the MIME cache refresh differ on Fedora. Proof: on a Fedora install (a WSL
-  Fedora distro will do), `dnf install` the rpm from a dry run or release, then repeat the
-  .deb checks — `xdg-mime query filetype x.jsonc` gives `application/json`, `gio mime
-  application/json` lists the app, and `caf\xe9.md` starts it. Reopen sooner on an rpm bug
-  report.
+  `text/markdown` list the app (and default to it), and `desktop-file-validate` passes. rpm
+  proven the same way the same day on Fedora 44 (`closed-items.md`). macOS alone keeps this
+  open.*
 - [ ] **Cmd+Q loses the last 500 ms of changes** (added 2026-09-25, split from the session
   restore limit; the kill and shutdown half is kept in `closed-items.md`). A report waits
   500 ms for things to settle, and since 21384f3 closing a window waits for it — but the
@@ -70,12 +62,12 @@ section, so this file lists only what is still to do. Finished plans and reviews
   Quit and logout stay on the terminate path. Reopen on a Mac, and prove it there: scroll, then
   Cmd+Q within 500 ms, and the next launch comes back at the scroll, every window in order.
 
-## First runs after the 2026-09-26 pipeline changes
+## First runs after the 2026-09-26 changes
 
 Each condition proves itself on an event that has not happened yet. Tick a sub-item when its
-run passes, with the run id; when all four are ticked, move the item to `closed-items.md`.
+run passes, with the run id; when all are ticked, move the item to `closed-items.md`.
 
-- [ ] **The pipeline changes of 2026-09-26 have each run once for real.**
+- [ ] **The changes of 2026-09-26 have each run once for real.**
   - [ ] *SHA pinning required* (step 6): the next push to `main` — CI passes on all three legs.
   - [ ] *Dependabot under SHA pinning*: its next weekly run (about 2026-10-02) — the
     "Dependabot Updates" job passes, and any PR it opens passes `checks.yml`.
@@ -83,6 +75,8 @@ run passes, with the run id; when all four are ticked, move the item to `closed-
     and after approval signs and publishes.
   - [ ] *The 1.6.8 → 1.6.9 in-app update* (04a3fdc's timeouts and failure message ride in
     1.6.9): an installed 1.6.8 is offered 1.6.9 and installs it.
+  - [ ] *The AppImage and 009d8c8's re-exec*: the next dry run or release — in WSL, a second
+    instance of the AppImage on `$'caf\xe9.md'` exits 0 with the first window untouched.
 
 ## Accepted limits
 

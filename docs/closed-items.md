@@ -266,6 +266,30 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   exited with it; after, it opened in a new window and the app stayed up. A plain second
   launch still lands as a tab in the open window.*
 
+- [x] **A second instance aborts on a file name that is not Unicode** (added 2026-09-26,
+  found by the rpm check). With the app already running, launching it on `caf\xe9.md`
+  (terminal or `gio launch`) aborts the new process — exit 134, `panicked at
+  std/src/env.rs:878`. `tauri-plugin-single-instance` 2.4.5 forwards argv with
+  `std::env::args()` (`platform_impl/linux.rs:77`), which panics on non-UTF-8; the release
+  profile is `panic = "abort"`. Our own `args_os()` fix (#6) covers only the first instance.
+  The running window is untouched and the file would not have opened anyway (#25); what the
+  user may see is a crash reporter (ABRT, apport). A UTF-8 name as second instance works.
+  Windows (`windows.rs:91`, an unpaired surrogate) and macOS (`macos.rs:88`) share the call.
+  Options: (A) in `main`, before the builder, on Unix re-exec the app with the arguments
+  converted lossily (~10 lines), so the plugin never sees a non-UTF-8 argument; (B) report
+  it upstream and wait; (C) accept it. Reproduce: two instances in WSL, second on
+  `$'caf\xe9.md'`.
+  *Fixed 2026-09-26, 009d8c8 (option A, `docs/archive/plans/second-instance-non-unicode.md`):
+  on Linux `main` first re-executes itself in place (`exec`, same PID) with every argument made
+  Unicode lossily, so the plugin never sees a non-UTF-8 one. Three unit tests (Linux only).
+  Proved in WSL Ubuntu on a debug build, each launch with its own config and data folders:
+  before, the second instance panicked (`env.rs:878`, exit 101 under debug's unwind); after, a
+  first instance on `caf\xe9.md` kept its PID with `caf\xef\xbf\xbd.md` in
+  `/proc/<pid>/cmdline` and opened a window; a second on it exited 0 with the first window
+  untouched; a second on `second.md` opened it. The AppImage's own runtime is the one path not
+  run; it is under *First runs* in `open-items.md`. Remove the workaround once
+  `tauri-plugin-single-instance` reads `args_os()` — check on each bump.*
+
 ## Deferred from the 2026-09-20 review
 
 - [x] **Unchecked, from #2: can a file that kills the app bring it down again on every
@@ -463,7 +487,25 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   *Proven 2026-09-26 on the .deb from dry run 36186470162, in WSL Ubuntu 24.04 (WSLg): with
   `caf\xe9.md` on disk, both `t4-markdown-viewer <path>` and `gio launch` of the installed
   desktop file (`Exec=… %f`, the path a file manager takes) left the app running with no
-  panic.*
+  panic. That is the first instance; a *second* instance on such a name aborted in the
+  single-instance plugin — a separate bug, under *Bugs*, fixed in 009d8c8.*
+
+- [x] **The rpm has never been installed** (added 2026-09-26, owner kept it open rather than
+  accept it). The .deb was checked in WSL Ubuntu on dry run 36186470162: MIME registration,
+  `desktop-file-validate`, and a start on a non-Unicode file name. The rpm carries the same
+  desktop and MIME files, but nothing has installed it: dependency names, the install
+  scriptlets and the MIME cache refresh differ on Fedora. Proof: on a Fedora install (a WSL
+  Fedora distro will do), `dnf install` the rpm from a dry run or release, then repeat the
+  .deb checks — `xdg-mime query filetype x.jsonc` gives `application/json`, `gio mime
+  application/json` lists the app, and `caf\xe9.md` starts it. Reopen sooner on an rpm bug
+  report.
+  *Proven 2026-09-26 in a throwaway WSL Fedora 44 (since unregistered), on dry run
+  36186470162's rpm: `dnf install` resolved its two requires (`libwebkit2gtk-4.1.so.0`,
+  `libgtk-3.so.0`) and the post-install scriptlet rebuilt the MIME and desktop caches;
+  `desktop-file-validate` passes; `xdg-mime query filetype x.jsonc` gives `application/json`;
+  `gio mime` lists the app as default for `application/json` and `text/markdown`; a `.md`
+  opens; the app starts on `caf\xe9.md`. It also found the second-instance abort, now under
+  *Bugs*.*
 
 ## Housekeeping
 
@@ -579,3 +621,20 @@ nobody rediscovers them.
   environment's `v*` tag rule. A failure there shows after the tag is public.
   *Kept 2026-09-26: the fix is a re-run or a patch tag; a dispatch on a tag ref would still
   publish only a draft. The 1.6.9 run is the proof.*
+- [x] **A second instance on Windows or macOS still aborts on an argument that is not Unicode**
+  (009d8c8 fixed Linux only). `tauri-plugin-single-instance` 2.4.5 forwards argv with
+  `std::env::args()` there too (`windows.rs:91`, `macos.rs:88`). Windows passes UTF-16, so only
+  a name with an unpaired surrogate reaches it; macOS stores names as Unicode and Finder opens
+  files through Apple Events, so only a terminal launch with made-up bytes does. The running
+  window is untouched and the file could not open anyway (#25).
+  *Kept 2026-09-26: no file manager on either can produce it, Windows has no `exec` to
+  re-launch with, and it goes away with the Linux workaround once the plugin reads
+  `args_os()`.*
+- [x] **A second launch from a folder whose name is not Unicode loses its working directory**
+  (found planning 009d8c8). `tauri-plugin-single-instance` sends
+  `current_dir().to_str().unwrap_or_default()`, so the running app receives an empty cwd and
+  resolves a *relative* argument against its own: the file is not found, or by coincidence a
+  same-named file there opens. No crash.
+  *Kept 2026-09-26: only a terminal hits it — file managers pass absolute paths (`%f`) — and
+  re-executing cannot change what the plugin reads for the cwd. Reopen if the plugin starts
+  sending the cwd as bytes, or on a report of the wrong file opening.*
