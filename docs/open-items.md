@@ -68,15 +68,23 @@ Each condition proves itself on an event that has not happened yet. Tick a sub-i
 run passes, with the run id; when all are ticked, move the item to `closed-items.md`.
 
 - [ ] **The changes of 2026-09-26 have each run once for real.**
-  - [ ] *SHA pinning required* (step 6): the next push to `main` — CI passes on all three legs.
+  - [x] *SHA pinning required* (step 6): the next push to `main` — CI passes on all three legs.
+    *CI run 36225138698 on 1e4d190, 2026-09-26: success.*
   - [ ] *Dependabot under SHA pinning*: its next weekly run (about 2026-10-02) — the
     "Dependabot Updates" job passes, and any PR it opens passes `checks.yml`.
-  - [ ] *The approval gate on `signing`*: the 1.6.9 tag — the run waits at the build legs,
+  - [x] *The approval gate on `signing`*: the 1.6.9 tag — the run waits at the build legs,
     and after approval signs and publishes.
-  - [ ] *The 1.6.8 → 1.6.9 in-app update* (04a3fdc's timeouts and failure message ride in
+    *Release run 36225335885, 2026-09-26: all three legs `waiting` until approved; then every
+    job passed, signed (`F06C…8151`, `53effb03…`, updater `.sig`s) and published v1.6.9.*
+  - [x] *The 1.6.8 → 1.6.9 in-app update* (04a3fdc's timeouts and failure message ride in
     1.6.9): an installed 1.6.8 is offered 1.6.9 and installs it.
-  - [ ] *The AppImage and 009d8c8's re-exec*: the next dry run or release — in WSL, a second
+    *The owner's installed copy updated 2026-09-26: the exe reports 1.6.9 and is signed
+    `F06C…8151` (Valid). The timeout and failure message stay unexercised: this update did not
+    stall.*
+  - [x] *The AppImage and 009d8c8's re-exec*: the next dry run or release — in WSL, a second
     instance of the AppImage on `$'caf\xe9.md'` exits 0 with the first window untouched.
+    *The released 1.6.9 AppImage, 2026-09-26, mounted through FUSE in WSL Ubuntu: exit 0, no
+    panic, the first window still on `first.md`.*
 
 ## Accepted limits
 
