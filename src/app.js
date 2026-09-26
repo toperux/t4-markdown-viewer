@@ -1796,18 +1796,46 @@ function decodeId(raw) {
 }
 
 /**
+ * What Rust renders a document's own ids behind — its headings' and its
+ * `<a id>` targets' — so none can take on the app's (`## Image` would wear the
+ * image panel's `#image` rules). Links name them as written; the prefix goes on
+ * here, at the jump.
+ */
+const DOC_ID_PREFIX = "user-content-";
+
+/**
+ * The element in the document that `id` names, or null. Prefixed first — no
+ * app id can carry the prefix, which a test pins — then as written, which is
+ * how footnotes are named and how a link copied from GitHub
+ * (`#user-content-x`) already reads. Last, a GitHub link without its prefix:
+ * GitHub prefixes footnotes too (`#user-content-fn-1`), and ours are bare. The
+ * bare names are looked for inside the document only: the app's own elements
+ * come first in the page, and a link must never land on one.
+ */
+function docTarget(id) {
+  if (!id) return null;
+  const inDoc = (name) => els.content.querySelector(`#${CSS.escape(name)}`);
+  return (
+    document.getElementById(DOC_ID_PREFIX + id) ??
+    inDoc(id) ??
+    (id.startsWith(DOC_ID_PREFIX) ? inDoc(id.slice(DOC_ID_PREFIX.length)) : null)
+  );
+}
+
+/**
  * Jump the way a click on a same-page link would, rather than scrolling by
  * hand: that is what makes `:target` match, and `:target` is what keeps the
  * heading clear of the sticky bar. False when this document has no such id,
  * which is all a link into a section that has since been renamed deserves.
  */
 function jumpToAnchor(id) {
-  if (!document.getElementById(id)) return false;
+  const target = docTarget(id);
+  if (!target) return false;
   // Assigning the fragment the URL already carries is not a change, so the
   // browser does nothing and a second click on the same link goes nowhere.
   // Dropping it first makes every jump a jump, at no cost in history.
   clearHash();
-  location.hash = id;
+  location.hash = target.id;
   return true;
 }
 
@@ -1815,14 +1843,18 @@ function jumpToAnchor(id) {
  * Record an in-page jump as a history entry, so Back returns to where the link
  * was clicked from rather than skipping the whole document.
  *
- * The browser is left to perform the jump itself. That is what makes `:target`
- * match, which is what keeps the heading clear of the sticky bar — doing the
- * scroll by hand would mean reimplementing that offset.
+ * The jump itself is `jumpToAnchor`'s, run right after. It sets `location.hash`
+ * rather than scrolling, which is what makes `:target` match and so keeps the
+ * heading clear of the sticky bar — doing the scroll by hand would mean
+ * reimplementing that offset.
+ *
+ * `id` is already decoded, as both callers have it: decoding again would look
+ * `#a%2541` up as `aA`, find nothing and record no entry, while the jump still
+ * goes to `a%41` — and Back would skip it.
  */
-function pushAnchorEntry(raw) {
-  const id = decodeId(raw);
+function pushAnchorEntry(id) {
   // A link to nothing scrolls nowhere, so it should not cost a Back press.
-  if (!document.getElementById(id)) return;
+  if (!docTarget(id)) return;
 
   const tab = activeTab();
   const entry = currentEntry(tab);
@@ -2604,9 +2636,16 @@ function onLinkClick(event) {
     return;
   }
 
-  // In-page anchor: the browser performs the jump, we just record it.
+  // In-page anchor: recorded, then jumped to here rather than by the browser,
+  // which would go to the first element of that name — and the app's own come
+  // before the document's. Except `#` and `#top` naming nothing in the
+  // document: those are "back to top", which the browser does itself.
   if (href.startsWith("#")) {
-    pushAnchorEntry(href.slice(1));
+    const id = decodeId(href.slice(1));
+    if (!docTarget(id) && /^(top)?$/i.test(id)) return;
+    event.preventDefault();
+    pushAnchorEntry(id);
+    jumpToAnchor(id);
     return;
   }
 

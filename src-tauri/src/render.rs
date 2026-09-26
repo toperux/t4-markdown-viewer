@@ -11,6 +11,14 @@ use std::sync::Mutex;
 /// anchor targets back in the right places.
 const OMITTED: &str = "<!-- raw HTML omitted -->";
 
+/// What every id a document gives — a heading's, an `<a id>` target's — is
+/// rendered behind, as GitHub does. Without it `## Image` would be
+/// `<h2 id="image">` and wear the app's own `#image` rules, and a `#tree`
+/// link could land in the sidebar. Links keep the bare name; the page adds
+/// this at the jump. comrak's footnote ids stay bare: see
+/// `no_app_id_can_match_a_document_id`.
+const DOC_ID_PREFIX: &str = "user-content-";
+
 /// The most HTML one Markdown render hands the webview — the same ceiling JSON
 /// has. `[^1]` written a million times comes to 80 times its own size.
 pub const MAX_HTML_BYTES: usize = 64 * 1024 * 1024;
@@ -37,8 +45,11 @@ fn options(md: &str) -> Options<'static> {
     o.extension.autolink = true;
     o.extension.footnotes = true;
     o.extension.description_lists = details(md) <= MAX_DETAILS;
-    // Empty prefix: heading anchors are plain slugs, so `#some-section` links work.
-    o.extension.header_id_prefix = Some(String::new());
+    // comrak's own heading ids go behind the same prefix our `HeadingIds`
+    // writes, so the two render byte for byte alike (see
+    // `repeated_headings_get_comraks_ids_quickly`). The href stays the bare
+    // slug: `header_id_prefix_in_href` is off, and links are written bare.
+    o.extension.header_id_prefix = Some(DOC_ID_PREFIX.into());
     // YAML frontmatter is metadata for other tools, not content: without this
     // its `---` fences render as a rule and a setext heading.
     o.extension.front_matter_delimiter = Some("---".into());
@@ -123,7 +134,8 @@ fn details(md: &str) -> usize {
 /// `-2`, … from 1 again for every repeat of a slug, so 20,000 identical
 /// headings took 12 s; this remembers where each slug got to. Every suffix
 /// below that was taken then and still is — nothing is ever given back — so
-/// the ids are the ones comrak would have given.
+/// the slugs are the ones comrak would have given, rendered behind
+/// `DOC_ID_PREFIX`.
 #[derive(Default)]
 struct HeadingIds(Mutex<Ids>);
 
@@ -158,7 +170,7 @@ impl HeadingAdapter for HeadingIds {
         };
         ids.next.insert(slug, n);
         ids.taken.insert(id.clone());
-        write!(out, "<h{} id=\"{id}\"", heading.level)?;
+        write!(out, "<h{} id=\"{DOC_ID_PREFIX}{id}\"", heading.level)?;
         if let Some(sp) = sourcepos.filter(|sp| sp.start.line > 0) {
             write!(out, " data-sourcepos=\"{sp}\"")?;
         }
@@ -348,6 +360,7 @@ fn html_of<'a>(root: &'a AstNode<'a>, o: &Options) -> Result<String, String> {
         out.push_str(&rest[..at]);
         if let Some(id) = target {
             out.push_str("<span id=\"");
+            out.push_str(DOC_ID_PREFIX);
             out.push_str(id);
             out.push_str("\"></span>");
         }
@@ -550,7 +563,57 @@ fn main() {}
     #[test]
     fn heading_ids_are_emitted() {
         let html = render("## Some Section\n");
-        assert!(html.contains("id=\"some-section\""), "{html}");
+        assert!(html.contains("id=\"user-content-some-section\""), "{html}");
+    }
+
+    #[test]
+    fn document_ids_carry_the_prefix() {
+        // A heading and an anchor target both come out prefixed, so neither can
+        // equal an id of the app's own; the heading's link keeps the bare name,
+        // which is what documents write and what the page maps at the jump.
+        let html = render("## Image\n\n<a id=\"tree\"></a>text\n\nSee [x](#image).\n");
+        assert!(html.contains(r#"<h2 id="user-content-image""#), "{html}");
+        assert!(html.contains(r##"href="#image""##), "{html}");
+        assert!(
+            html.contains(r#"<span id="user-content-tree"></span>"#),
+            "{html}"
+        );
+        assert!(!html.contains(r#"id="image""#), "{html}");
+        assert!(!html.contains(r#"id="tree""#), "{html}");
+    }
+
+    #[test]
+    fn no_app_id_can_match_a_document_id() {
+        // Document ids are `user-content-…`, plus comrak's footnote `fn-…` and
+        // `fnref-…`, which stay bare. The page looks both up, so no element of
+        // the app's own may be named that way — or a jump could land on it.
+        // Bare names are only looked up inside `#content`, but `fn-`/`fnref-`
+        // stay reserved for the styles: `[^menu]` renders `id="fn-menu"`, and
+        // would wear the CSS of an app element of that id.
+        let page = include_str!("../../src/index.html");
+        // After any whitespace, not just a space: an attribute on its own line
+        // follows a newline. Not after other characters, or `data-id="` counts.
+        let ids: Vec<&str> = page
+            .match_indices("id=\"")
+            .filter(|&(i, _)| i > 0 && page.as_bytes()[i - 1].is_ascii_whitespace())
+            .filter_map(|(i, m)| page[i + m.len()..].split('"').next())
+            .collect();
+        assert!(ids.len() > 50, "found only {} ids in index.html", ids.len());
+        for id in ids {
+            for reserved in ["user-content-", "fn-", "fnref-"] {
+                assert!(
+                    !id.starts_with(reserved),
+                    "app id {id:?} starts with {reserved:?}"
+                );
+            }
+        }
+        // The page puts the prefix on at the jump, so its copy must be this one.
+        let js = include_str!("../../src/app.js");
+        let decl = format!("const DOC_ID_PREFIX = \"{DOC_ID_PREFIX}\";");
+        assert!(
+            js.contains(&decl),
+            "app.js must declare `{decl}`: its DOC_ID_PREFIX and render.rs's must match"
+        );
     }
 
     /// With `render.unsafe_` off, comrak drops raw HTML entirely rather than
@@ -584,7 +647,10 @@ fn main() {}
     fn explicit_html_anchors_become_link_targets() {
         // The shape Azure DevOps and GitHub documents use to name a section.
         let html = render("### <a id=\"f5\"></a>F5 — Something\n\nSee [F5](#f5).\n");
-        assert!(html.contains("id=\"f5\""), "anchor target missing: {html}");
+        assert!(
+            html.contains("id=\"user-content-f5\""),
+            "anchor target missing: {html}"
+        );
         assert!(html.contains("href=\"#f5\""), "link mangled: {html}");
         // The heading keeps its own slug as well, so both spellings resolve.
         assert!(html.contains("<h3"), "{html}");
@@ -593,7 +659,7 @@ fn main() {}
     #[test]
     fn name_attribute_anchors_also_work() {
         let html = render("<a name=\"old-style\"></a>text\n");
-        assert!(html.contains("id=\"old-style\""), "{html}");
+        assert!(html.contains("id=\"user-content-old-style\""), "{html}");
     }
 
     /// HTML lets an attribute value go unquoted, and documents in the wild
@@ -601,7 +667,10 @@ fn main() {}
     #[test]
     fn unquoted_attribute_anchors_work() {
         let html = render("<a id=f5></a>text\n");
-        assert!(html.contains("<span id=\"f5\"></span>"), "{html}");
+        assert!(
+            html.contains("<span id=\"user-content-f5\"></span>"),
+            "{html}"
+        );
         // The unquoted value is still held to `is_safe_id`.
         let html = render("<a id=a+b></a>text\n");
         assert!(!html.contains("<span"), "unsafe id was reproduced: {html}");
@@ -653,13 +722,22 @@ fn main() {}
     #[test]
     fn an_id_inside_another_attribute_does_not_steal_the_anchor() {
         let html = render("<a title=\"the id=3 entry\" id=\"x\"></a>t\n\nSee [x](#x).\n");
-        assert!(html.contains("<span id=\"x\"></span>"), "{html}");
-        assert!(!html.contains("id=\"3\""), "{html}");
+        assert!(
+            html.contains("<span id=\"user-content-x\"></span>"),
+            "{html}"
+        );
+        assert!(!html.contains("id=\"user-content-3\""), "{html}");
         let html = render("<a href=\"p?a id=q\" id=\"x\"></a>t\n");
-        assert!(html.contains("<span id=\"x\"></span>"), "{html}");
+        assert!(
+            html.contains("<span id=\"user-content-x\"></span>"),
+            "{html}"
+        );
         // An empty id leaves the name to do the job, as a browser would.
         let html = render("<a id=\"\" name=\"n\"></a>t\n");
-        assert!(html.contains("<span id=\"n\"></span>"), "{html}");
+        assert!(
+            html.contains("<span id=\"user-content-n\"></span>"),
+            "{html}"
+        );
     }
 
     /// Only the name is carried over; everything else about the original tag is
@@ -667,7 +745,7 @@ fn main() {}
     #[test]
     fn anchor_recovery_carries_nothing_but_the_name() {
         let html = render("<a id=\"ok\" onclick=\"alert(1)\" href=\"javascript:x\"></a>hi\n");
-        assert!(html.contains("id=\"ok\""), "{html}");
+        assert!(html.contains("id=\"user-content-ok\""), "{html}");
         assert!(!html.contains("onclick"), "{html}");
         assert!(!html.contains("javascript"), "{html}");
     }
@@ -712,7 +790,7 @@ fn main() {}
     fn non_anchor_html_is_still_dropped() {
         let html = render("<div id=\"x\">body</div>\n");
         assert!(!html.contains("<div"), "{html}");
-        assert!(!html.contains("id=\"x\""), "{html}");
+        assert!(!html.contains("id=\"user-content-x\""), "{html}");
     }
 
     /// Substitution walks placeholders in order, so an anchor must not be able
@@ -720,7 +798,9 @@ fn main() {}
     #[test]
     fn anchors_land_on_their_own_position() {
         let html = render("<b>bold</b>\n\n<a id=\"here\"></a>target\n");
-        let anchor = html.find("id=\"here\"").expect("anchor missing");
+        let anchor = html
+            .find("id=\"user-content-here\"")
+            .expect("anchor missing");
         let target = html.find("target").expect("text missing");
         let bold = html.find("bold").expect("text missing");
         assert!(
@@ -738,10 +818,12 @@ fn main() {}
         let html =
             render("![a <a id=\"ghost\"></a> b](i.png)\n\n<b>x</b>\n\n<a id=\"real\"></a>target\n");
         assert!(
-            !html.contains("id=\"ghost\""),
+            !html.contains("id=\"user-content-ghost\""),
             "alt-text tag became an anchor: {html}"
         );
-        let anchor = html.find("id=\"real\"").expect("anchor missing");
+        let anchor = html
+            .find("id=\"user-content-real\"")
+            .expect("anchor missing");
         let target = html.find("target").expect("text missing");
         assert!(anchor < target, "anchor landed after its text: {html}");
     }
@@ -759,10 +841,12 @@ fn main() {}
             "the unused footnote was rendered: {html}"
         );
         assert!(
-            !html.contains("id=\"ghost\""),
+            !html.contains("id=\"user-content-ghost\""),
             "footnote tag became an anchor: {html}"
         );
-        let anchor = html.find("id=\"real\"").expect("anchor missing");
+        let anchor = html
+            .find("id=\"user-content-real\"")
+            .expect("anchor missing");
         let target = html.find("target").expect("text missing");
         assert!(anchor < target, "anchor landed after its text: {html}");
     }
@@ -1160,12 +1244,17 @@ fn main() {}
             comrak::markdown_to_html(EXAMPLE, &options(EXAMPLE))
         );
         let html = render(md);
-        for id in ["\"a\"", "\"a-2\"", "\"a-1\"", "\"a-3\""] {
+        for id in [
+            "\"user-content-a\"",
+            "\"user-content-a-2\"",
+            "\"user-content-a-1\"",
+            "\"user-content-a-3\"",
+        ] {
             assert!(html.contains(&format!("id={id}")), "{id}: {html}");
         }
         let t = std::time::Instant::now();
         let html = render(&"# a\n".repeat(20_000));
-        assert!(html.contains("id=\"a-19999\""));
+        assert!(html.contains("id=\"user-content-a-19999\""));
         assert!(t.elapsed().as_secs() < 5, "{:?}", t.elapsed());
     }
 

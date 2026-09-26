@@ -463,6 +463,12 @@ in the source can break out of the attribute. Enabling comrak's `unsafe` option
 instead would have been one line, but it also switches raw URLs back on — the
 `javascript:` hole this app most needs closed.
 
+Those targets and every heading are given ids behind `user-content-`, as
+GitHub does, so none can take on the app's own ids — `## Image` would otherwise
+be styled as the image panel — and the page adds the prefix when a link is
+followed, so `[x](#image)` and GitHub-style `#user-content-image` links both
+land.
+
 **Highlighting runs in the webview,** using a vendored highlight.js rather than
 Rust's `syntect`. `syntect` bakes colors into inline `style` attributes, which
 CSS themes cannot override — that would defeat the point of CSS theming. The
