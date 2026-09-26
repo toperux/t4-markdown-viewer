@@ -11,6 +11,40 @@ see below.
 `src/vendor/highlight.min.js` — v11.12.0, redistributed verbatim.
 BSD-3-Clause. Copyright (c) 2006, Ivan Sagalaev. <https://highlightjs.org>
 
+### Mermaid
+
+`src/vendor/mermaid.min.js` — v11.17.2, redistributed verbatim. MIT.
+Copyright (c) 2014 - 2022 Knut Sveidqvist. <https://mermaid.js.org>
+
+It is a single-file build with its dependencies inside it. Only lodash,
+DOMPurify and cytoscape keep their notices in the file, so every package the
+build draws on is listed here, from `npm ls --all --omit=dev` on
+`mermaid@11.17.2` — a superset, since the bundler drops what goes unused.
+
+| License | Packages | Names |
+| --- | --- | --- |
+| `(MPL-2.0 OR Apache-2.0)` | 1 | dompurify |
+| `Apache-2.0` | 1 | @chevrotain/types |
+| `BSD-3-Clause` | 6 | d3-array, d3-ease, d3-path, d3-sankey, d3-shape, rw |
+| `ISC` | 32 | d3, d3-array, d3-axis, d3-brush, d3-chord, d3-color, d3-contour, d3-delaunay, d3-dispatch, d3-drag, d3-dsv, d3-fetch, d3-force, d3-format, d3-geo, d3-hierarchy, d3-interpolate, d3-path, d3-polygon, d3-quadtree, d3-random, d3-scale, d3-scale-chromatic, d3-selection, d3-shape, d3-time, d3-time-format, d3-timer, d3-transition, d3-zoom, delaunator, internmap |
+| `MIT` | 67 | @antfu/install-pkg, @braintree/sanitize-url, @iconify/types, @iconify/utils, @mermaid-js/parser, @types/d3, @types/d3-array, @types/d3-axis, @types/d3-brush, @types/d3-chord, @types/d3-color, @types/d3-contour, @types/d3-delaunay, @types/d3-dispatch, @types/d3-drag, @types/d3-dsv, @types/d3-ease, @types/d3-fetch, @types/d3-force, @types/d3-format, @types/d3-geo, @types/d3-hierarchy, @types/d3-interpolate, @types/d3-path, @types/d3-polygon, @types/d3-quadtree, @types/d3-random, @types/d3-scale, @types/d3-scale-chromatic, @types/d3-selection, @types/d3-shape, @types/d3-time, @types/d3-time-format, @types/d3-timer, @types/d3-transition, @types/d3-zoom, @types/geojson, @types/trusted-types, @upsetjs/venn.js, commander, cose-base, cytoscape, cytoscape-cose-bilkent, cytoscape-fcose, dagre-d3-es, dayjs, es-toolkit, fastdom, hachure-fill, iconv-lite, import-meta-resolve, katex, khroma, layout-base, lodash-es, marked, package-manager-detector, path-data-parser, points-on-curve, points-on-path, roughjs, safer-buffer, strictdom, stylis, tinyexec, ts-dedent, uuid |
+| `Unlicense` | 1 | robust-predicates |
+
+(two versions of some d3 packages are installed side by side, under different
+licences)
+
+khroma's package.json declares no licence; its bundled `license` file is MIT
+(Copyright (c) 2019-present Fabio Spampinato, Andrew Maney).
+
+DOMPurify is used under Apache-2.0. @chevrotain/types, the only Apache-2.0
+package, ships no `NOTICE` file to preserve.
+es-toolkit ships a `NOTICE` crediting lodash (MIT) for parts of its
+compatibility layer; lodash is listed above.
+
+Regenerate with `npm install mermaid@<version> --omit=dev` in an empty folder,
+then group `npm ls --all --omit=dev --parseable` by each `package.json`'s
+`license`.
+
 ## Theme colors
 
 The bundled themes in `themes/` are original CSS written for this app. Their

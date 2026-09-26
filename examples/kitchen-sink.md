@@ -119,6 +119,17 @@ $ plain preformatted text
   no tokens are coloured here
 ```
 
+## Diagram
+
+A fenced `mermaid` block draws as a diagram:
+
+```mermaid
+flowchart LR
+  A[Markdown file] --> B{comrak}
+  B --> C[HTML]
+  C --> D[Diagram]
+```
+
 ## Image
 
 A relative image, resolved against this file's directory:

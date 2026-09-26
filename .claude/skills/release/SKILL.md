@@ -32,9 +32,13 @@ v1.3.0 shipping an installer named 1.2.0, which the updater then refuses.
 1. **Land the work first.** Feature commits are separate from the release
    commit. Check `git status` is otherwise clean. Two checks nothing else
    makes:
-   - **highlight.js.** `src/vendor/highlight.min.js` is vendored, so
-     Dependabot never offers a new release. Check for one; a bump swaps the
-     file and its version line in `src-tauri/THIRD-PARTY-LICENSES.md`.
+   - **highlight.js and mermaid.** `src/vendor/highlight.min.js` and
+     `src/vendor/mermaid.min.js` are vendored, so Dependabot never offers a
+     new release. Check for one; a bump swaps the file and its version line in
+     `src-tauri/THIRD-PARTY-LICENSES.md`. mermaid stays on 11.x until 12.x is
+     checked against the macOS 13 WebView. And a mermaid bump re-measures
+     which diagram types put foreignObjects in their drawings (see
+     `warmSources`).
    - **Actions on the publish path.** If an action in the `publish` job
      (`softprops/action-gh-release`, `download-artifact`) was bumped since the
      last tag (`git diff <last tag> -- .github/workflows/release.yml`), run a

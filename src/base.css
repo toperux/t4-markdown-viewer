@@ -142,8 +142,9 @@ body {
 }
 
 /* The shared icon sprite in index.html. Hidden here rather than with a style
-   attribute: Tauri adds a nonce to style-src, and a nonce switches off
-   'unsafe-inline', so inline style attributes are ignored. */
+   attribute, to keep presentation in CSS. (Inline styles do apply: Tauri is
+   told not to nonce style-src, which would switch 'unsafe-inline' off and
+   leave Mermaid's diagrams unstyled.) */
 #icons {
   display: none;
 }
@@ -1112,7 +1113,8 @@ html.image-mode {
   user-select: none;
 }
 
-#image-tools {
+#image-tools,
+#diagram-tools {
   position: absolute;
   right: 1rem;
   bottom: 1rem;
@@ -1130,11 +1132,13 @@ html.image-mode {
   user-select: none;
 }
 
-#image-tools:hover {
+#image-tools:hover,
+#diagram-tools:hover {
   opacity: 1;
 }
 
-#image-tools button {
+#image-tools button,
+#diagram-tools button {
   font: inherit;
   color: inherit;
   background: transparent;
@@ -1144,19 +1148,72 @@ html.image-mode {
   cursor: pointer;
 }
 
-#image-tools button:hover {
+#image-tools button:hover,
+#diagram-tools button:hover {
   border-color: var(--ui-accent);
 }
 
-#image-tools button:focus-visible {
+#image-tools button:focus-visible,
+#diagram-tools button:focus-visible {
   outline: 2px solid var(--ui-accent);
   outline-offset: 1px;
 }
 
-#zoom-level {
+#zoom-level,
+#diagram-level {
   min-width: 3.25rem;
   text-align: center;
   font-variant-numeric: tabular-nums;
+}
+
+/*
+ * A diagram at full window, over the document. It wears the page's own
+ * background, which is what the diagram was drawn against.
+ */
+#diagram-dialog {
+  /* Percentages, not 100vw/100dvh: a modal dialog's box is the viewport less
+     its scrollbars, and vw counts the document's scrollbar in. */
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  /* An opaque system colour under it, so the document does not show through
+     when --page-bg is see-through (a theme with no body background) or unset
+     (a theme that failed to load). */
+  background: linear-gradient(var(--page-bg, transparent), var(--page-bg, transparent)), Canvas;
+}
+
+#diagram-view {
+  height: 100%;
+  overflow: auto;
+  /* A diagram that fits has nothing to scroll, and the wheel would otherwise
+     go on to the document underneath and cost it its place. */
+  overscroll-behavior: contain;
+  display: flex;
+  cursor: grab;
+}
+
+#diagram-view.panning {
+  cursor: grabbing;
+}
+
+/* It is focused on opening, so the keys scroll it, and a ring round the whole
+   window would mark nothing. The toolbar's buttons keep theirs. */
+#diagram-view:focus-visible {
+  outline: none;
+}
+
+/* Sized in px by the zoom; the rest is `#image-el`'s reasoning. */
+#diagram-view svg {
+  display: block;
+  margin: auto;
+  flex: none;
+  max-width: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 /* ---------- document metrics ---------- */
@@ -1337,6 +1394,26 @@ html.image-mode {
   padding: 1em;
   border-radius: 4px;
   line-height: 1.5;
+}
+
+/* A diagram is held to the column by mermaid's own max-width; one wider still scrolls in its own box. */
+.markdown-body div.mermaid-diagram {
+  overflow-x: auto;
+  margin: 0 0 1em;
+  text-align: center;
+  cursor: zoom-in;
+}
+
+/*
+ * Why a diagram did not draw, under the source that is shown in its place.
+ * mermaid's parse errors are several lines with a `^` under the fault, so the
+ * lines are kept and the font is the code font the caret was aligned in.
+ */
+.markdown-body p.mermaid-error {
+  margin: -0.5em 0 1em;
+  font-family: "Cascadia Mono", Menlo, Consolas, "Courier New", monospace;
+  font-size: 0.8125em;
+  white-space: pre-wrap;
 }
 
 /*

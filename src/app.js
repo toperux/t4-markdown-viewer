@@ -64,6 +64,10 @@ const els = {
   themeStyle: document.getElementById("theme"),
   toast: document.getElementById("toast"),
   copyIcon: document.getElementById("copy-section-icon"),
+  diagramDialog: document.getElementById("diagram-dialog"),
+  diagramView: document.getElementById("diagram-view"),
+  diagramTools: document.getElementById("diagram-tools"),
+  diagramLevel: document.getElementById("diagram-level"),
 };
 
 const state = {
@@ -256,6 +260,18 @@ let renderToken = 0;
  */
 let shownToken = 0;
 
+/**
+ * The history entry whose document or picture is on screen, or null for the
+ * empty and error panels — the one record of whose page that is, and so the
+ * entry every reading position is banked on. It changes only as a page is
+ * swapped in (or, for a jump between anchors, as the same page passes to the
+ * next entry): while a switch or a refresh loads, it is still the entry whose
+ * page the reader is scrolling. Settled (`shownToken === renderToken`), it is
+ * the active entry or null. `show()` clears it whenever a panel replaces the
+ * page, so no path can leave a collapsed page banking on an entry.
+ */
+let shownEntry = null;
+
 function activeTab() {
   return tabs.find((t) => t.id === activeId) ?? null;
 }
@@ -290,22 +306,16 @@ function makeTab(path) {
 
 /** Snapshot the reading position so Back and tab switches return to the spot. */
 function rememberScroll() {
-  // Not while a switch is loading: the active entry has already moved on and
-  // the old document is still what is on screen, so banking now would hand
-  // the new entry the old one's offset. Here rather than in each caller — a
-  // second Ctrl+Tab before the first has loaded comes through `activateTab`,
-  // not the scroll listener. Nor while the error panel is up: it collapses the
-  // page, and the clamp's scroll would bank 0 over the entry's real spot.
-  if (shownToken !== renderToken || !els.error.hidden) return;
-  const entry = currentEntry(activeTab());
-  if (!entry) return;
+  // On the entry whose page is on screen, not the active one: while a switch
+  // loads, the active entry has moved on and the page being scrolled is still
+  // the one being left, which keeps what the reader does to it. The empty and
+  // error panels have no entry — the error panel collapses the page, and the
+  // clamp's scroll would bank 0 over the entry's real spot.
+  if (!shownEntry) return;
   // A picture scrolls inside its own box, and in two directions; it also has a
-  // zoom to keep. `picture` is null until one is actually on screen.
-  if (picture && isImage(entry.path)) {
-    rememberImage();
-    return;
-  }
-  entry.scrollY = window.scrollY;
+  // zoom to keep.
+  if (isImage(shownEntry.path)) rememberImage();
+  else shownEntry.scrollY = window.scrollY;
 }
 
 /* ---------------- rendering ---------------- */
@@ -380,6 +390,450 @@ function highlight(root) {
   });
 }
 
+/* ---------------- diagrams ---------------- */
+
+/**
+ * Mermaid is 3.5 MB of script, so it loads the first time a document has a
+ * diagram rather than with the page: a window that never shows one never pays
+ * for it.
+ */
+let mermaidLoad = null;
+function loadMermaid() {
+  mermaidLoad ??= new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "vendor/mermaid.min.js";
+    s.onload = () => resolve(window.mermaid);
+    s.onerror = () => {
+      mermaidLoad = null; // the next document tries again
+      reject(new Error("The diagram renderer did not load."));
+    };
+    document.head.append(s);
+  });
+  return mermaidLoad;
+}
+
+const MERMAID_BLOCK = "pre > code.language-mermaid";
+
+/**
+ * Finished diagrams, `{ svg }` or `{ error }`, by look and source. Filled
+ * before a document is painted, so `renderDiagrams` swaps them in without
+ * waiting — which is what lets the scroll restore land on a page that already
+ * has its full height. A save that leaves a diagram alone redraws it for free.
+ */
+const diagrams = new Map();
+// ponytail: dropped wholesale past this; an LRU if live editing ever makes it churn
+const DIAGRAMS_KEPT = 200;
+let diagramId = 0;
+/** One warm at a time: `initialize` is global, so two interleaved would draw in each other's look. */
+let diagramQueue = Promise.resolve();
+/**
+ * Diagram types `warmSources` draws despite foreignObjects in their drawing:
+ * journey and venn write only plain text into theirs (measured on mermaid
+ * 11.17.2 — markup from the file arrives escaped). Not architecture: a
+ * service's text icon goes in as filtered HTML. Any mermaid bump re-measures
+ * this list.
+ */
+const TEXT_ONLY_FO = new Set(["journey", "venn"]);
+
+/**
+ * One pixel to paint the page's background on and read back. The computed
+ * colour can be any CSS form — `oklch(…)`, `color(srgb 0.97 …)` — whose
+ * numbers are not 0–255 channels; a canvas hands back sRGB bytes for all.
+ */
+let pixel = null;
+
+/**
+ * What a drawing depends on: the side of the page actually on screen — read
+ * off its background, since a theme that failed to load leaves another's
+ * there — and the font. Not the theme's name: editing a theme keeps it.
+ */
+function diagramLook() {
+  pixel ??= document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+  // On the page's own canvas colour first: that is what the webview paints
+  // behind a page with no background — dark under a dark `color-scheme` — and
+  // a see-through colour read on its own comes back black. The overlay's
+  // background colour is exactly that system `Canvas`.
+  pixel.fillStyle = getComputedStyle(els.diagramDialog).backgroundColor;
+  pixel.fillRect(0, 0, 1, 1);
+  pixel.fillStyle = getComputedStyle(document.body).backgroundColor;
+  pixel.fillRect(0, 0, 1, 1);
+  const [r, g, b] = pixel.getImageData(0, 0, 1, 1).data;
+  const dark = 0.299 * r + 0.587 * g + 0.114 * b < 128;
+  const fontFamily = getComputedStyle(els.content).fontFamily;
+  return { dark, fontFamily, key: `${dark}\0${fontFamily}` };
+}
+
+function diagramKey(look, source) {
+  return `${look.key}\0${source}`;
+}
+
+/** `warmSources` for the diagrams in a document's html. */
+function warmDiagrams(html, stale) {
+  // Both renderers escape `"` in text, so only a real code block matches.
+  if (!html.includes('class="language-mermaid"')) return Promise.resolve();
+  const t = document.createElement("template");
+  t.innerHTML = html;
+  return warmSources(new Set([...t.content.querySelectorAll(MERMAID_BLOCK)].map((c) => c.textContent)), stale);
+}
+
+/**
+ * Draw every source not already in `diagrams`. Resolves once each has drawn or
+ * failed, or as soon as `stale()` says a newer switch has won — the queue is
+ * one at a time, and a document left behind must not hold up the one that
+ * replaced it. Never rejects: a renderer that will not load leaves the blocks
+ * as code.
+ */
+function warmSources(sources, stale) {
+  const run = async () => {
+    if (stale()) return;
+    // Read before any wait: the theme can change while this is out, and a
+    // diagram drawn in one look must not be filed under the next.
+    const look = diagramLook();
+    let todo = [...sources].filter((s) => !diagrams.has(diagramKey(look, s)));
+    if (!todo.length) return;
+    const mermaid = await loadMermaid();
+    // Past the limit, start over — this document included, or the diagrams it
+    // already had would be dropped and shown as code.
+    if (diagrams.size + todo.length > DIAGRAMS_KEPT) {
+      diagrams.clear();
+      todo = [...sources];
+    }
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      suppressErrorRendering: true,
+      // Labels as SVG text, not HTML: strict mode still lets a filtered subset
+      // of markup through, and nothing from the file reaches the page as HTML.
+      // Flowcharts read their own, deprecated, copy of the switch.
+      htmlLabels: false,
+      flowchart: { htmlLabels: false },
+      // mermaid's own six, plus the two switches above: a diagram's directive
+      // or front matter could otherwise turn HTML labels back on. The cost is
+      // that a diagram can no longer set its own flowchart options.
+      secure: [
+        "secure",
+        "securityLevel",
+        "startOnLoad",
+        "maxTextSize",
+        "suppressErrorRendering",
+        "maxEdges",
+        "htmlLabels",
+        "flowchart",
+      ],
+      theme: look.dark ? "dark" : "default",
+      fontFamily: look.fontFamily,
+    });
+    for (const source of todo) {
+      // mermaid renders without ever yielding, so without this a click that
+      // switches away could not run until every diagram here had drawn.
+      await new Promise((r) => setTimeout(r));
+      if (stale()) return; // the rest wait for this document to come back
+      let done;
+      try {
+        // mermaid draws any label with `$$…$$` in it as HTML, whatever
+        // `htmlLabels` and `secure` say, sanitised only of `<style>`: its
+        // markup, style attributes included, would reach the page. Its own
+        // test, so what it would see as math is refused here.
+        if (/\$\$(.*?)\$\$/.test(source))
+          throw new Error("Math in labels ($$…$$) isn't supported here: this viewer draws diagram labels as plain text.");
+        // Capitalised: comrak's heading slugs are lower case, so this id can
+        // never collide with a `#section` link target.
+        const { svg, diagramType } = await mermaid.render(`Mermaid-${++diagramId}`, source);
+        // Any other way mermaid turns HTML labels back on is closed the same
+        // way, except for `TEXT_ONLY_FO`. And event modeling: mermaid always
+        // writes its entity names, and their data, as HTML (`<b>${…}</b>`
+        // after `sanitizeText`), no setting changes that, and the owner
+        // accepted it for this one type.
+        if (diagramType !== "eventmodeling" && !TEXT_ONLY_FO.has(diagramType) && /<foreignObject/i.test(svg))
+          throw new Error("This diagram needs HTML labels, which this viewer does not draw.");
+        done = { svg };
+      } catch (err) {
+        done = { error: String(err?.message ?? err) };
+      }
+      diagrams.set(diagramKey(look, source), done);
+    }
+    // The look changed while these drew, so draw them as they will be shown.
+    if (!stale() && diagramLook().key !== look.key) return run();
+  };
+  diagramQueue = diagramQueue.then(run).catch(console.error);
+  return diagramQueue;
+}
+
+/**
+ * Each drawn diagram's figure, to `{ pre, look }`: the code block it replaced —
+ * comrak's own, with its attributes — whose text is the diagram's source, and
+ * the look key it was last drawn in. For `redrawDiagrams` to put back, and the
+ * overlay to know which drawing it is a copy of.
+ */
+const diagramBlocks = new WeakMap();
+
+/*
+ * Only our own figures are figures. A diagram can wear the class itself —
+ * `classDef mermaid-diagram …` puts it on its nodes — and such a node has no
+ * block to go back to or source to show.
+ */
+
+/** The figure of ours `el` is inside, or null. */
+function figureOf(el) {
+  for (let f = el.closest(".mermaid-diagram"); f; f = f.parentElement?.closest(".mermaid-diagram"))
+    if (diagramBlocks.has(f)) return f;
+  return null;
+}
+
+/** The figures on the page. */
+function diagramFigures() {
+  return [...els.content.querySelectorAll(".mermaid-diagram")].filter((f) => diagramBlocks.has(f));
+}
+
+/** A failed diagram's block stays as code, with the reason under it. */
+function sayDiagramFailed(pre, error) {
+  const p = document.createElement("p");
+  p.className = "mermaid-error";
+  p.textContent = error;
+  pre.after(p);
+}
+
+/**
+ * Swap each Mermaid block for its warmed diagram. One that failed keeps its
+ * source and says why. Drawn in `look`, or the current one if not given.
+ */
+function renderDiagrams(root, look) {
+  // The look costs a style recalc; a document without a diagram needs none.
+  if (!root.querySelector(MERMAID_BLOCK)) return;
+  look ??= diagramLook();
+  root.querySelectorAll(MERMAID_BLOCK).forEach((code) => {
+    const done = diagrams.get(diagramKey(look, code.textContent));
+    const pre = code.parentElement;
+    if (done?.svg) {
+      const fig = document.createElement("div");
+      fig.className = "mermaid-diagram";
+      fig.innerHTML = done.svg;
+      diagramBlocks.set(fig, { pre, look: look.key });
+      pre.replaceWith(fig);
+    } else if (done?.error) {
+      sayDiagramFailed(pre, done.error);
+    }
+  });
+}
+
+/**
+ * Draw the document's diagrams again in the current look, from the sources on
+ * the page rather than the file: re-reading it would put the error panel up
+ * for a file that has since gone, and lose `:target`.
+ */
+async function redrawDiagrams() {
+  // Mid-switch the page on screen is on its way out, and the one coming in
+  // reads the look when it draws.
+  if (shownToken !== renderToken) return;
+  const token = renderToken;
+  const stale = () => token !== renderToken; // every paint is a new render
+  const figs = diagramFigures();
+  const blocks = [...els.content.querySelectorAll(MERMAID_BLOCK)];
+  const sources = new Set([
+    ...figs.map((f) => diagramBlocks.get(f).pre.textContent),
+    ...blocks.map((c) => c.textContent),
+  ]);
+  await warmSources(sources, stale);
+  if (stale()) return;
+  // Blocks that had failed are drawn afresh, before any figure below turns
+  // back into one; their old reasons go first.
+  // `p.`: a diagram can give its own nodes the class too.
+  els.content.querySelectorAll("p.mermaid-error").forEach((p) => p.remove());
+  const look = diagramLook();
+  renderDiagrams(els.content, look);
+  // A figure keeps its node — and with it its place and the scroll anchor —
+  // and only its drawing changes. One that fails in this look goes back to
+  // its block, highlighted as `renderDocument` would have.
+  for (const fig of figs) {
+    // An overlapping redraw that landed first already put it back as a block.
+    if (!fig.isConnected) continue;
+    const drawn = diagramBlocks.get(fig);
+    // Or drew it in this look already: parsing the same SVG again is waste.
+    if (drawn.look === look.key) continue;
+    const done = diagrams.get(diagramKey(look, drawn.pre.textContent));
+    if (done?.svg) {
+      fig.innerHTML = done.svg;
+      drawn.look = look.key;
+      continue;
+    }
+    fig.replaceWith(drawn.pre);
+    if (done?.error) sayDiagramFailed(drawn.pre, done.error);
+    if (!drawn.pre.querySelector(".hljs")) highlight(drawn.pre);
+  }
+  // An overlay opened while this warmed is a copy of the old look's drawing.
+  closeStaleDiagram();
+}
+
+/* ---------------- diagram overlay ---------------- */
+
+/*
+ * A diagram at column width can be too small to read, and unlike a picture it
+ * has no file for the image viewer to open in a tab. A click opens a copy of it
+ * full window instead, with the viewer's zoom and pan; Escape comes back to the
+ * same spot. 100% is what fits, as for an SVG in the viewer.
+ */
+let zoomed = null; // { svg, ratio, scale, source, look, path } while the overlay is open
+let diagramPan = null;
+
+/** Measured against the panel rather than the scroll box, for the reason `fitWidth` gives. */
+function diagramFit() {
+  const box = els.diagramDialog;
+  return Math.max(1, Math.min(box.clientWidth, box.clientHeight * zoomed.ratio));
+}
+
+/** Resize about a point, measured before and after for the reason `zoomTo` gives. */
+function zoomDiagram(scale, clientX, clientY) {
+  if (!zoomed) return;
+  const box = els.diagramView.getBoundingClientRect();
+  const before = zoomed.svg.getBoundingClientRect();
+  const ax = clientX ?? box.left + box.width / 2;
+  const ay = clientY ?? box.top + box.height / 2;
+  const fx = before.width ? (ax - before.left) / before.width : 0.5;
+  const fy = before.height ? (ay - before.top) / before.height : 0.5;
+
+  zoomed.scale = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, scale));
+  const width = diagramFit() * zoomed.scale;
+  zoomed.svg.style.width = `${width}px`;
+  zoomed.svg.style.height = `${width / zoomed.ratio}px`;
+  els.diagramLevel.textContent = `${Math.round(zoomed.scale * 100)}%`;
+
+  const after = zoomed.svg.getBoundingClientRect();
+  els.diagramView.scrollLeft += after.left + fx * after.width - ax;
+  els.diagramView.scrollTop += after.top + fy * after.height - ay;
+}
+
+function openDiagram(fig) {
+  const original = fig.querySelector("svg");
+  // Its shape as drawn on the page. Not off the viewBox, which WebKit hands
+  // back as null when a diagram has none.
+  const { width, height } = original.getBoundingClientRect();
+  // Its own ids: the copy's styles and arrowheads then point at itself rather
+  // than at the original, which a re-render can take away while this is open.
+  // Only where mermaid puts them — after `"`, `#` or its aria prefixes — so a
+  // label that mentions the id keeps its text, and `Mermaid-1` spares `Mermaid-10`.
+  const ids = new RegExp(`(["#]|chart-(?:title|desc)-)${original.id}(?!\\d)`, "g");
+  els.diagramView.innerHTML = fig.innerHTML.replace(ids, `$1${original.id}-zoom`);
+  const svg = els.diagramView.querySelector("svg");
+  // mermaid's `max-width` and `width="100%"` would hold it to the window. The
+  // rest of its inline style — a background, on some diagrams — stays.
+  svg.style.maxWidth = "none";
+  svg.removeAttribute("width");
+  svg.removeAttribute("height");
+  const { pre, look } = diagramBlocks.get(fig);
+  zoomed = {
+    svg,
+    ratio: width && height ? width / height : 1,
+    scale: 1,
+    source: pre.textContent,
+    look,
+    path: els.content.dataset.path,
+  };
+  els.diagramDialog.showModal();
+  zoomDiagram(1);
+  els.diagramView.scrollTo(0, 0);
+  els.diagramView.focus();
+}
+
+/**
+ * Close the overlay once the page no longer shows the drawing it is a copy of:
+ * a save that changed the diagram, another document or panel put up behind it,
+ * or the page redrawn in another look — by a redraw, or by a refresh that
+ * outdated one. A save that left it alone leaves it open; another document
+ * that happens to hold the same diagram does not.
+ */
+function closeStaleDiagram() {
+  if (!zoomed) return;
+  const here = !els.content.hidden && els.content.dataset.path === zoomed.path;
+  const figs = here ? diagramFigures() : [];
+  const same = (f) => {
+    const { pre, look } = diagramBlocks.get(f);
+    return look === zoomed.look && pre.textContent === zoomed.source;
+  };
+  if (!figs.some(same)) els.diagramDialog.close();
+}
+
+function onDiagramClose() {
+  // Escape mid-drag: no pointerup is coming to let go of the pointer. Whatever
+  // happens below, the drag belonged to the overlay that closed.
+  if (diagramPan) {
+    try {
+      els.diagramView.releasePointerCapture(diagramPan.pointerId);
+    } catch {
+      /* capture already gone */
+    }
+  }
+  diagramPan = null;
+  els.diagramView.classList.remove("panning");
+  // The event comes a task after `close()`: an overlay opened again in between
+  // is a new one, and emptying it would leave a blank modal.
+  if (els.diagramDialog.open) return;
+  zoomed = null;
+  els.diagramView.replaceChildren();
+}
+
+function onDiagramPointerDown(event) {
+  if (!zoomed || event.button !== 0) return;
+  event.preventDefault();
+  diagramPan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
+  els.diagramView.setPointerCapture(event.pointerId);
+}
+
+function onDiagramPointerMove(event) {
+  if (!diagramPan || event.pointerId !== diagramPan.pointerId) return;
+  if (event.buttons === 0) return onDiagramPointerUp(event);
+  const dx = event.clientX - diagramPan.x;
+  const dy = event.clientY - diagramPan.y;
+  if (!diagramPan.moved && Math.hypot(dx, dy) < PAN_THRESHOLD) return;
+  diagramPan.moved = true;
+  diagramPan.x = event.clientX;
+  diagramPan.y = event.clientY;
+  els.diagramView.classList.add("panning");
+  els.diagramView.scrollLeft -= dx;
+  els.diagramView.scrollTop -= dy;
+}
+
+function onDiagramPointerUp(event) {
+  if (!diagramPan || event.pointerId !== diagramPan.pointerId) return;
+  diagramPan = null;
+  try {
+    els.diagramView.releasePointerCapture(event.pointerId);
+  } catch {
+    /* capture already gone */
+  }
+  els.diagramView.classList.remove("panning");
+}
+
+function onDiagramWheel(event) {
+  if (!zoomed || !event.ctrlKey) return;
+  event.preventDefault();
+  const dy = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+  zoomDiagram(zoomed.scale * Math.exp(-dy * 0.002), event.clientX, event.clientY);
+}
+
+function onDiagramDblClick(event) {
+  if (!zoomed) return;
+  zoomDiagram(zoomed.scale === 1 ? 2.5 : 1, event.clientX, event.clientY);
+}
+
+function onDiagramToolsClick(event) {
+  const what = event.target.closest("button[data-zoom]")?.dataset.zoom;
+  if (!zoomed || !what) return;
+  if (what === "in") zoomDiagram(zoomed.scale * ZOOM_STEP);
+  else if (what === "out") zoomDiagram(zoomed.scale / ZOOM_STEP);
+  else if (what === "fit") zoomDiagram(1);
+  else if (what === "close") els.diagramDialog.close();
+}
+
+/** The same Ctrl spellings the picture tab takes. Escape is the dialog's own. */
+function onDiagramKeydown(event) {
+  if (!zoomed || !(event.ctrlKey || event.metaKey) || event.altKey) return;
+  if (event.key === "+" || event.key === "=") zoomDiagram(zoomed.scale * ZOOM_STEP);
+  else if (event.key === "-") zoomDiagram(zoomed.scale / ZOOM_STEP);
+  else if (event.key === "0") zoomDiagram(1);
+  else return;
+  event.preventDefault();
+}
+
 /**
  * Put a copy button on every heading comrak gave a line to. The line is what
  * `section_source` needs to find the section again, so a heading without one
@@ -413,6 +867,10 @@ function show(which) {
   // Anything else on screen means there is no picture to zoom, and every
   // handler that reads `picture` checks it first.
   if (which !== "image") picture = null;
+  // A panel has no entry; a page's is set by `showActive` once the page is in.
+  if (which !== "content" && which !== "image") shownEntry = null;
+  // Called once the new page is in, so its diagrams are there to match.
+  closeStaleDiagram();
 }
 
 let toastTimer;
@@ -468,6 +926,7 @@ function renderDocument(doc, scrollY, hash) {
       box.disabled = false;
   resolveMedia(els.content, doc.dir, doc.repo);
   wrapTables(els.content);
+  renderDiagrams(els.content);
   highlight(els.content);
   addCopyButtons(els.content);
   show("content");
@@ -486,10 +945,7 @@ function renderDocument(doc, scrollY, hash) {
      * must return to that rather than jumping to the anchor a second time.
      */
     if (hash && scrollY == null && jumpToAnchor(hash)) {
-      requestAnimationFrame(() => {
-        const entry = currentEntry(activeTab());
-        if (entry?.hash === hash) entry.scrollY = window.scrollY;
-      });
+      bankLanding(hash);
       return;
     }
     window.scrollTo(0, scrollY ?? 0);
@@ -602,10 +1058,9 @@ function actualSize() {
 
 /** Bank zoom and pan on the history entry, so a tab switch returns to them. */
 function rememberImage() {
-  // Not while a switch is loading, for the reason `rememberScroll` gives:
-  // `picture` still describes the old image, and the entry is the new one's.
-  if (shownToken !== renderToken) return;
-  const entry = currentEntry(activeTab());
+  // On the entry on screen, for the reason `rememberScroll` gives. `picture`
+  // is null until one has decoded: before that its zoom is not this entry's.
+  const entry = shownEntry;
   if (!entry || !picture) return;
   entry.scale = picture.fit ? null : picture.width / picture.base;
   entry.scrollLeft = els.imageView.scrollLeft;
@@ -659,6 +1114,7 @@ async function showImage(asset, entry, token) {
  */
 function onResize() {
   measureBar();
+  if (zoomed) zoomDiagram(zoomed.scale);
   if (!picture) return;
   const scale = picture.base ? picture.width / picture.base : 1;
   zoomTo(picture.fit ? defaultWidth() : scale * baseWidth());
@@ -679,6 +1135,8 @@ async function showActive(scrollY) {
   }
 
   const entry = currentEntry(tab);
+  // Whether the page being left has been replaced yet.
+  let swapped = false;
   try {
     if (isImage(entry.path)) {
       // No content to fetch: the webview loads the bytes itself over the asset
@@ -697,6 +1155,12 @@ async function showActive(scrollY) {
       // Always refetched: the webview may be holding bytes from before the
       // file changed, and re-reading a local picture costs next to nothing.
       bumpAsset(asset.path);
+      // The page being left, as it stands at the swap: a refresh restores
+      // from this, and a switch leaves it on its own entry.
+      rememberScroll();
+      // Its panel goes up before the picture decodes, and the page left is gone.
+      shownEntry = entry;
+      swapped = true;
       await showImage(asset, entry, token);
       if (token !== renderToken) return;
     } else {
@@ -704,13 +1168,23 @@ async function showActive(scrollY) {
       // everything else, which Tauri drops from the call as `None`.
       const doc = await invoke("load_file", { path: entry.path, extent: entry.extent });
       if (token !== renderToken) return; // a newer switch already won
+      // Drawn before the page is swapped, so it lands at its full height and
+      // the scroll restore below it is exact.
+      await warmDiagrams(doc.html, () => token !== renderToken);
+      if (token !== renderToken) return;
       entry.path = doc.path;
       tab.path = doc.path;
       tab.dir = doc.dir;
       tab.repo = doc.repo;
       tab.label = baseName(doc.path);
       tab.heading = doc.title ?? "";
+      // The page being left, as it stands at the swap — a scroll in the last
+      // frame has not reached the listener yet. A refresh lands on this, and a
+      // switch leaves it on its own entry.
+      rememberScroll();
+      swapped = true;
       renderDocument(doc, scrollY ?? entry.scrollY, entry.hash);
+      shownEntry = entry;
       // Only a rendered document has pictures the webview can be holding stale;
       // recording them here covers exactly those, and the list survives a tab
       // switch, so a document in the background stays watched.
@@ -724,6 +1198,11 @@ async function showActive(scrollY) {
     // holding the previous document's.
     tab.media = [];
     els.errorDetail.textContent = String(err);
+    // Before the swap the page on screen is still the one being left, and a
+    // scroll in its last frame has not reached the listener yet: bank it before
+    // the error panel collapses it. Past the swap the offset on screen is the
+    // new, half-rendered page's, and the page left was banked at the swap.
+    if (!swapped) rememberScroll();
     show("error");
   }
   shownToken = token;
@@ -1775,8 +2254,11 @@ async function go(delta) {
    * Anchors put several entries on one document. Stepping between them is a
    * scroll, not a load — re-rendering would flash the page, re-run highlighting
    * and lose nothing but time. The watcher is already pointed at this file too.
+   * Only with that document settled on screen: not over the error panel, which
+   * has no page to scroll, nor while a load is on its way to replace it.
    */
-  if (from && to && samePath(from.path, to.path) && shownToken === renderToken) {
+  if (from && to && samePath(from.path, to.path) && shownToken === renderToken && shownEntry === from) {
+    shownEntry = to;
     window.scrollTo(0, to.scrollY ?? 0);
     updateChrome();
     return;
@@ -1864,13 +2346,24 @@ function pushAnchorEntry(id) {
   tab.entries.length = tab.index + 1; // drop the forward branch
   tab.entries.push({ path: entry.path, scrollY: null, hash: id });
   tab.index = tab.entries.length - 1;
+  // Still the same page, now under the new entry.
+  if (shownEntry === entry) shownEntry = currentEntry(tab);
   updateChrome();
 
   // The jump happens after this handler returns; record where it landed so
   // Forward comes back to exactly the same place.
+  bankLanding(id);
+}
+
+/**
+ * Bank where a jump to `hash` lands, a frame from now, on the entry whose page
+ * jumped — taken now: by the landing a tab switch may have moved the active
+ * entry on, or swapped the page.
+ */
+function bankLanding(hash) {
+  const landed = shownEntry;
   requestAnimationFrame(() => {
-    const landed = currentEntry(activeTab());
-    if (landed?.hash === id) landed.scrollY = window.scrollY;
+    if (landed?.hash === hash && shownEntry === landed) landed.scrollY = window.scrollY;
   });
 }
 
@@ -1878,18 +2371,19 @@ function pushAnchorEntry(id) {
 async function refresh() {
   const entry = currentEntry(activeTab());
   if (!entry) return;
-  // Bank the position as well as restoring it, so a later tab switch or Back
-  // returns here rather than to wherever the entry was last left.
+  // Bank the position of the page on screen. For this entry's own page that
+  // is where the paint lands: the scroll listener goes on banking while this
+  // loads, and `showActive` banks once more at the swap, so the reader can
+  // scroll on as its diagrams draw. Mid-switch the page on screen is another
+  // entry's and keeps its own spot; over the error panel nothing is banked,
+  // and this entry's saved spot stands.
   rememberScroll();
   // A re-saved picture keeps its path, and the webview would serve the copy it
   // already has. Documents are re-read by Rust, and their pictures are watched
   // in their own right, so nothing else needs invalidating here — refetching
   // them would leave the page short of their height when the scroll is restored.
   if (isImage(entry.path)) bumpAsset(entry.path);
-  // Mid-switch the page on screen is the document being left, and its offset
-  // is not this entry's to keep: the entry's own saved spot stands. Nor while
-  // the error panel is up, whose scroll position is 0.
-  await showActive(shownToken === renderToken && els.error.hidden ? window.scrollY : undefined);
+  await showActive();
 }
 
 /** Where a newly opened file goes, per the Settings choice. */
@@ -2431,12 +2925,23 @@ function themeIn(group, mode) {
 
 async function applyTheme(name) {
   try {
-    els.themeStyle.textContent = await invoke("read_theme", { name });
+    const css = await invoke("read_theme", { name });
+    // Diagrams are drawn in the theme's palette rather than styled by its CSS,
+    // so the ones on screen are drawn again — but only when their look changed.
+    // The look costs a style recalc, so only with a diagram on screen.
+    const drawn = !els.content.hidden && diagramFigures().length > 0;
+    const before = drawn && diagramLook().key;
+    els.themeStyle.textContent = css;
     // Themes colour the page on body, not in a --ui-* variable; the active tab wears it.
     document.documentElement.style.setProperty("--page-bg", getComputedStyle(document.body).backgroundColor);
     state.theme = name;
     els.picker.value = currentTheme()?.group ?? "";
     updateThemeToggle();
+    if (drawn && diagramLook().key !== before) {
+      // The overlay's copy is of the old drawing.
+      els.diagramDialog.close();
+      redrawDiagrams().catch(console.error);
+    }
     return true;
   } catch (err) {
     /*
@@ -2613,7 +3118,8 @@ async function showFolder() {
  * place, hand everything else to the system browser.
  */
 function onLinkClick(event) {
-  const a = event.target.closest("a[href]");
+  // Any namespace: a diagram's `click` links are SVG `<a xlink:href>`.
+  const a = event.target.closest("a[*|href]");
   if (!a) {
     // A picture in a document is held to the column width, which is no width at
     // all for a wide diagram. Clicking one opens it where it can be read.
@@ -2623,15 +3129,18 @@ function onLinkClick(event) {
       event.preventDefault();
       openTab(img.dataset.file).catch(console.error);
     }
+    const fig = figureOf(event.target);
+    if (fig) openDiagram(fig);
     return;
   }
-  const href = a.getAttribute("href");
+  const href = a.getAttribute("href") ?? a.getAttributeNS("http://www.w3.org/1999/xlink", "href");
   // Nothing to follow: an emptied link — comrak writes `href=""` for a
-  // `file:`, `javascript:` or `data:` link — or a page that is not yet the
-  // active tab's, a switch or a load still under way. Either way the webview
-  // must not follow it on its own: following `""` reloads the page, and every
-  // tab in the window goes with it.
-  if (!href || shownToken !== renderToken) {
+  // `file:`, `javascript:` or `data:` link, and mermaid `about:blank` for an
+  // unsafe `click` URL — or a page that is not yet the active tab's, a switch
+  // or a load still under way. Either way the webview must not follow it on
+  // its own: following `""` reloads the page, and every tab in the window
+  // goes with it.
+  if (!href || href === "about:blank" || shownToken !== renderToken) {
     event.preventDefault();
     return;
   }
@@ -2781,8 +3290,9 @@ function onJsonClick(event) {
   // path has to come from there too, not from a tab entry that may have moved on.
   const path = els.content.dataset.path;
   // Whose document this is, taken now: by the time the chunk is back, another
-  // tab may be showing the same file.
-  const owner = currentEntry(activeTab());
+  // tab may be showing the same file. The entry on screen, not the active one:
+  // mid-switch the button is still on the page being left.
+  const owner = shownEntry;
   invoke("json_region", { path, start, end })
     .then((html) => {
       // Re-rendered while the fetch was out: this button is no longer in the
@@ -2805,7 +3315,7 @@ function onJsonClick(event) {
         .reduce((a, b) => Math.min(a, b), Number.MAX_SAFE_INTEGER);
       // Only if this is still the document on screen: a navigation during
       // the fetch would otherwise stamp the count on whatever replaced it.
-      if (owner && owner === currentEntry(activeTab()) && els.content.dataset.path === path)
+      if (owner && owner === shownEntry && els.content.dataset.path === path)
         owner.extent = loaded;
     })
     .catch((err) => {
@@ -2956,7 +3466,7 @@ async function onKeydown(event) {
   // Otherwise a dialog is modal: let it own the keyboard, Escape included —
   // but not WebView2's Back and Forward, which would walk the `#id` history
   // under it.
-  if (els.settings.open || els.updateDialog.open) {
+  if (els.settings.open || els.updateDialog.open || els.diagramDialog.open) {
     if (event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) event.preventDefault();
     return;
   }
@@ -3061,6 +3571,14 @@ async function onKeydown(event) {
 
 /** Thumb buttons on a mouse, as in a browser. */
 function onMouseUp(event) {
+  // Over a zoomed diagram, the thumb's Back closes it rather than paging the
+  // document behind; Forward has nowhere to go. Neither is left to the
+  // webview, which would walk the `#id` history under it.
+  if (els.diagramDialog.open) {
+    if (event.button === 3 || event.button === 4) event.preventDefault();
+    if (event.button === 3) els.diagramDialog.close();
+    return;
+  }
   if (event.button === 3) {
     event.preventDefault();
     go(-1);
@@ -3234,6 +3752,11 @@ async function main() {
   els.content.addEventListener("click", onLinkClick);
   els.content.addEventListener("click", onJsonClick);
   els.content.addEventListener("change", onTaskToggle);
+  // A form on the page can only come from a diagram — comrak strips raw
+  // HTML — and submitting it, by a button or Enter, would navigate the webview
+  // and reload the viewer. Settings and Update have their own, outside both.
+  els.content.addEventListener("submit", (e) => e.preventDefault());
+  els.diagramView.addEventListener("submit", (e) => e.preventDefault());
   els.toast.addEventListener("click", () => (els.toast.hidden = true));
   els.back.addEventListener("click", () => go(-1));
   els.forward.addEventListener("click", () => go(1));
@@ -3247,6 +3770,22 @@ async function main() {
   els.imageView.addEventListener("pointercancel", onImagePointerUp);
   els.imageView.addEventListener("dblclick", onImageDblClick);
   els.imageTools.addEventListener("click", onZoomClick);
+  els.diagramView.addEventListener("wheel", onDiagramWheel, { passive: false });
+  els.diagramView.addEventListener("pointerdown", onDiagramPointerDown);
+  els.diagramView.addEventListener("pointermove", onDiagramPointerMove);
+  els.diagramView.addEventListener("pointerup", onDiagramPointerUp);
+  els.diagramView.addEventListener("pointercancel", onDiagramPointerUp);
+  els.diagramView.addEventListener("lostpointercapture", (e) => e.target === els.diagramView && onDiagramPointerUp(e));
+  els.diagramView.addEventListener("dblclick", onDiagramDblClick);
+  // The toolbar is no scroll box, so a wheel over it would scroll the document behind.
+  els.diagramDialog.addEventListener("wheel", (e) => !els.diagramView.contains(e.target) && e.preventDefault(), {
+    passive: false,
+  });
+  // A drag that ends on a diagram's link must not follow it; the page behind is where links are followed.
+  els.diagramView.addEventListener("click", (e) => e.target.closest("a") && e.preventDefault());
+  els.diagramTools.addEventListener("click", onDiagramToolsClick);
+  els.diagramDialog.addEventListener("keydown", onDiagramKeydown);
+  els.diagramDialog.addEventListener("close", onDiagramClose);
   window.addEventListener("resize", onResize);
 
   els.tabs.addEventListener("pointerdown", onTabPointerDown);
@@ -3275,13 +3814,11 @@ async function main() {
   // would write the zero over the position it is about to restore. On a real
   // scroll the current offset is by definition the right answer, and the
   // restore fires one of its own, so the last write is the correct one.
-  // Not while a switch is loading, though: the active entry has already moved
-  // on and the old document is still what is scrolling, so banking now would
-  // hand the new entry the old one's offset.
+  // `rememberScroll` banks on the entry whose page is on screen, so scrolling
+  // the old document while a switch loads stays on the old document's entry.
   window.addEventListener(
     "scroll",
     () => {
-      if (shownToken !== renderToken) return;
       rememberScroll();
       scheduleReport();
     },

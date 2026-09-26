@@ -48,8 +48,12 @@ Electron build starts around 150 MB.
 - **Tick task lists.** Click a checkbox and the `[ ]` in the file flips with it.
 - **Diagrams you can actually read.** A link to an SVG or an image opens it in a
   tab of its own, with zoom and pan — a wide ERD is unreadable at column width.
-  Clicking a picture embedded in a document opens the same view.
+  Clicking a picture embedded in a document opens the same view. A Mermaid
+  diagram opens full window over the document, with the same zoom and pan;
+  Escape comes back.
 - **Syntax highlighting** for fenced code blocks.
+- **Mermaid diagrams.** A ` ```mermaid ` block draws as a diagram, in the
+  theme's light or dark palette; one that will not parse shows its source and why.
 - **JSON and JSONC open as documents,** shown as written — comments, key order
   and formatting kept — highlighted, with every `{…}` and `[…]` foldable. A
   file on one long line is reflowed first so it can be read, and a very large
@@ -232,7 +236,7 @@ On macOS, read `Cmd` for every `Ctrl` below.
 | `F5` / `Ctrl+R` | Re-read the current file, keeping your scroll position |
 | `F8` | Next theme (`Shift+F8` for previous) |
 | `Ctrl+,` | Settings |
-| `Ctrl++` / `Ctrl+-` / `Ctrl+0` | Zoom in / out / fit — while a picture is open |
+| `Ctrl++` / `Ctrl+-` / `Ctrl+0` | Zoom in / out / fit — while a picture or a diagram is open |
 
 Mouse thumb buttons work for back/forward, and middle-click closes a tab. In
 the sidebar the same modifiers work as in a browser: `Ctrl`+click or
@@ -480,6 +484,35 @@ file opens without the UI thread highlighting a line of it.
 Blocks with no declared language are *not* auto-detected. Detection is often
 wrong and costs real time; they get the theme's plain code background instead.
 
+**Mermaid diagrams draw in the webview too,** from a vendored mermaid build
+loaded the first time a document has a ` ```mermaid ` block. They are drawn
+before the page is swapped in, so a refresh or a tab switch returns to the same
+spot, and in `strict` security mode with labels drawn as SVG text rather than
+HTML, so a diagram's labels and `click` lines cannot run script or put markup
+on the page, and a diagram's own config cannot turn HTML labels back on. They
+take mermaid's `default` or `dark` palette from the theme's side, not the
+theme's CSS. One that will not parse stays as code with the reason under it,
+and so does one whose labels use `$$…$$` math or that would need HTML labels,
+since mermaid draws those as HTML whatever the settings say. Journey and Venn
+diagrams still draw: mermaid puts some of their labels in HTML boxes, but only
+as plain text. Event modeling diagrams are the exception: mermaid always
+writes their entity boxes as HTML, and the data in them reaches the page
+filtered, not as text. A tag with any attribute is dropped, keeping its text,
+and `<style>`, `<script>`, `<iframe>`, `<object>` and `<embed>` go, so no
+style, link, image or handler from the file survives. Bare tags do: formatting
+such as `<b>` or `<table>`, and forms and inputs, which appear but do nothing:
+the viewer blocks their submit.
+
+mermaid styles each diagram with a `<style>` element and `style` attributes of
+its own, so Tauri is told not to add its nonce to `style-src`
+(`dangerousDisableAssetCspModification`). A nonce switches off the
+`'unsafe-inline'` the CSP declares, which silently dropped both. Script nonces
+are untouched. What a file can style is confined to its diagrams: comrak strips
+raw HTML, mermaid's labels are text, SVG or plain, or in event modeling HTML
+stripped of attributes, and the one route in is mermaid's own — a diagram's
+`style` and `classDef` lines, or a Venn text node's colour — which puts CSS
+property values on the diagram's shapes and labels, scoped to that diagram's box.
+
 **Every platform delivers a double-clicked file differently.** All three routes
 converge on one function, `open_path`, so the tab-or-window setting is obeyed
 identically however the file arrived:
@@ -550,7 +583,7 @@ src/                  frontend — no bundler, no npm
   index.html
   app.js              tabs, per-tab history, dragging, settings dialog
   base.css            structure only; declares no document colors
-  vendor/             highlight.js
+  vendor/             highlight.js, mermaid
 src-tauri/
   src/
     main.rs           windows, file-open routing, drag hit-testing, commands

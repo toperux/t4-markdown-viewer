@@ -240,6 +240,19 @@
       </form>
     </dialog>
 
+    <!-- A diagram from the document, full window. Mermaid draws no file, so
+         the image viewer's tab has nothing to open; this borrows its look. -->
+    <dialog id="diagram-dialog" aria-label="Diagram">
+      <div id="diagram-view" tabindex="0"></div>
+      <div id="diagram-tools">
+        <button type="button" data-zoom="out" title="Zoom out (Ctrl+-)" aria-label="Zoom out">−</button>
+        <span id="diagram-level" role="status"></span>
+        <button type="button" data-zoom="in" title="Zoom in (Ctrl++)" aria-label="Zoom in">+</button>
+        <button type="button" data-zoom="fit" title="Fit to window (Ctrl+0)">Fit</button>
+        <button type="button" data-zoom="close" title="Close (Esc)" aria-label="Close">×</button>
+      </div>
+    </dialog>
+
     <!-- Icons used in more than one place, drawn once and referenced with
          <use>. Each referencing <svg> sets its own size and stroke, which the
          shape inherits. base.css keeps the sprite itself out of the layout. -->
