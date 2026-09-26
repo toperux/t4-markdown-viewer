@@ -19,7 +19,8 @@ sudo apt install webkitgtk-webdriver xvfb xdotool imagemagick
 cargo install tauri-driver --locked
 ```
 
-`xclip` too, only if a test needs the clipboard (see *Gotchas*).
+`xclip` too, only if a test needs the clipboard (see *Gotchas*). `wd.mjs` needs
+Node 20 or later (`toReversed`, global `fetch`).
 
 ## Scripts
 
@@ -151,9 +152,10 @@ node .claude/skills/drive-app/scripts/wd.mjs click "#open-btn"
 ## 5. Clean up
 
 1. `wd.mjs stop` ends the session and kills the app. The session survives it:
-   `session.json` is rewritten on every change while the app runs, not at exit,
-   and a relaunch after `stop` brought back the tabs, the active one and the
-   scroll position. So there's no need to close windows first.
+   `session.json` is rewritten half a second after each change settles while the
+   app runs, not at exit, and a relaunch after `stop` brought back the tabs, the
+   active one and the scroll position. So there's no need to close windows
+   first — only to leave half a second after the last change.
 2. `pkill -f '^tauri-driver$'; pkill -f '^/usr/bin/WebKitWebDriver'; pkill -f
    '^Xvfb :99'`, then check `pgrep -af
    '^[^ ]*(target/debug/t4-markdown-viewer|tauri-driver|WebKitWebDriver|Xvfb :99)'`
