@@ -407,6 +407,20 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   owner's approval (self-review allowed, as the only reviewer), so every Release run, tag or
   dispatch, waits at the build legs until approved. The release skill says how.*
 
+## Deferred
+
+- [x] **A heading's id can collide with the app's own element ids** (added 2026-09-26, found
+  during the Mermaid work). comrak slugs headings into plain ids, and `base.css` styles the
+  app's chrome by id: `## Image` became `<h2 id="image">`, picked up the image panel's
+  `#image { height: calc(100dvh - …) }`, and rendered a screen tall — every build since
+  0ab46fd (2026-08-24). An in-page `#tree` link was left to the browser, which went to the
+  first element of that name: the sidebar's.
+  *Fixed cfd1e00, 2026-09-26 (`archive/plans/heading-id-collision.md`): headings and `<a id>`
+  targets render behind `user-content-`, as on GitHub; `docTarget` adds the prefix at the
+  jump, and looks a bare name (footnotes, GitHub-style links) up inside the document only. A
+  dead link does nothing; `#top` and `#` still scroll to the top. A test fails if an app id
+  ever starts with `user-content-`, `fn-` or `fnref-`.*
+
 ## Needs a Mac, a Dependabot run, or an older build
 
 - [x] **"Update available" in Settings (586560c).** Only the up-to-date path has been seen
@@ -638,3 +652,45 @@ nobody rediscovers them.
   *Kept 2026-09-26: only a terminal hits it — file managers pass absolute paths (`%f`) — and
   re-executing cannot change what the plugin reads for the cwd. Reopen if the plugin starts
   sending the cwd as bytes, or on a report of the wrong file opening.*
+- [x] **Event-modeling diagrams put attribute-free HTML on the page** (Mermaid, bf0a58b). Their
+  data reaches the page as DOMPurify-filtered HTML in which a tag carrying any attribute is
+  dropped, keeping its text, and no mermaid setting stops it, so they are exempt from the
+  foreignObject check. Bare tags survive (`b`, `table`, `form`, `button`, `details`,
+  `marquee`…); form submits are blocked in the page and the overlay. The README's Mermaid note
+  says what survives.
+  *Kept 2026-09-27: refusing the type loses it outright; what gets through is cosmetic.*
+- [x] **Journey and venn diagrams are exempt from the foreignObject check by type, not by
+  content** (Mermaid, bf0a58b). Measured text-only on mermaid 11.17.2; a later mermaid that
+  put HTML in them would pass unchecked.
+  *Kept 2026-09-27: a content check cannot tell mermaid's wrapper `<span style>` from a
+  file's, and would let architecture's text icons back in. The release skill re-measures on
+  every mermaid bump.*
+- [x] **Architecture services with a text icon are refused** (Mermaid, bf0a58b):
+  `service id "text"[title]`. mermaid writes that text as HTML, so a file's markup would
+  become elements. Services with no icon or a named one draw.
+  *Kept 2026-09-27: the refusal is the safety.*
+- [x] **Any `$$…$$` in a diagram's source refuses it** (Mermaid, bf0a58b), even inside a `%%`
+  comment. Math in a label would force HTML labels; the check reads the whole source.
+  *Kept 2026-09-27: it errs on the safe side, and the error names what to remove.*
+- [x] **A journey task name longer than two lines is clipped** (Mermaid): mermaid's task box is
+  a fixed 50 px. mermaid.live draws it the same.
+  *Kept 2026-09-27: mermaid's own rendering.*
+- [x] **A diagram `click` URL written with an HTML entity becomes a local path** (Mermaid):
+  `&#106;avascript:x` comes out as `xlink:href="&javascript:x"`, which reads as a relative
+  file, so the click reveals a file that isn't there.
+  *Kept 2026-09-27: harmless, and only a deliberately disguised URL writes it.*
+- [x] **A JSON `more` chunk can land on no history entry** (Mermaid review loop; older than
+  it). A chunk that arrives after Back or Forward to another entry on the same JSON file is
+  spliced into the page, but its extent is recorded on neither entry, so the next re-render
+  drops back to the shorter view; another click brings it back.
+  *Kept 2026-09-27: near-unreachable. A JSON page has no links or ids of its own, so the only
+  way to put two adjacent entries on one JSON file is a sidebar click on another spelling of
+  the open file, such as a symlink to it. Fix, if it ever matters: record the extent on
+  `shownEntry` when the chunk lands.*
+- [x] **Input within a frame of a render can bank the page before its restore** (review of the
+  Mermaid triage fixes; older than them). Back/Forward, or another page swapped in, before
+  `renderDocument`'s restore frame runs saves the unrestored offset on the just-rendered entry.
+  A cross-file anchor entry then counts as visited, and a return lands at that offset rather
+  than on the heading.
+  *Kept 2026-09-27: a ~16 ms window. Fix, if it ever matters: a restore-pending flag set in
+  `renderDocument` and cleared in its frame, which `rememberScroll` respects.*

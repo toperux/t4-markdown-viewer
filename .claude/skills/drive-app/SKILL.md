@@ -191,6 +191,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/drive-app/scr
   skip WebView2's browser accelerators; F5/Ctrl+R and Alt+←/→ need a real
   keystroke through `sendkeys.ps1` (`WScript.Shell` `AppActivate` +
   `SendKeys`), not `key` in `cdp.mjs`.
+  **Check it landed:** Windows' foreground lock can refuse the switch while
+  `AppActivate` still returns True, and the keys then go to whatever window has
+  focus — the user's editor or terminal. Read `document.hasFocus()` first and
+  stop if it is false. Alt+←/→ as the app's own shortcut (`onKeydown` → `go`)
+  also works as a CDP key event with `modifiers: 1`; only the webview's own
+  accelerators need the OS.
 - **Never install a local NSIS build on the host.** Use Windows Sandbox.
 - **Git Bash collapses a leading `\\` in an argument**, so a UNC path passed
   to a second instance on the command line arrives mangled. Launch a second
