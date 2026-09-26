@@ -1588,7 +1588,47 @@ fn stay<R: Runtime>(webview: &Webview<R>, url: &Url) -> bool {
     true
 }
 
+/// A second launch hands its arguments to the running app through
+/// `tauri-plugin-single-instance`, which reads them with `std::env::args()`
+/// (2.4.5, `platform_impl/linux.rs`). That panics on one that is not Unicode —
+/// a Latin-1 file name from a file manager — and with `panic = "abort"` the
+/// launch dies before any of our code could catch it. The arguments cannot be
+/// changed in place, so start over as the same process with them made Unicode,
+/// lossily, which is how `setup` reads them anyway. `exec` returns only if it
+/// failed, and then this launch goes on exactly as before. Delete this once the
+/// plugin reads `args_os()`.
+#[cfg(target_os = "linux")]
+fn exec_with_unicode_args() {
+    use std::os::unix::process::CommandExt;
+    let Some(args) = lossy_args(std::env::args_os()) else {
+        return;
+    };
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let _ = std::process::Command::new(exe)
+        .arg0(&args[0])
+        .args(&args[1..])
+        .exec();
+}
+
+/// Every argument made Unicode, or `None` when they all are already.
+#[cfg(target_os = "linux")]
+fn lossy_args(args: impl IntoIterator<Item = std::ffi::OsString>) -> Option<Vec<String>> {
+    let args: Vec<_> = args.into_iter().collect();
+    if args.iter().all(|a| a.to_str().is_some()) {
+        return None;
+    }
+    Some(
+        args.iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect(),
+    )
+}
+
 fn main() {
+    #[cfg(target_os = "linux")]
+    exec_with_unicode_args();
     let builder = tauri::Builder::default()
         // Must be registered first: plugins run in registration order, and this
         // one has to intercept the second process before anything else starts.
@@ -1802,6 +1842,39 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn lossy_args_leaves_unicode_alone() {
+        let args = ["/usr/bin/t4-markdown-viewer", "a.md"].map(std::ffi::OsString::from);
+        assert_eq!(lossy_args(args), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn lossy_args_mends_a_latin1_name() {
+        use std::os::unix::ffi::OsStringExt;
+        let exe = "/usr/bin/t4-markdown-viewer";
+        let args = vec![
+            std::ffi::OsString::from(exe),
+            std::ffi::OsString::from("x"),
+            std::ffi::OsString::from_vec(b"caf\xe9.md".to_vec()),
+        ];
+        assert_eq!(
+            lossy_args(args),
+            Some(vec![
+                exe.to_string(),
+                "x".to_string(),
+                "caf\u{FFFD}.md".to_string()
+            ])
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn lossy_args_of_nothing() {
+        assert_eq!(lossy_args(Vec::new()), None);
+    }
 
     #[test]
     fn markdown_extensions_recognised() {
