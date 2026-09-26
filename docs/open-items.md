@@ -66,6 +66,9 @@ section, so this file lists only what is still to do. Finished plans and reviews
   and a deb/rpm install (WebKitGTK), open `examples/kitchen-sink.md`: the diagram draws,
   clicking it opens the overlay, `Cmd`/`Ctrl`+wheel zooms about the cursor, dragging pans,
   Escape comes back at the same scroll, and the light/dark toggle redraws it.
+  *Linux no longer needs an install: since cd315c4, `drive-app` drives a debug build on
+  WebKitGTK (`linux.md`); `wd.mjs` has no wheel command, so Ctrl+wheel would go through
+  xdotool under Xvfb (`keydown ctrl click 4 keyup ctrl`, untried). macOS still needs a Mac.*
 
 ## First runs after the 2026-09-26 changes
 
