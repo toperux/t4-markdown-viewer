@@ -352,6 +352,37 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   Windows are saved least-recently-focused first and the first goes to `main`; labels
   themselves are not saved.
 
+- [x] **Task 15's release-pipeline hardening is done in code (08606a8) but not yet run.** Owner
+  steps, in order: (1) ~~add the four signing secrets to the `signing` environment~~ done
+  2026-09-25, repo copies left in place until step 5; (2) clear the
+  `v0-rust-build` caches; (3) push; (4) a `workflow_dispatch` dry run on `main` and check it;
+  (5) delete the four repo secrets and dry-run again; (6) turn on "require actions pinned to a
+  full-length commit SHA". With the dry run, also: extract its AppImage (`--appimage-extract`)
+  and check `usr/lib` against THIRD-PARTY-LICENSES' "Linux AppImage" section, `libjbig`
+  included; and check that the dry run also rehearses publish (#46) — the draft release
+  `dry-run-<run id>` was created, its assets matched `dist/`, and it was deleted.
+  *Steps 2–4 done 2026-09-26: caches cleared, 15a4a2a pushed, dry run 36186470162 green on
+  every job. Its log: six AppImage tools pinned `OK`; `tauri-cli v2.11.4` installed from
+  crates.io on all three legs; no download in the Linux Bundle and sign; updater signatures on
+  all three; Windows setup, app and uninstaller signed by `F06C…8151`, macOS bundle, tarball and
+  dmg by `53effb03…`; the draft took all 16 `dist/` files, the check passed and deleted it, and
+  no `dry-run-*` release or tag is left. The AppImage (WSL): runtime `dd6cebe`, extracts, 164
+  libraries in `usr/lib` with `libjbig.so.0` among them, `libjbig0` the only package whose
+  copyright lists GPL alone, and the extracted `AppRun` opens a `.md`.*
+  *Step 5 done 2026-09-26: the four repo secrets deleted (the environment keeps all six), and
+  dry run 36217793093 passed every job on the environment alone: updater signatures on all
+  three legs, Windows signed by `F06C…8151`, macOS by `53effb03…`, and the publish rehearsal
+  drafted, checked and deleted `dry-run-36217793093`.*
+  *Step 6 done 2026-09-26 by the owner: `actions/permissions` reports
+  `sha_pinning_required: true`. Closed.*
+
+- [x] **Anyone who can push to main can sign with the project's keys** (added 2026-09-26, from
+  the step-5 dry run). The `signing` environment limited which refs could use the updater
+  key, the macOS certificate and the Certum OTP seed, not who pushed to them.
+  *Done 2026-09-26 at the owner's call rather than accepted: the environment now requires the
+  owner's approval (self-review allowed, as the only reviewer), so every Release run, tag or
+  dispatch, waits at the build legs until approved. The release skill says how.*
+
 ## Needs a Mac, a Dependabot run, or an older build
 
 - [x] **"Update available" in Settings (586560c).** Only the up-to-date path has been seen
@@ -425,6 +456,14 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
     pressed Update now twice. #6 alone keeps this open.*
   *Retired 2026-09-25: four of five proven. #6 continues as its own item in `open-items.md`,
   "The app starts on a file name that is not Unicode".*
+- [x] **The app starts on a file name that is not Unicode** (added 2026-09-25, split from the
+  item above; review #6, 0d08e71). `setup` read argv with `std::env::args()`, which panics on
+  a non-UTF-8 argument; it now reads `args_os()` lossily. The file itself does not open; that
+  is #25, under *Accepted limits*.
+  *Proven 2026-09-26 on the .deb from dry run 36186470162, in WSL Ubuntu 24.04 (WSLg): with
+  `caf\xe9.md` on disk, both `t4-markdown-viewer <path>` and `gio launch` of the installed
+  desktop file (`Exec=… %f`, the path a file manager takes) left the app running with no
+  panic.*
 
 ## Housekeeping
 
@@ -535,3 +574,8 @@ nobody rediscovers them.
   Windows Sandbox — the silent uninstaller cannot tick it. The unticked and update cases ran
   scripted.
   *Kept 2026-09-26: re-check by hand if the NSIS hook changes.*
+- [x] **A release tag's own path first runs on a real release** (08606a8). Dry runs dispatch
+  from `main`, so they skip `checks`, publish only a draft, and never meet the `signing`
+  environment's `v*` tag rule. A failure there shows after the tag is public.
+  *Kept 2026-09-26: the fix is a re-run or a patch tag; a dispatch on a tag ref would still
+  publish only a draft. The 1.6.9 run is the proof.*

@@ -68,6 +68,11 @@ v1.3.0 shipping an installer named 1.2.0, which the updater then refuses.
    Push the branch before the tag, or CI builds a commit GitHub does not have.
    The release does not depend on that run: it runs the same checks itself, at
    the tagged commit, and publishes nothing unless they pass.
+6. **Approve the build.** The run waits at the three build legs until the owner
+   approves the `signing` environment (see *Signing*).
+7. **Tick first runs.** If `docs/open-items.md` has a *First runs* section, tick
+   every sub-item this release (or the push before it) proved, with the run id,
+   and move the item to `closed-items.md` once all are ticked. Commit as `docs:`.
 
 ## Checking the packaging without burning a version
 
@@ -104,7 +109,13 @@ holding all three platforms' signatures at once. It cannot carry the real notes
 
 Every signing secret lives in the `signing` **environment**, not in repo
 secrets. Only main and `v*` tags may use it, and every leg does, so a dispatch
-from any other branch fails every leg. The build is split so the secrets never
+from any other branch fails every leg. The environment also requires the
+owner's approval, so a push to main alone cannot sign anything: every Release
+run, tag or dispatch, waits at the build legs until the owner approves it
+(Actions → the run → *Review deployments* → `signing` → *Approve and deploy*;
+one approval releases all three legs). By CLI:
+`gh api -X POST repos/toperux/t4-markdown-viewer/actions/runs/<run id>/pending_deployments -F 'environment_ids[]=22673426996' -f state=approved -f comment=ok`.
+An unapproved run waits up to 30 days, then fails. The build is split so the secrets never
 meet the compile: *Build the app* (`cargo tauri build --no-bundle`) runs every
 build script and proc-macro with no secrets in env; *Bundle and sign* (`cargo
 tauri bundle`) compiles nothing and holds the keys.
