@@ -1084,7 +1084,7 @@ async function redrawDiagrams() {
  * same spot. 100% is what fits, as for an SVG in the viewer.
  */
 let zoomed = null; // { svg, ratio, scale, source, look, path } while the overlay is open
-let diagramPan = null;
+const diagramPan = dragPan(els.diagramView, () => zoomed);
 
 /** Measured against the panel rather than the scroll box, for the reason `fitWidth` gives. */
 function diagramFit() {
@@ -1092,25 +1092,22 @@ function diagramFit() {
   return Math.max(1, Math.min(box.clientWidth, box.clientHeight * zoomed.ratio));
 }
 
-/** Resize about a point, measured before and after for the reason `zoomTo` gives. */
+/** Zoom the overlay's copy about a point (`zoomAbout`). */
 function zoomDiagram(scale, clientX, clientY) {
   if (!zoomed) return;
-  const box = els.diagramView.getBoundingClientRect();
-  const before = zoomed.svg.getBoundingClientRect();
-  const ax = clientX ?? box.left + box.width / 2;
-  const ay = clientY ?? box.top + box.height / 2;
-  const fx = before.width ? (ax - before.left) / before.width : 0.5;
-  const fy = before.height ? (ay - before.top) / before.height : 0.5;
-
-  zoomed.scale = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, scale));
-  const width = diagramFit() * zoomed.scale;
-  zoomed.svg.style.width = `${width}px`;
-  zoomed.svg.style.height = `${width / zoomed.ratio}px`;
-  els.diagramLevel.textContent = `${Math.round(zoomed.scale * 100)}%`;
-
-  const after = zoomed.svg.getBoundingClientRect();
-  els.diagramView.scrollLeft += after.left + fx * after.width - ax;
-  els.diagramView.scrollTop += after.top + fy * after.height - ay;
+  zoomAbout(
+    els.diagramView,
+    zoomed.svg,
+    () => {
+      zoomed.scale = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, scale));
+      const width = diagramFit() * zoomed.scale;
+      zoomed.svg.style.width = `${width}px`;
+      zoomed.svg.style.height = `${width / zoomed.ratio}px`;
+      els.diagramLevel.textContent = `${Math.round(zoomed.scale * 100)}%`;
+    },
+    clientX,
+    clientY,
+  );
 }
 
 function openDiagram(fig) {
@@ -1181,52 +1178,12 @@ function closeStaleDiagram() {
 function onDiagramClose() {
   // Escape mid-drag: no pointerup is coming to let go of the pointer. Whatever
   // happens below, the drag belonged to the overlay that closed.
-  if (diagramPan) {
-    try {
-      els.diagramView.releasePointerCapture(diagramPan.pointerId);
-    } catch {
-      /* capture already gone */
-    }
-  }
-  diagramPan = null;
-  els.diagramView.classList.remove("panning");
+  diagramPan.cancel();
   // The event comes a task after `close()`: an overlay opened again in between
   // is a new one, and emptying it would leave a blank modal.
   if (els.diagramDialog.open) return;
   zoomed = null;
   els.diagramView.replaceChildren();
-}
-
-function onDiagramPointerDown(event) {
-  if (!zoomed || event.button !== 0) return;
-  event.preventDefault();
-  diagramPan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
-  els.diagramView.setPointerCapture(event.pointerId);
-}
-
-function onDiagramPointerMove(event) {
-  if (!diagramPan || event.pointerId !== diagramPan.pointerId) return;
-  if (event.buttons === 0) return onDiagramPointerUp(event);
-  const dx = event.clientX - diagramPan.x;
-  const dy = event.clientY - diagramPan.y;
-  if (!diagramPan.moved && Math.hypot(dx, dy) < PAN_THRESHOLD) return;
-  diagramPan.moved = true;
-  diagramPan.x = event.clientX;
-  diagramPan.y = event.clientY;
-  els.diagramView.classList.add("panning");
-  els.diagramView.scrollLeft -= dx;
-  els.diagramView.scrollTop -= dy;
-}
-
-function onDiagramPointerUp(event) {
-  if (!diagramPan || event.pointerId !== diagramPan.pointerId) return;
-  diagramPan = null;
-  try {
-    els.diagramView.releasePointerCapture(event.pointerId);
-  } catch {
-    /* capture already gone */
-  }
-  els.diagramView.classList.remove("panning");
 }
 
 function onDiagramWheel(event) {
@@ -1399,7 +1356,7 @@ function renderDocument(doc, scrollY, hash) {
 const ZOOM_STEP = 1.25;
 const ZOOM_MIN = 0.05;
 const ZOOM_MAX = 32;
-const PAN_THRESHOLD = 3; // px before a click on the picture becomes a pan
+const PAN_THRESHOLD = 3; // px before a click on the picture or the diagram becomes a pan
 
 /**
  * The picture on screen, or null whenever another panel is up. `base` is the
@@ -1444,25 +1401,29 @@ function applyWidth(w) {
 }
 
 /**
- * Resize about a point, so whatever was under the cursor stays under it. Done
- * by measuring the picture before and after rather than by arithmetic on
- * offsets: the image is centred while it is smaller than the box and hard
- * against the edge once it is bigger, and measuring is right either way.
+ * Resize `el` inside the scroll box `view` about a point, so whatever was
+ * under the cursor stays under it — or the box's centre, given no point.
+ * Done by measuring before and after rather than by arithmetic on offsets:
+ * the content is centred while it is smaller than the box and hard against
+ * the edge once it is bigger, and measuring is right either way. `resize`
+ * applies the new size.
  */
-function zoomTo(w, clientX, clientY) {
-  if (!picture) return;
-  const box = els.imageView.getBoundingClientRect();
-  const before = els.imageEl.getBoundingClientRect();
+function zoomAbout(view, el, resize, clientX, clientY) {
+  const box = view.getBoundingClientRect();
+  const before = el.getBoundingClientRect();
   const ax = clientX ?? box.left + box.width / 2;
   const ay = clientY ?? box.top + box.height / 2;
   const fx = before.width ? (ax - before.left) / before.width : 0.5;
   const fy = before.height ? (ay - before.top) / before.height : 0.5;
+  resize();
+  const after = el.getBoundingClientRect();
+  view.scrollLeft += after.left + fx * after.width - ax;
+  view.scrollTop += after.top + fy * after.height - ay;
+}
 
-  applyWidth(w);
-
-  const after = els.imageEl.getBoundingClientRect();
-  els.imageView.scrollLeft += after.left + fx * after.width - ax;
-  els.imageView.scrollTop += after.top + fy * after.height - ay;
+function zoomTo(w, clientX, clientY) {
+  if (!picture) return;
+  zoomAbout(els.imageView, els.imageEl, () => applyWidth(w), clientX, clientY);
   rememberImage();
 }
 
@@ -3806,48 +3767,65 @@ function onJsonClick(event) {
 }
 
 /*
- * Panning the picture. Pointer capture rather than a document-level listener so
- * a drag that leaves the window still steers the scroll, and so releasing
- * outside it still ends cleanly.
+ * Drag-to-pan, for the picture and the diagram overlay alike. Pointer capture
+ * rather than a document-level listener so a drag that leaves the window
+ * still steers the scroll, and so releasing outside it still ends cleanly.
+ * `active` says whether there is anything to pan; `moved` hears of a drag
+ * that moved, once it ends.
  */
-let pan = null;
-
-function onImagePointerDown(event) {
-  if (!picture || event.button !== 0) return;
-  // Also what stops the browser starting its own image drag instead.
-  event.preventDefault();
-  pan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
-  els.imageView.setPointerCapture(event.pointerId);
-}
-
-function onImagePointerMove(event) {
-  if (!pan || event.pointerId !== pan.pointerId) return;
-  if (event.buttons === 0) return onImagePointerUp(event);
-  const dx = event.clientX - pan.x;
-  const dy = event.clientY - pan.y;
-  if (!pan.moved && Math.hypot(dx, dy) < PAN_THRESHOLD) return;
-
-  pan.moved = true;
-  pan.x = event.clientX;
-  pan.y = event.clientY;
-  els.imageView.classList.add("panning");
-  // Dragging the picture left means looking further right.
-  els.imageView.scrollLeft -= dx;
-  els.imageView.scrollTop -= dy;
-}
-
-function onImagePointerUp(event) {
-  if (!pan || event.pointerId !== pan.pointerId) return;
-  const moved = pan.moved;
-  pan = null;
-  try {
-    els.imageView.releasePointerCapture(event.pointerId);
-  } catch {
-    /* capture already gone */
+function dragPan(view, active, moved) {
+  let pan = null;
+  function up(event) {
+    if (!pan || event.pointerId !== pan.pointerId) return;
+    const didMove = pan.moved;
+    pan = null;
+    try {
+      view.releasePointerCapture(event.pointerId);
+    } catch {
+      /* capture already gone */
+    }
+    view.classList.remove("panning");
+    if (didMove) moved?.();
   }
-  els.imageView.classList.remove("panning");
-  if (moved) rememberImage();
+  return {
+    down(event) {
+      if (!active() || event.button !== 0) return;
+      // Also what stops the browser starting a drag of its own instead.
+      event.preventDefault();
+      pan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
+      view.setPointerCapture(event.pointerId);
+    },
+    move(event) {
+      if (!pan || event.pointerId !== pan.pointerId) return;
+      if (event.buttons === 0) return up(event);
+      const dx = event.clientX - pan.x;
+      const dy = event.clientY - pan.y;
+      if (!pan.moved && Math.hypot(dx, dy) < PAN_THRESHOLD) return;
+      pan.moved = true;
+      pan.x = event.clientX;
+      pan.y = event.clientY;
+      view.classList.add("panning");
+      // Dragging the picture or the diagram left means looking further right.
+      view.scrollLeft -= dx;
+      view.scrollTop -= dy;
+    },
+    up,
+    /** Let go of a drag no pointerup is coming for. */
+    cancel() {
+      if (pan) {
+        try {
+          view.releasePointerCapture(pan.pointerId);
+        } catch {
+          /* capture already gone */
+        }
+      }
+      pan = null;
+      view.classList.remove("panning");
+    },
+  };
 }
+
+const imagePan = dragPan(els.imageView, () => picture, rememberImage);
 
 /**
  * Plain and Shift wheel are left alone: the scroll box already handles them,
@@ -4252,18 +4230,18 @@ async function main() {
   // Not passive: preventDefault is what keeps a Ctrl+wheel zoom from scrolling
   // the box at the same time, and a passive listener is not allowed to.
   els.imageView.addEventListener("wheel", onImageWheel, { passive: false });
-  els.imageView.addEventListener("pointerdown", onImagePointerDown);
-  els.imageView.addEventListener("pointermove", onImagePointerMove);
-  els.imageView.addEventListener("pointerup", onImagePointerUp);
-  els.imageView.addEventListener("pointercancel", onImagePointerUp);
+  els.imageView.addEventListener("pointerdown", imagePan.down);
+  els.imageView.addEventListener("pointermove", imagePan.move);
+  els.imageView.addEventListener("pointerup", imagePan.up);
+  els.imageView.addEventListener("pointercancel", imagePan.up);
   els.imageView.addEventListener("dblclick", onImageDblClick);
   els.imageTools.addEventListener("click", onZoomClick);
   els.diagramView.addEventListener("wheel", onDiagramWheel, { passive: false });
-  els.diagramView.addEventListener("pointerdown", onDiagramPointerDown);
-  els.diagramView.addEventListener("pointermove", onDiagramPointerMove);
-  els.diagramView.addEventListener("pointerup", onDiagramPointerUp);
-  els.diagramView.addEventListener("pointercancel", onDiagramPointerUp);
-  els.diagramView.addEventListener("lostpointercapture", (e) => e.target === els.diagramView && onDiagramPointerUp(e));
+  els.diagramView.addEventListener("pointerdown", diagramPan.down);
+  els.diagramView.addEventListener("pointermove", diagramPan.move);
+  els.diagramView.addEventListener("pointerup", diagramPan.up);
+  els.diagramView.addEventListener("pointercancel", diagramPan.up);
+  els.diagramView.addEventListener("lostpointercapture", (e) => e.target === els.diagramView && diagramPan.up(e));
   els.diagramView.addEventListener("dblclick", onDiagramDblClick);
   // The toolbar is no scroll box, so a wheel over it would scroll the document behind.
   els.diagramDialog.addEventListener("wheel", (e) => !els.diagramView.contains(e.target) && e.preventDefault(), {
@@ -4286,7 +4264,7 @@ async function main() {
   // picture itself first, and handing that over to the bar fires this on the
   // child — which bubbles here and would cancel every touch drag.
   els.bar.addEventListener("lostpointercapture", (e) => e.target === els.bar && onDragCancel());
-  els.imageView.addEventListener("lostpointercapture", (e) => e.target === els.imageView && onImagePointerUp(e));
+  els.imageView.addEventListener("lostpointercapture", (e) => e.target === els.imageView && imagePan.up(e));
   els.tabs.addEventListener("click", onTabClick);
   els.tabs.addEventListener("keydown", onTabsKeydown);
 
