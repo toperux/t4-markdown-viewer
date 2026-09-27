@@ -703,6 +703,14 @@ function zoomDiagram(scale, clientX, clientY) {
 }
 
 function openDiagram(fig) {
+  const { pre, look } = diagramBlocks.get(fig);
+  // Not in a look the page no longer has — its side or font changed, and a
+  // redraw is on its way or, under a theme whose colours move without a theme
+  // change or an OS switch (a transition, a media query on the width), not
+  // coming at all. The copy would be the old look's on the new look's backdrop,
+  // so bring the drawing up to date instead; a later click opens it. With a
+  // redraw already under way this one has nothing left to draw.
+  if (look !== diagramLook().key) return redrawDiagrams().catch(console.error);
   const original = fig.querySelector("svg");
   // Its shape as drawn on the page. Not off the viewBox, which WebKit hands
   // back as null when a diagram has none.
@@ -719,7 +727,6 @@ function openDiagram(fig) {
   svg.style.maxWidth = "none";
   svg.removeAttribute("width");
   svg.removeAttribute("height");
-  const { pre, look } = diagramBlocks.get(fig);
   zoomed = {
     svg,
     ratio: width && height ? width / height : 1,
@@ -3831,6 +3838,21 @@ async function main() {
     },
     { passive: true },
   );
+  // A theme can follow the OS — `color-scheme: light dark` over a see-through
+  // page, or rules of its own under `prefers-color-scheme` — and then a flip
+  // changes the page's side with no theme change to redraw its diagrams, or to
+  // recolour what wears the page colour. `redrawDiagrams` skips any already
+  // drawn in the look the page now has. `--page-bg` is refreshed only once a
+  // theme has set it; until then the active tab and the overlay use fallbacks
+  // of their own.
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    const root = document.documentElement.style;
+    if (root.getPropertyValue("--page-bg")) root.setProperty("--page-bg", getComputedStyle(document.body).backgroundColor);
+    // The overlay's backdrop has flipped already, and its copy is of the old
+    // drawing: close it now, as a theme change does, not once the redraw lands.
+    if (zoomed && diagramLook().key !== zoomed.look) els.diagramDialog.close();
+    if (!els.content.hidden && diagramFigures().length > 0) redrawDiagrams().catch(console.error);
+  });
   // Chromium fires auxclick for the thumb buttons too; swallow it so the
   // default "navigate" behaviour cannot fight our own handling.
   document.addEventListener("auxclick", (e) => {
