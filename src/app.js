@@ -525,6 +525,49 @@ function diagramKey(look, source) {
   return `${look.key}\0${source}`;
 }
 
+/**
+ * Rename ids inside a drawing, and every reference to them: `url(#…)` in any
+ * attribute but a human-readable one (`title`, `data-*`, `aria-*` other than
+ * the id lists), `href="#…"` on anything but a link — a diagram's `click` link
+ * names a place in the document, not a part of the drawing — the aria id
+ * lists, and selectors and `url(#…)` in its own `<style>`. Text is left
+ * alone, so a label that mentions an id reads the same; so are declarations,
+ * where `#aaa` is a colour.
+ */
+function renameIds(svg, rename) {
+  const renamed = new Map();
+  for (const el of [svg, ...svg.querySelectorAll("[id]")]) {
+    if (!el.id) continue;
+    const to = rename(el.id);
+    if (to && to !== el.id) renamed.set(el.id, to), (el.id = to);
+  }
+  if (!renamed.size) return;
+  const url = /url\((['"]?)#([^'")]+)\1\)/g;
+  const toUrl = (m, q, id) => (renamed.has(id) ? `url(${q}#${renamed.get(id)}${q})` : m);
+  for (const el of [svg, ...svg.querySelectorAll("*")]) {
+    for (const attr of [...el.attributes]) {
+      // Words, not references: a label or title that mentions `url(#…)` reads
+      // the same. The two aria id lists are references, and are renamed below.
+      const words =
+        attr.localName === "title" ||
+        attr.name.startsWith("data-") ||
+        (attr.name.startsWith("aria-") && attr.name !== "aria-labelledby" && attr.name !== "aria-describedby");
+      if (words) continue;
+      let value = attr.value.replace(url, toUrl);
+      if (attr.localName === "href" && el.localName !== "a" && renamed.has(value.slice(1)) && value.startsWith("#"))
+        value = `#${renamed.get(value.slice(1))}`;
+      if (attr.name === "aria-labelledby" || attr.name === "aria-describedby")
+        value = value.split(/\s+/).map((id) => renamed.get(id) ?? id).join(" ");
+      if (value !== attr.value) attr.value = value;
+    }
+  }
+  const hash = (m, id) => (renamed.has(id) ? `#${renamed.get(id)}` : m);
+  for (const style of svg.querySelectorAll("style"))
+    style.textContent = style.textContent
+      .replace(/[^{}]+(?=\{)/g, (selector) => selector.replace(/#([\w-]+)/g, hash))
+      .replace(url, toUrl);
+}
+
 /** `warmSources` for the diagrams in a document's html. */
 function warmDiagrams(html, stale) {
   // Both renderers escape `"` in text, so only a real code block matches.
@@ -617,7 +660,11 @@ function warmSources(sources, stale) {
         const root = t.content.querySelector("svg");
         if (!stylesStayInside(root))
           throw new Error("This diagram's styles reach outside it, so it isn't drawn.");
-        done = { svg };
+        // Every id under the drawing's own, so a group named like part of the
+        // app — `icons`, `tree` — can neither wear the app's styles nor be
+        // what a `#tree` link finds.
+        renameIds(root, (id) => (id.startsWith(root.id) ? null : `${root.id}-${id}`));
+        done = { svg: t.innerHTML };
       } catch (err) {
         done = { error: String(err?.message ?? err) };
       }
@@ -685,6 +732,34 @@ function renderDiagrams(root, look) {
       sayDiagramFailed(pre, done.error);
     }
   });
+  numberRepeats(root);
+}
+
+/**
+ * The same diagram twice in a document is the same drawing twice, ids and
+ * all. Each copy after the first gets its own, numbered under the first's —
+ * `Mermaid-3x2`, `Mermaid-3x3`; mermaid never puts an `x` straight after the
+ * root, so no id of its own can match — and every reference inside a copy
+ * then finds that copy, on engines that do not paint a reference into a
+ * hidden twin.
+ */
+function numberRepeats(root) {
+  const seen = new Map();
+  for (const fig of root.querySelectorAll(".mermaid-diagram")) {
+    // Only our own figures: a diagram's nodes can wear the class too.
+    if (!diagramBlocks.has(fig)) continue;
+    const svg = fig.querySelector(":scope > svg");
+    if (!svg) continue;
+    // Counted by the first copy's id, whether this copy is fresh from the
+    // cache or already numbered, so a copy re-set on its own gets its own
+    // number back rather than a sibling's.
+    const id = svg.id;
+    const base = id.replace(/x\d+$/, "");
+    const k = (seen.get(base) ?? 0) + 1;
+    seen.set(base, k);
+    const want = k > 1 ? `${base}x${k}` : base;
+    if (id !== want) renameIds(svg, (old) => (old.startsWith(id) ? `${want}${old.slice(id.length)}` : null));
+  }
 }
 
 /**
@@ -731,6 +806,7 @@ async function redrawDiagrams() {
     if (done?.error) sayDiagramFailed(drawn.pre, done.error);
     if (!drawn.pre.querySelector(".hljs")) highlight(drawn.pre);
   }
+  numberRepeats(els.content);
   // An overlay opened while this warmed is a copy of the old look's drawing.
   closeStaleDiagram();
 }
@@ -788,11 +864,13 @@ function openDiagram(fig) {
   const { width, height } = original.getBoundingClientRect();
   // Its own ids: the copy's styles and arrowheads then point at itself rather
   // than at the original, which a re-render can take away while this is open.
-  // Only where mermaid puts them — after `"`, `#` or its aria prefixes — so a
-  // label that mentions the id keeps its text, and `Mermaid-1` spares `Mermaid-10`.
-  const ids = new RegExp(`(["#]|chart-(?:title|desc)-)${original.id}(?!\\d)`, "g");
-  els.diagramView.innerHTML = fig.innerHTML.replace(ids, `$1${original.id}-zoom`);
-  const svg = els.diagramView.querySelector("svg");
+  // Every id in a drawing starts with its root's (`renameIds` at draw time).
+  const t = document.createElement("template");
+  t.innerHTML = fig.innerHTML;
+  const svg = t.content.querySelector("svg");
+  const root = original.id;
+  renameIds(svg, (id) => (id.startsWith(root) ? `${root}-zoom${id.slice(root.length)}` : null));
+  els.diagramView.replaceChildren(t.content);
   // mermaid's `max-width` and `width="100%"` would hold it to the window. The
   // rest of its inline style — a background, on some diagrams — stays.
   svg.style.maxWidth = "none";
