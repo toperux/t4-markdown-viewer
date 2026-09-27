@@ -933,6 +933,35 @@ function figureOf(el) {
   return null;
 }
 
+/*
+ * A sequence diagram's `link`/`links` give an actor a menu, which mermaid
+ * draws hidden and opens with a handler the app's strict mode strips. So the
+ * page opens it: a click on the actor's box or lifeline shows it; a click
+ * anywhere else in the document, or Escape, puts it away.
+ */
+
+/** The link menu of the actor whose box or lifeline `el` is in, within `fig`, or null. */
+function actorMenu(fig, el) {
+  // The top box's group and every lifeline name their actor; a bottom box
+  // only on its rect, which a database or queue, drawn in paths, has not.
+  const name =
+    el.closest('g[data-et="participant"], line[data-et="life-line"]')?.getAttribute("data-id") ??
+    el.closest("g")?.querySelector("rect.actor[name]")?.getAttribute("name");
+  if (!name) return null;
+  // By name, not number: mermaid numbers actors from a count that runs on
+  // across diagrams.
+  const line = [...fig.querySelectorAll("line.actor-line[name]")].find((l) => l.getAttribute("name") === name);
+  return line ? fig.querySelector(`#${CSS.escape(`${line.id}_popup`)}`) : null;
+}
+
+/** Put away every open actor menu but `except`; whether one was open. */
+function closeActorMenus(except) {
+  let closed = false;
+  for (const menu of els.content.querySelectorAll('g.actorPopupMenu[id$="_popup"][display="block"]'))
+    if (menu !== except) menu.setAttribute("display", "none"), menu.removeAttribute("transform"), (closed = true);
+  return closed;
+}
+
 /** The figures on the page. */
 function diagramFigures() {
   return [...els.content.querySelectorAll(".mermaid-diagram")].filter((f) => diagramBlocks.has(f));
@@ -1102,6 +1131,9 @@ function openDiagram(fig) {
   // Every id in a drawing starts with its root's (`renameIds` at draw time).
   const t = document.createElement("template");
   t.innerHTML = fig.innerHTML;
+  // The copy is for reading, and its links are not followed there, so a menu
+  // open on the page is not open in it.
+  t.content.querySelectorAll('g.actorPopupMenu[id$="_popup"]').forEach((m) => m.setAttribute("display", "none"));
   const svg = t.content.querySelector("svg");
   const root = original.id;
   // Under `x0zoom`, not `-zoom`: a gantt task named `zoom` is already
@@ -3538,10 +3570,41 @@ function onLinkClick(event) {
       event.preventDefault();
       openTab(img.dataset.file).catch(console.error);
     }
+    // Inside an open menu but not on one of its links: nothing to do.
+    if (event.target.closest('g.actorPopupMenu[id$="_popup"]')) return;
     const fig = figureOf(event.target);
+    const menu = fig && actorMenu(fig, event.target);
+    closeActorMenus(menu);
+    if (menu) {
+      if (menu.getAttribute("display") === "block") {
+        menu.setAttribute("display", "none");
+        menu.removeAttribute("transform");
+        return;
+      }
+      // mermaid hangs every menu under the actor's top box, which on a
+      // diagram taller than the window is out of sight from the bottom box or
+      // far down the lifeline. So it opens where it was clicked, in the
+      // drawing's units: just below the click, or just above it where it
+      // would run past the drawing's bottom and be cut off. The gap keeps the
+      // clicked point clear, so a second click there closes it again. A click
+      // on the top box, above where mermaid put it, leaves it there.
+      const GAP = 4;
+      const panel = menu.querySelector(".actorPopupMenuPanel");
+      const top = panel.y.baseVal.value;
+      const height = panel.height.baseVal.value;
+      const svg = menu.ownerSVGElement;
+      const { y } = new DOMPoint(event.clientX, event.clientY).matrixTransform(svg.getScreenCTM().inverse());
+      const box = svg.viewBox.baseVal;
+      let dy = Math.max(0, y + GAP - top);
+      if (top + dy + height > box.y + box.height) dy = y - GAP - height - top;
+      if (dy) menu.setAttribute("transform", `translate(0, ${dy})`);
+      menu.setAttribute("display", "block");
+      return;
+    }
     if (fig) openDiagram(fig);
     return;
   }
+  closeActorMenus(); // a link is being followed, a menu's own or not
   const href = a.getAttribute("href") ?? a.getAttributeNS("http://www.w3.org/1999/xlink", "href");
   // Nothing to follow: an emptied link — comrak writes `href=""` for a
   // `file:`, `javascript:` or `data:` link, and mermaid `about:blank` for an
@@ -3886,6 +3949,7 @@ async function onKeydown(event) {
     els.openMore.focus();
     if (event.key === "Escape") return;
   }
+  if (event.key === "Escape" && closeActorMenus()) return;
 
   if (event.altKey && !event.ctrlKey && !event.metaKey) {
     if (event.key === "ArrowLeft") {

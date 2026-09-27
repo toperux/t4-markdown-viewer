@@ -1432,6 +1432,11 @@ html.image-mode {
   cursor: zoom-in;
 }
 
+/* A sequence diagram's link menu entries would otherwise read as actor names. */
+.markdown-body div.mermaid-diagram .actorPopupMenu a text {
+  text-decoration: underline;
+}
+
 /*
  * Why a diagram did not draw, under the source that is shown in its place.
  * mermaid's parse errors are several lines with a `^` under the fault, so the
