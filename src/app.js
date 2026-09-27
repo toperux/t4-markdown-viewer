@@ -359,7 +359,16 @@ function resolveMedia(root, dir, repo) {
     // Remember the file behind the picture so a click can open it full size —
     // a diagram at column width is often too small to read. Images only: the
     // same loop also rewrites video and audio, which have their own controls.
-    if (el.tagName === "IMG" && isImage(file)) el.dataset.file = file;
+    if (el.tagName === "IMG" && isImage(file)) {
+      el.dataset.file = file;
+      // Reached by Tab and opened by Enter or Space too — unless it is a
+      // link's picture, where the link is what a key press means.
+      if (!el.closest("a")) {
+        el.tabIndex = 0;
+        el.setAttribute("role", "button");
+        if (!el.alt) el.setAttribute("aria-label", baseName(file));
+      }
+    }
   });
 }
 
@@ -933,6 +942,35 @@ function figureOf(el) {
   return null;
 }
 
+/** What a key press can open: a diagram, or a picture outside a link. */
+const OPENABLE = "div.mermaid-diagram[tabindex], img[data-file][tabindex]";
+
+/**
+ * A picture opened from the keyboard, in a tab of its own: the document it was
+ * on and where it stood there, so that closing the tab puts focus back on it.
+ */
+let pictureBack = null;
+
+/** What makes an openable element the same one after a re-render: its source or its file. */
+function openableKey(el) {
+  return diagramBlocks.get(el)?.pre.textContent ?? el.dataset.file;
+}
+
+/** Where an openable element stands among the page's, and what it is. */
+function markOpenable(el) {
+  return { at: [...els.content.querySelectorAll(OPENABLE)].indexOf(el), what: openableKey(el) };
+}
+
+/**
+ * Focus the element `mark` recorded, found again by its place among the
+ * page's — a render makes new ones — and only if it is still the same one
+ * there, or focus would land on a neighbour.
+ */
+function refocusOpenable(mark) {
+  const again = els.content.querySelectorAll(OPENABLE)[mark.at];
+  if (again && openableKey(again) === mark.what) again.focus({ preventScroll: true });
+}
+
 /*
  * A sequence diagram's `link`/`links` give an actor a menu, which mermaid
  * draws hidden and opens with a handler the app's strict mode strips. So the
@@ -989,6 +1027,12 @@ function renderDiagrams(root, look) {
     if (done?.svg) {
       const fig = document.createElement("div");
       fig.className = "mermaid-diagram";
+      // Reached by Tab and opened by Enter or Space (`onKeydown`). A group
+      // rather than a button: a button's content is presentational, which
+      // would hide the drawing's own links from a screen reader.
+      fig.tabIndex = 0;
+      fig.setAttribute("role", "group");
+      fig.setAttribute("aria-label", "Diagram — Enter opens it full window");
       fig.innerHTML = done.svg;
       diagramBlocks.set(fig, { pre, look: look.key });
       pre.replaceWith(fig);
@@ -1083,7 +1127,7 @@ async function redrawDiagrams() {
  * full window instead, with the viewer's zoom and pan; Escape comes back to the
  * same spot. 100% is what fits, as for an SVG in the viewer.
  */
-let zoomed = null; // { svg, ratio, scale, source, look, path } while the overlay is open
+let zoomed = null; // { svg, ratio, scale, source, look, path, back } while the overlay is open
 const diagramPan = dragPan(els.diagramView, () => zoomed);
 
 /** Measured against the panel rather than the scroll box, for the reason `fitWidth` gives. */
@@ -1116,8 +1160,8 @@ function openDiagram(fig) {
   // redraw is on its way or, under a theme whose colours move without a theme
   // change or an OS switch (a transition, a media query on the width), not
   // coming at all. The copy would be the old look's on the new look's backdrop,
-  // so bring the drawing up to date instead; a later click opens it. With a
-  // redraw already under way this one has nothing left to draw.
+  // so bring the drawing up to date instead; a later click or Enter opens it.
+  // With a redraw already under way this one has nothing left to draw.
   if (look !== diagramLook().key) return redrawDiagrams().catch(console.error);
   const original = fig.querySelector("svg");
   // Its shape as drawn on the page. Not off the viewBox, which WebKit hands
@@ -1131,6 +1175,8 @@ function openDiagram(fig) {
   // The copy is for reading, and its links are not followed there, so a menu
   // open on the page is not open in it.
   t.content.querySelectorAll('g.actorPopupMenu[id$="_popup"]').forEach((m) => m.setAttribute("display", "none"));
+  // Its links are not followed there, so they are not Tab stops either.
+  t.content.querySelectorAll("a").forEach((a) => a.setAttribute("tabindex", "-1"));
   const svg = t.content.querySelector("svg");
   const root = original.id;
   // Under `x0zoom`, not `-zoom`: a gantt task named `zoom` is already
@@ -1150,6 +1196,8 @@ function openDiagram(fig) {
     source: pre.textContent,
     look,
     path: els.content.dataset.path,
+    // Opened from the keyboard: where to go back to, should a save replace it.
+    back: fig.matches(":focus-visible") ? markOpenable(fig) : null,
   };
   els.diagramDialog.showModal();
   zoomDiagram(1);
@@ -1182,8 +1230,21 @@ function onDiagramClose() {
   // The event comes a task after `close()`: an overlay opened again in between
   // is a new one, and emptying it would leave a blank modal.
   if (els.diagramDialog.open) return;
+  const back = zoomed?.back;
+  const path = zoomed?.path;
   zoomed = null;
   els.diagramView.replaceChildren();
+  // The dialog hands focus back to the diagram it was opened from — unless
+  // a save has since replaced it, and focus has fallen out of the page.
+  // Only on the same document: another one put up behind the overlay
+  // closed it, and its diagrams are not this one's.
+  if (
+    back &&
+    !els.content.contains(document.activeElement) &&
+    !els.content.hidden &&
+    els.content.dataset.path === path
+  )
+    refocusOpenable(back);
 }
 
 function onDiagramWheel(event) {
@@ -1204,7 +1265,16 @@ function onDiagramToolsClick(event) {
   if (what === "in") zoomDiagram(zoomed.scale * ZOOM_STEP);
   else if (what === "out") zoomDiagram(zoomed.scale / ZOOM_STEP);
   else if (what === "fit") zoomDiagram(1);
-  else if (what === "close") els.diagramDialog.close();
+  else if (what === "close") {
+    // The dialog hands focus back to the diagram it was opened from, and a
+    // key press puts its ring back: after a mouse close, a Space meant to
+    // scroll would open it again. Let go of it, as `onLinkClick` does, and
+    // of the way back, or `onDiagramClose` takes the focus that left the
+    // page for a save's doing and puts it back.
+    if (event.detail > 0) zoomed.back = null;
+    els.diagramDialog.close();
+    if (event.detail > 0 && diagramBlocks.has(document.activeElement)) document.activeElement.blur();
+  }
 }
 
 /** The same Ctrl spellings the picture tab takes. Escape is the dialog's own. */
@@ -1294,6 +1364,16 @@ function renderDocument(doc, scrollY, hash) {
       ? f.closest("li[data-sourcepos]")
       : null;
   const refocus = ticked && { pos: ticked.dataset.sourcepos, text: ticked.textContent };
+  // A diagram or picture with focus is put back the same way, but with no
+  // `:focus-visible` test: a save from another app lands while this window is
+  // inactive, where it reads false. A mouse press never leaves focus on one
+  // here — the mousedown listener and `onLinkClick` both let go of it.
+  const openable =
+    f?.matches(OPENABLE) &&
+    els.content.contains(f) &&
+    doc.path === els.content.dataset.path
+      ? markOpenable(f)
+      : null;
 
   clearHash();
 
@@ -1318,6 +1398,12 @@ function renderDocument(doc, scrollY, hash) {
     if (again?.textContent === refocus.text)
       again.querySelector(':scope > input[type="checkbox"]')?.focus({ preventScroll: true });
   }
+  if (openable) refocusOpenable(openable);
+  // Back on the document a picture was opened from with the keyboard: onto
+  // that picture again. Cleared on every render, this document's or another's,
+  // so a stash whose tab went elsewhere never fires on a later, unrelated one.
+  if (pictureBack?.path === doc.path) refocusOpenable(pictureBack.mark);
+  pictureBack = null;
 
   // Restore after layout, so the offset being scrolled to actually exists yet —
   // unless by then another render has been shown, or the page has passed to
@@ -3528,6 +3614,12 @@ function onLinkClick(event) {
   // Any namespace: a diagram's `click` links are SVG `<a xlink:href>`.
   const a = event.target.closest("a[*|href]");
   if (!a) {
+    // A click focuses a diagram as well, now it can take focus, and a later
+    // key — the Escape that closes its overlay or an actor's menu — would
+    // turn that into a keyboard focus, so a Space meant to scroll would open
+    // it. Let go of it. Not for a key press, which `el.click()` sends with no
+    // detail.
+    if (event.detail > 0 && diagramBlocks.has(document.activeElement)) document.activeElement.blur();
     // A picture in a document is held to the column width, which is no width at
     // all for a wide diagram. Clicking one opens it where it can be read.
     // Only outside a link: a linked image still means the link.
@@ -3936,6 +4028,27 @@ async function onKeydown(event) {
   }
   if (event.key === "Escape" && closeActorMenus()) return;
 
+  // A diagram or picture with focus opens as a click on it would. Space
+  // too, which would otherwise scroll the page. Not on a held key's repeat,
+  // which would open a picture's tab again before the first has taken the
+  // page away.
+  if ((event.key === "Enter" || event.key === " ") && !ctrl && !event.altKey && !event.shiftKey && !event.repeat) {
+    const el = document.activeElement;
+    // Only a keyboard focus. A mouse press lets go of any focus it gave (the
+    // mousedown listener, and `onLinkClick`); this is the last guard.
+    if (
+      el &&
+      els.content.contains(el) &&
+      el.matches(":focus-visible") &&
+      el.matches(OPENABLE)
+    ) {
+      event.preventDefault();
+      if (el.tagName === "IMG") pictureBack = { path: els.content.dataset.path, mark: markOpenable(el) };
+      el.click();
+      return;
+    }
+  }
+
   if (event.altKey && !event.ctrlKey && !event.metaKey) {
     if (event.key === "ArrowLeft") {
       event.preventDefault();
@@ -4034,7 +4147,13 @@ function onMouseUp(event) {
   // webview, which would walk the `#id` history under it.
   if (els.diagramDialog.open) {
     if (event.button === 3 || event.button === 4) event.preventDefault();
-    if (event.button === 3) els.diagramDialog.close();
+    if (event.button === 3) {
+      // A mouse close, as the toolbar's × by a click: let go of the way back
+      // and of the diagram the dialog hands focus back to.
+      zoomed.back = null;
+      els.diagramDialog.close();
+      if (diagramBlocks.has(document.activeElement)) document.activeElement.blur();
+    }
     return;
   }
   if (event.button === 3) {
@@ -4216,6 +4335,17 @@ async function main() {
   els.themeToggle.addEventListener("click", toggleThemeMode);
   els.content.addEventListener("click", onCopySection);
   els.content.addEventListener("click", onLinkClick);
+  // A press that never becomes a click on the page — a right or middle
+  // button, or one dragged out of it — focuses a diagram or picture too, and
+  // any key after makes that a keyboard focus. Let go of it once the press
+  // has done its focusing. `onLinkClick` lets go at the click as well, which
+  // a fast click can reach before this does.
+  els.content.addEventListener("mousedown", () =>
+    setTimeout(() => {
+      const el = document.activeElement;
+      if (els.content.contains(el) && el.matches(OPENABLE)) el.blur();
+    }),
+  );
   els.content.addEventListener("click", onJsonClick);
   els.content.addEventListener("change", onTaskToggle);
   // A form on the page can only come from a diagram — comrak strips raw
