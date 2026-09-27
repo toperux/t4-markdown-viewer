@@ -2781,6 +2781,9 @@ function pushAnchorEntry(id) {
   // The jump happens after this handler returns; record where it landed so
   // Forward comes back to exactly the same place.
   bankLanding(id);
+  // A refresh of this page still drawing would land on the entry it started
+  // from, at that entry's spot. Draw it again for this one instead.
+  if (shownToken !== renderToken) refresh().catch(console.error);
 }
 
 /**
@@ -3610,11 +3613,13 @@ function onLinkClick(event) {
   const href = a.getAttribute("href") ?? a.getAttributeNS("http://www.w3.org/1999/xlink", "href");
   // Nothing to follow: an emptied link — comrak writes `href=""` for a
   // `file:`, `javascript:` or `data:` link, and mermaid `about:blank` for an
-  // unsafe `click` URL — or a page that is not yet the active tab's, a switch
-  // or a load still under way. Either way the webview must not follow it on
-  // its own: following `""` reloads the page, and every tab in the window
-  // goes with it.
-  if (!href || href === "about:blank" || shownToken !== renderToken) {
+  // unsafe `click` URL — or a page that is not the active entry's, a switch
+  // still under way. Either way the webview must not follow it on its own:
+  // following `""` reloads the page, and every tab in the window goes with
+  // it. A refresh of the page on screen — a save, F5 — is not a switch: its
+  // links act on it, and one that navigates outdates the refresh.
+  const pending = shownToken !== renderToken;
+  if (!href || href === "about:blank" || (pending && shownEntry !== currentEntry(activeTab()))) {
     event.preventDefault();
     return;
   }
