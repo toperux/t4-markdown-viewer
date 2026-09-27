@@ -419,9 +419,10 @@ const MERMAID_BLOCK = "pre > code.language-mermaid";
  * before a document is painted, so `renderDiagrams` swaps them in without
  * waiting — which is what lets the scroll restore land on a page that already
  * has its full height. A save that leaves a diagram alone redraws it for free.
+ * Kept in the order last used, oldest first, so what goes when it is full is
+ * what the window has shown least recently.
  */
 const diagrams = new Map();
-// ponytail: dropped wholesale past this; an LRU if live editing ever makes it churn
 const DIAGRAMS_KEPT = 200;
 let diagramId = 0;
 /** One warm at a time: `initialize` is global, so two interleaved would draw in each other's look. */
@@ -546,15 +547,23 @@ function warmSources(sources, stale) {
     // Read before any wait: the theme can change while this is out, and a
     // diagram drawn in one look must not be filed under the next.
     const look = diagramLook();
-    let todo = [...sources].filter((s) => !diagrams.has(diagramKey(look, s)));
+    const todo = [...sources].filter((s) => !diagrams.has(diagramKey(look, s)));
+    // This document's drawings become the newest, so the oldest are other
+    // documents'; drop those to make room, never this one's — a document with
+    // more diagrams than the limit keeps them all.
+    const mine = new Set();
+    for (const s of sources) {
+      const key = diagramKey(look, s);
+      mine.add(key);
+      const done = diagrams.get(key);
+      if (done) diagrams.delete(key), diagrams.set(key, done);
+    }
+    for (const key of diagrams.keys()) {
+      if (diagrams.size + todo.length <= DIAGRAMS_KEPT || mine.has(key)) break;
+      diagrams.delete(key);
+    }
     if (!todo.length) return;
     const mermaid = await loadMermaid();
-    // Past the limit, start over — this document included, or the diagrams it
-    // already had would be dropped and shown as code.
-    if (diagrams.size + todo.length > DIAGRAMS_KEPT) {
-      diagrams.clear();
-      todo = [...sources];
-    }
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: "strict",
