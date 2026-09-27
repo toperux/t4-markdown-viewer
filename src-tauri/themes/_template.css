@@ -25,7 +25,7 @@
 /* The top bar is not part of the document, so it reads these four variables.
    Set them or it will keep the neutral fallbacks from base.css. */
 :root {
-  --ui-bg: #f5f5f5; /* top bar background, and the theme dropdown's options */
+  --ui-bg: #f5f5f5; /* top bar background, and the theme dropdown's options; keep it opaque */
   --ui-fg: #1f1f1f; /* top bar text */
   --ui-border: rgba(0, 0, 0, 0.12); /* top bar bottom rule, control borders */
   --ui-accent: #0078d4; /* focus rings, hover, primary button */

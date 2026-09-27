@@ -65,7 +65,16 @@ section, so this file lists only what is still to do. Finished plans and reviews
   `drive-app` proves them on Windows (WebView2) only. On a Mac (WKWebView, macOS 13 floor)
   and a deb/rpm install (WebKitGTK), open `examples/kitchen-sink.md`: the diagram draws,
   clicking it opens the overlay, `Cmd`/`Ctrl`+wheel zooms about the cursor, dragging pans,
-  Escape comes back at the same scroll, and the light/dark toggle redraws it.
+  Escape comes back at the same scroll, and the light/dark toggle redraws it, as does an OS
+  light/dark switch under a theme that follows the OS. No bundled theme does, so save one in
+  the app's themes folder (`src-tauri/themes/README.md` says where) holding
+  `:root { color-scheme: light dark } body { background: transparent }`, pick it, and switch
+  the OS setting; then again with the body rule replaced by `body { background: #fff }` plus
+  `@media (prefers-color-scheme: dark) { body { background: #111 } }`. The page itself must
+  change side first — if it doesn't, the webview never saw the switch, which is not this
+  check failing. On GNOME, WebKitGTK may follow the GTK theme rather than the Dark Style
+  switch (`gsettings set org.gnome.desktop.interface gtk-theme Adwaita-dark`; unverified).
+  Headless Xvfb has no desktop setting to switch, so on Linux use a desktop session.
   *Linux no longer needs an install: since cd315c4, `drive-app` drives a debug build on
   WebKitGTK (`linux.md`); `wd.mjs` has no wheel command, so Ctrl+wheel would go through
   xdotool under Xvfb (`keydown ctrl click 4 keyup ctrl`, untried). macOS still needs a Mac.*
@@ -153,10 +162,6 @@ run passes, with the run id; when all are ticked, move the item to `closed-items
   before the heading-id fix both carried `fn-1` and the first in the page won, so that
   ambiguity is older. Fix: for `fn-`/`fnref-` names, try the bare footnote first. Reopen when a
   real document hits either.
-- [ ] **Settings' Done button sits below the fold on a short window** (added 2026-09-26,
-  review loop; older than it). At an 860 px window height the dialog scrolls and Done is out
-  of sight; Escape still closes it. Fix: keep the dialog's footer in view (sticky footer, or
-  a capped scrolling body). Reopen with the next change to Settings.
 - [ ] **Link clicks on a page are dropped while its refresh draws diagrams** (added 2026-09-26,
   review loop). `onLinkClick` ignores link clicks while `shownToken !== renderToken`, so during
   a save or a switch in flight the links on the page on screen go dead (pictures and diagrams
@@ -164,13 +169,6 @@ run passes, with the run id; when all are ticked, move the item to `closed-items
   stretch it from a few ms to seconds on a first load, or when many diagrams changed. Fix:
   let a click act on the page on screen and outdate the pending render. Reopen if someone
   notices dead links just after a save.
-- [ ] **An OS light/dark flip doesn't redraw diagrams under a see-through theme** (added
-  2026-09-26, review loop). `diagramLook` reads the page background composited on the
-  dialog's `Canvas`, which follows the OS when a theme sets `color-scheme: light dark` and
-  leaves its body transparent. Only a theme change triggers a redraw, so such a theme's
-  diagrams keep the old palette until the next open. No bundled theme is built that way.
-  Fix: a `matchMedia("(prefers-color-scheme: dark)")` change listener that calls
-  `redrawDiagrams()`. Reopen when a custom theme reports it.
 - [ ] **The overlay's id rewrite can change a label's text** (added 2026-09-26, review loop).
   `openDiagram` rewrites the diagram's own id in the SVG string, so a label whose text contains
   `#Mermaid-N` or `"Mermaid-N` for that diagram's id reads differently in the overlay (the

@@ -420,6 +420,32 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   jump, and looks a bare name (footnotes, GitHub-style links) up inside the document only. A
   dead link does nothing; `#top` and `#` still scroll to the top. A test fails if an app id
   ever starts with `user-content-`, `fn-` or `fnref-`.*
+- [x] **Settings' Done button sits below the fold on a short window** (added 2026-09-26,
+  review loop; older than it). At an 860 px window height the dialog scrolls and Done is out
+  of sight; Escape still closes it. Fix: keep the dialog's footer in view (sticky footer, or
+  a capped scrolling body). Reopen with the next change to Settings.
+  *Fixed ce940ff, 2026-09-27 (`archive/plans/cheap-deferred-fixes.md`): `#settings-actions` is
+  now sticky at the bottom of the dialog's own scroll box, and `scroll-padding-bottom` keeps
+  keyboard focus clear of it. Measured on the debug build: at 860 px Done's bottom went from
+  960 (below the dialog's 804) to 787 (in view); at the app's real minimum, 420×320 by
+  `drag-corner.ps1`, 286 is in view of 303. Layout at 1080 is unchanged (dialog height 960),
+  and a Tab walk through Settings never lands a control under the footer.*
+- [x] **An OS light/dark flip doesn't redraw diagrams under a see-through theme** (added
+  2026-09-26, review loop). `diagramLook` reads the page background composited on the
+  dialog's `Canvas`, which follows the OS when a theme sets `color-scheme: light dark` and
+  leaves its body transparent. Only a theme change triggers a redraw, so such a theme's
+  diagrams keep the old palette until the next open. No bundled theme is built that way.
+  Fix: a `matchMedia("(prefers-color-scheme: dark)")` change listener that calls
+  `redrawDiagrams()`. Reopen when a custom theme reports it.
+  *Fixed e0dd026, 2026-09-27 (`archive/plans/cheap-deferred-fixes.md`): a
+  `matchMedia("(prefers-color-scheme: dark)")` change listener in `main()` calls
+  `redrawDiagrams()` and refreshes `--page-bg`, once a theme has set it. The listener also
+  covers a theme that restyles its body under its own `prefers-color-scheme` rule, not only a
+  see-through page. Verified with CDP-emulated light/dark flips under both shapes: diagrams
+  redraw to the page's side, `--page-bg` follows, an open overlay closes, nothing happens on a
+  picture tab or the empty screen, and an opaque theme that ignores the OS is untouched. The
+  overlay closes at the switch itself, and a diagram clicked in a look the page no longer has
+  is brought up to date instead of opening in the old one; the next click opens it.*
 
 ## Needs a Mac, a Dependabot run, or an older build
 
@@ -694,3 +720,20 @@ nobody rediscovers them.
   than on the heading.
   *Kept 2026-09-27: a ~16 ms window. Fix, if it ever matters: a restore-pending flag set in
   `renderDocument` and cleared in its frame, which `rememberScroll` respects.*
+- [x] **A theme that animates its page background leaves the page colour behind** (review of
+  the Settings footer and OS light/dark fixes; older than them). `applyTheme` reads the body
+  background right after swapping the stylesheet, which under a `transition` is the start
+  colour. `--page-bg` (the active tab, the top fade, the diagram overlay) keeps it until the
+  next theme change or OS switch, and an overlay opened mid-transition can stay open after
+  the side flips. Diagrams recover: a click on one in an outdated look redraws it.
+  *Kept 2026-09-27: no bundled theme animates its background, and the themes README says not
+  to. Fix, if it ever matters: a `transitionend` listener on body that re-reads both.*
+- [x] **A Windows contrast theme doesn't redraw diagrams** (same review; older, unverified).
+  `forced-colors` can change the page's colours without a `prefers-color-scheme` change, so
+  no redraw fires; diagrams keep their palette until a click on one or the next render.
+  *Kept 2026-09-27: niche, and a click or the next render recovers. Fix, if it ever matters:
+  also listen to `matchMedia("(forced-colors: active)")`.*
+- [x] **Tabbing onto Settings' Done may nudge the dialog's scroll** (same review;
+  unconfirmed). Done sits in the pinned footer, inside the `scroll-padding-bottom` zone, so
+  focusing it can scroll the dialog toward its end.
+  *Kept 2026-09-27: harmless; the Tab walk and a click on Done both pass.*

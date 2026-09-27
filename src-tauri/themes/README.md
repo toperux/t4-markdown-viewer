@@ -71,11 +71,16 @@ Settings dialog — all of which sit outside the document:
 }
 ```
 
+Keep `--ui-bg` opaque: the Settings dialog's Done bar is pinned over the
+dialog's own scrolling content in that colour, and a see-through one lets that
+content show through it.
+
 A theme must also paint `body { background }` — on `body`, not only on `:root`
 — in a color distinct from `--ui-bg`. The active tab fills itself with the page
 background so it reads as the front of the document, and a theme that leaves
 `body` alone, or matches it to `--ui-bg`, makes the active tab disappear into
-the strip.
+the strip. Don't animate it (`transition`): the app reads the page colour the
+moment a theme is applied, and would read the colour it starts from.
 
 Four more are optional. base.css supplies defaults — `--ui-on-accent` is
 white, `--ui-accent-text` follows `--ui-accent`, `--ui-fg-muted` is `--ui-fg`
@@ -100,6 +105,8 @@ which is what the window will actually look like.
 
 Only a top-level rule counts. A declaration inside `@media (prefers-color-scheme:
 dark)` is ignored, so a light theme that also adapts to the OS stays light.
+Its diagrams, the active tab and the page's top fade still follow the page when
+the OS switches: they are redrawn and recoloured from what the page shows.
 
 A theme that declares nothing falls back to its filename — `foo-dark.css` is
 read as dark — and to light if the name says nothing either.

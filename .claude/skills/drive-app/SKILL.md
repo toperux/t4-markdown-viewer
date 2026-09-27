@@ -75,6 +75,12 @@ it. Copy it here if a later run will want it.
   live `session.json` after backing it up, and again between probes: a session
   left by the last probe comes back in place of the file named on the command
   line.
+  **A subagent may not be able to set it.** The auto-mode sandbox has refused
+  an agent's edit of `config.json` as destructive, even with the user's go-ahead
+  in chat. Don't route around it: back up both files first, then ask the user to
+  set `"reopen": "off"` by hand. At the end, diff the live `config.json` against
+  the backup; if only `reopen` differs, copying the backup back (a restore, not
+  an edit) has been allowed.
 - **Port.** `netstat -ano | grep 9222`. t4-git-ui often holds 9222; use 9223.
 - **Build.** Use the `TAURI_CONFIG` command above, and rebuild after every
   `src/` edit: frontend assets are embedded at build time. Themes are copied into
@@ -235,6 +241,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/drive-app/scr
   on the active tab and on native dialogs: an `#open-btn` click during another
   call's `openTab` loop opened nothing. Chain dependent steps in one call.
 - **`state.themes` holds objects**, not names — loop `applyTheme(t.name)`.
+- **`await applyTheme(…)`.** It is async: rules appended to `els.themeStyle`
+  right after an un-awaited call are wiped when its stylesheet lands. Check an
+  appended rule took (`getComputedStyle(document.documentElement).colorScheme`,
+  say) before trusting it.
+- **Emulated media lasts as long as its connection.** `cdpraw.mjs
+  Emulation.setEmulatedMedia` reverts the moment the script exits. Set it,
+  wait and read in one script that holds the socket, as the scratch `flip.mjs`
+  of `archive/plans/cheap-deferred-fixes.md` does. A `change` event fires only
+  on a real transition, so on a dark host step through `light,dark`.
+- **Instrumentation piles up.** Listeners or wrappers installed by one `eval`
+  stay for every later one; installing them again double-counts. Reload
+  (`location.reload()`) and set up once when a probe needs a clean slate.
 - **JSON documents** (`json.rs`): `button.fold` toggles `aria-expanded`, its
   body is `nextElementSibling.nextElementSibling`; `button.more[data-range]`
   fetches a chunk. Scroll the button into view before `click` — it sits at
