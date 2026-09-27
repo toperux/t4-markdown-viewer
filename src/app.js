@@ -436,6 +436,63 @@ let diagramQueue = Promise.resolve();
 const TEXT_ONLY_FO = new Set(["journey", "venn"]);
 
 /**
+ * Whether every rule in a drawing's styles is scoped under its root, as
+ * mermaid means them to be. mermaid scopes them itself, but a stray `"` in a
+ * diagram's own theme values makes its CSS compiler and the browser disagree
+ * about where a string ends, and the rest of its stylesheet then applies to
+ * the whole app. Parsed the way the page will parse it. Keyframes are global
+ * by nature, and harmless: the app has none of its own.
+ */
+function stylesStayInside(root) {
+  const scope = `#${root.id}`;
+  // Split on top-level commas only: `:is(a, b)` is one selector. An escaped
+  // character (`.a\(`) or one in a string (`[title="("]`) is part of a name,
+  // not structure, or a comma could hide behind it; and a list whose brackets
+  // do not balance is not trusted at all (null).
+  const selectors = (text) => {
+    const out = [""];
+    let depth = 0;
+    let quote = null;
+    for (let i = 0; i < text.length; i++) {
+      let c = text[i];
+      if (c === "\\") c += text[++i] ?? "";
+      else if (quote) {
+        if (c === quote) quote = null;
+      } else if (c === '"' || c === "'") quote = c;
+      else if (c === "(" || c === "[") depth++;
+      else if ((c === ")" || c === "]") && --depth < 0) return null;
+      else if (c === "," && !depth) {
+        out.push("");
+        continue;
+      }
+      out[out.length - 1] += c;
+    }
+    return depth || quote ? null : out.map((s) => s.trim());
+  };
+  // The root itself, or inside it — not its siblings (`~`, `+`), and not `#Mermaid-10` for `#Mermaid-1`.
+  const scoped = (s) => s.startsWith(scope) && /^(\s*>|\s+[^\s~+]|$)/.test(s.slice(scope.length));
+  const ok = (rules) =>
+    [...rules].every((r) =>
+      r instanceof CSSKeyframesRule ||
+      // A nested rule only comes from the escape: mermaid's compiler flattens.
+      (r instanceof CSSStyleRule ? !!selectors(r.selectorText)?.every(scoped) && !r.cssRules?.length
+        : r instanceof CSSGroupingRule && ok(r.cssRules)));
+  // Parsed the way the page will parse it, by a `<style>` that matches no
+  // media, so it applies to nothing while it is read.
+  const probe = document.createElement("style");
+  probe.media = "not all";
+  try {
+    return [...root.querySelectorAll("style")].every((style) => {
+      probe.textContent = style.textContent;
+      document.head.append(probe);
+      return ok(probe.sheet.cssRules);
+    });
+  } finally {
+    probe.remove();
+  }
+}
+
+/**
  * One pixel to paint the page's background on and read back. The computed
  * colour can be any CSS form — `oklch(…)`, `color(srgb 0.97 …)` — whose
  * numbers are not 0–255 channels; a canvas hands back sRGB bytes for all.
@@ -546,6 +603,11 @@ function warmSources(sources, stale) {
         // accepted it for this one type.
         if (diagramType !== "eventmodeling" && !TEXT_ONLY_FO.has(diagramType) && /<foreignObject/i.test(svg))
           throw new Error("This diagram needs HTML labels, which this viewer does not draw.");
+        const t = document.createElement("template");
+        t.innerHTML = svg;
+        const root = t.content.querySelector("svg");
+        if (!stylesStayInside(root))
+          throw new Error("This diagram's styles reach outside it, so it isn't drawn.");
         done = { svg };
       } catch (err) {
         done = { error: String(err?.message ?? err) };
