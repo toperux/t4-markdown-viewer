@@ -568,6 +568,11 @@ li[aria-expanded="true"] > .tree-row .tree-twist {
   color: var(--ui-fg);
   font: 400 0.875rem/1.5 "Segoe UI", system-ui, sans-serif;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+  /* Focus scrolls a control into view only when it is out of sight; the
+     pinned footer hides the bottom of the box, so take its height off what
+     counts as in sight. The footer is about 3.8rem tall: change both
+     together. */
+  scroll-padding-bottom: 4rem;
 }
 
 /*
@@ -673,10 +678,20 @@ select option {
   font-size: 0.9em;
 }
 
+/*
+ * Pinned to the foot of the dialog's own scroll box: on a short window the
+ * dialog scrolls, and the one way out should not scroll away with it. The
+ * negative margins take it out to the dialog's edges, so what scrolls under it
+ * is covered, and its padding puts the spacing back where it was.
+ */
 #settings-actions {
+  position: sticky;
+  bottom: 0;
   display: flex;
   justify-content: flex-end;
-  margin-top: 1.25rem;
+  margin: 0.5rem -1.5rem -1rem;
+  padding: 0.75rem 1.5rem 1rem;
+  background: var(--ui-bg);
 }
 
 #settings-actions button {
