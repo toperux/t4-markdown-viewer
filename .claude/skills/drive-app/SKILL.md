@@ -196,6 +196,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/drive-app/scr
   command you want to stall — `__TAURI_INTERNALS__.invoke` is non-writable
   and the CSP blocks the IPC `fetch`, so Tauri falls back to `postMessage`.
   E.g. a `set_session` that never answers holds a window in `closing`.
+  **Reinstall it over the true native function.** A wrapper guarded by "skip
+  if already installed" was once found bypassed mid-run — `postMessage` native
+  again after overlapping CDP calls — and a held `load_file` then stayed
+  pending for good. Keep the native one once (`w.__trueOrig ??=
+  w.chrome.webview.postMessage`) and install the wrapper over that in every
+  script, as the scratch `t2/run2.mjs` of `archive/plans/viewer-follow-ups.md`
+  does.
 - **Real OS keystrokes for reload and Back accelerators.** CDP key events
   skip WebView2's browser accelerators; F5/Ctrl+R and Alt+←/→ need a real
   keystroke through `sendkeys.ps1` (`WScript.Shell` `AppActivate` +
@@ -273,6 +280,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/drive-app/scr
 - **Keyboard scrolling is animated.** Wait ~1 s after `key` before reading
   `scrollLeft`/`scrollTop`, or the rest of the move shows up in the next
   reading as drift on the wrong axis. An arrow press is 40 px.
+- **Focus checks need the viewer really in front.** A check that depends on
+  keyboard focus or `:focus-visible` reads falsely good, or falsely bad, unless
+  the debug window is the OS foreground window: one launched in the background
+  and never activated keeps `document.hasFocus()` true and never goes inactive,
+  and an inactive one reads `:focus-visible` false. Bring it in front first
+  (`keybd_event(0)`, then `SetForegroundWindow`, from PowerShell; confirm with
+  `GetForegroundWindow`). To make it inactive, launch a window of your own (a
+  WinForms form in a `powershell` you start) and kill it by its own PID — not
+  a Notepad, whose window may open in the user's own Notepad process.
 - **`#content` is hidden on the empty screen**, so anything appended to it
   measures `offsetHeight` 0 and lays nothing out. Open a document first and
   check `els.content.offsetHeight > 0`.

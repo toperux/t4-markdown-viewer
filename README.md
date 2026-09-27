@@ -50,10 +50,12 @@ Electron build starts around 150 MB.
   tab of its own, with zoom and pan — a wide ERD is unreadable at column width.
   Clicking a picture embedded in a document opens the same view. A Mermaid
   diagram opens full window over the document, with the same zoom and pan;
-  Escape comes back.
+  Escape comes back. Tab reaches a diagram or an embedded picture, and Enter
+  or Space opens it the same way a click does.
 - **Syntax highlighting** for fenced code blocks.
 - **Mermaid diagrams.** A ` ```mermaid ` block draws as a diagram, in the
-  theme's light or dark palette; one that will not parse shows its source and why.
+  theme's own colours by default — a Settings choice keeps Mermaid's own light
+  or dark palette instead; one that will not parse shows its source and why.
 - **JSON and JSONC open as documents,** shown as written — comments, key order
   and formatting kept — highlighted, with every `{…}` and `[…]` foldable. A
   file on one long line is reflowed first so it can be read, and a very large
@@ -237,6 +239,7 @@ On macOS, read `Cmd` for every `Ctrl` below.
 | `F8` | Next theme (`Shift+F8` for previous) |
 | `Ctrl+,` | Settings |
 | `Ctrl++` / `Ctrl+-` / `Ctrl+0` | Zoom in / out / fit — while a picture or a diagram is open |
+| `Enter` / `Space` | Open the focused diagram (full window) or picture (its own tab) |
 
 Mouse thumb buttons work for back/forward, and middle-click closes a tab. In
 the sidebar the same modifiers work as in a browser: `Ctrl`+click or
@@ -271,6 +274,10 @@ In-page `#anchor` links get a history entry too, so Back returns to the line you
 clicked the link from rather than skipping the whole document. Stepping between
 two anchors in one file is a scroll, not a reload — no flash, no re-highlight. A
 link pointing at an id that does not exist scrolls nowhere and costs no entry.
+
+A `#user-content-…` link resolves in GitHub's own order, so `#user-content-x`
+lands on `## X`, not on `## User content X`; and a footnote link finds its
+footnote even when a heading happens to share its name.
 
 A link carrying both — `notes.md#fc-29` — does both: the file loads and the view
 lands on that section rather than at the top, and Back comes back to the link.
@@ -484,34 +491,85 @@ file opens without the UI thread highlighting a line of it.
 Blocks with no declared language are *not* auto-detected. Detection is often
 wrong and costs real time; they get the theme's plain code background instead.
 
-**Mermaid diagrams draw in the webview too,** from a vendored mermaid build
-loaded the first time a document has a ` ```mermaid ` block. They are drawn
+**Mermaid diagrams draw inside a sandboxed frame of their own,** an
+`allow-scripts` iframe with no origin, loaded the first time a document has a
+` ```mermaid ` block. mermaid builds each drawing live in its own document
+before handing back the SVG string, so the frame is what keeps that live,
+unsanitised drawing off the app's page — nothing it runs can reach the page or
+Tauri, and the CSP is the backstop if it ever somehow could. Diagrams are drawn
 before the page is swapped in, so a refresh or a tab switch returns to the same
 spot, and in `strict` security mode with labels drawn as SVG text rather than
 HTML, so a diagram's labels and `click` lines cannot run script or put markup
-on the page, and a diagram's own config cannot turn HTML labels back on. They
-take mermaid's `default` or `dark` palette from the theme's side, not the
-theme's CSS. One that will not parse stays as code with the reason under it,
-and so does one whose labels use `$$…$$` math or that would need HTML labels,
-since mermaid draws those as HTML whatever the settings say. Journey and Venn
-diagrams still draw: mermaid puts some of their labels in HTML boxes, but only
-as plain text. Event modeling diagrams are the exception: mermaid always
-writes their entity boxes as HTML, and the data in them reaches the page
-filtered, not as text. A tag with any attribute is dropped, keeping its text,
-and `<style>`, `<script>`, `<iframe>`, `<object>` and `<embed>` go, so no
-style, link, image or handler from the file survives. Bare tags do: formatting
-such as `<b>` or `<table>`, and forms and inputs, which appear but do nothing:
-the viewer blocks their submit.
+on the page, and a diagram's own config cannot turn HTML labels back on. One
+that will not parse stays as code with the reason under it, and so does one
+whose labels use `$$…$$` math or that would need HTML labels, since mermaid
+draws those as HTML whatever the settings say. Journey and Venn diagrams still
+draw: mermaid puts some of their labels in HTML boxes, but only as plain text.
+Event modeling diagrams are the exception: mermaid always writes their entity
+boxes as HTML, and the data in them reaches the page filtered, not as text. A
+tag with any attribute is dropped, keeping its text, and `<style>`, `<script>`,
+`<iframe>`, `<object>` and `<embed>` go, so no style, link, image or handler
+from the file survives. Bare tags do: formatting such as `<b>` or `<table>`,
+and forms and inputs, which appear but do nothing: the viewer blocks their
+submit.
+
+Every drawing that comes back is refused unless every rule of every `<style>`
+it carries is scoped under its own root id. mermaid means them to be — it
+wraps a diagram's styles in `#<id>{…}` itself — but a stray `"` in a diagram's
+own theme values (a colour, a font name) can make its CSS compiler and the
+browser disagree about where a string ends, turning the rest of its
+stylesheet into rules that reach the whole app; that string escape is what the
+check closes. Every id inside a drawing is also renamed under its own root at
+draw time, and every reference to it (`url(#…)`, `href="#…"`, aria id lists,
+its own `<style>`) rewritten to match, so a group or state named like one of
+the app's own ids — `icons`, `tree` — can neither wear the app's styles nor be
+what an in-page `#tree` link finds. The same diagram drawn twice in one
+document keeps its copies apart the same way: the second and later copies are
+renamed `<root>x2`, `<root>x3` at insertion, so a link or a reference inside
+one copy always finds its own drawing rather than the first's.
+
+A render that never comes back gives up after 30 seconds — "The diagram took
+too long to draw." (cached) — and the frame is rebuilt for whatever draws
+next; a render sent to a frame that is already gone rebuilds it the same way.
+This rescues a frame that has stopped answering on every platform, but
+WebView2 does not isolate the frame (measured: no separate `iframe` target),
+so a render stuck in a loop still freezes the window on Windows, and likely
+WebKitGTK and WKWebView too — see *A diagram render stuck in a loop still
+freezes its window* in `docs/open-items.md`.
+
+A gantt's `click … href` links work: the app wraps a linked task's bar and
+label in the same kind of link a flowchart's `click` makes, and follows it the
+same way. A sequence diagram's `link`/`links` open mermaid's own hidden menu
+on a click on the named actor's box (top or bottom) or lifeline — for
+`database`/`queue` participants, the top box or lifeline only, since their
+bottom box can't be matched to a name. A click anywhere else in the document,
+or Escape, closes the menu; a click on empty diagram area closes it and opens
+the full-window view as any other click does. No link in a sequence menu can
+carry a `#` fragment, since `#` starts a comment anywhere in a sequence link
+(`notes.md#part` and `https://x/#a` are cut too). A relative file or a web
+address without a fragment works.
+
+Diagrams take their colours from the theme by default — **Settings → Theme**
+offers **Diagrams in Mermaid's own colours**, light or dark, instead, a choice
+shared by every window. With **Diagrams follow the theme**, a diagram's palette
+(part of what it is cached under, so switching either redraws it) comes from how
+the theme styles a document: the page background, the prose text colour, the
+code-block background and the link colour, with category colours (pie slices,
+git branches, and the rest) rotated from the link colour by hue. Its own
+`theme`, `themeVariables`, `darkMode`, `fontFamily` and `themeCSS` are locked
+out; with **Diagrams in Mermaid's own colours** they work, as on GitHub. Either
+way, a diagram's `classDef`/`style` lines and a type's own colour options
+(`c4.*_bg_color`, `journey.actorColours`, `sankey.linkColor`/`nodeColors`,
+`railroad.*`) still colour it — the author chose those for that diagram, and
+they are the one route left for a file to put its own CSS on a diagram's shapes
+and labels, scoped to its own box; the style check above still refuses one that
+reaches past it.
 
 mermaid styles each diagram with a `<style>` element and `style` attributes of
 its own, so Tauri is told not to add its nonce to `style-src`
 (`dangerousDisableAssetCspModification`). A nonce switches off the
 `'unsafe-inline'` the CSP declares, which silently dropped both. Script nonces
-are untouched. What a file can style is confined to its diagrams: comrak strips
-raw HTML, mermaid's labels are text, SVG or plain, or in event modeling HTML
-stripped of attributes, and the one route in is mermaid's own — a diagram's
-`style` and `classDef` lines, or a Venn text node's colour — which puts CSS
-property values on the diagram's shapes and labels, scoped to that diagram's box.
+are untouched.
 
 **Every platform delivers a double-clicked file differently.** All three routes
 converge on one function, `open_path`, so the tab-or-window setting is obeyed
@@ -583,6 +641,7 @@ src/                  frontend — no bundler, no npm
   index.html
   app.js              tabs, per-tab history, dragging, settings dialog
   base.css            structure only; declares no document colors
+  diagram-frame.js    runs inside the sandboxed mermaid frame
   vendor/             highlight.js, mermaid
 src-tauri/
   src/

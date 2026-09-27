@@ -165,6 +165,18 @@ they beat the bundled defaults.
 Blocks without a declared language are not auto-detected; they get the plain
 `.hljs` background only. Style `.hljs` itself, not just the token classes.
 
+### Diagram colours
+
+With **Diagrams follow the theme** (Settings → Theme), a Mermaid diagram takes
+its palette from how the theme styles `.markdown-body`: the page background,
+the prose text colour, the code-block background and the link colour. Category
+colours — pie slices, git branches, chart bars and the rest — are hues
+rotated from the link colour. Keep text readable on your code-block
+background: that is where a diagram's node fills come from, with its labels on
+them. Borders and lines are the prose text colour mixed into the page
+background. Don't animate the prose text, `pre` background or link colours
+either: the app reads them when a theme is applied.
+
 ## Bundled catalog
 
 | Theme | Notes |

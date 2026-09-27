@@ -290,6 +290,24 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   run; it is under *First runs* in `open-items.md`. Remove the workaround once
   `tauri-plugin-single-instance` reads `args_os()` — check on each bump.*
 
+- [x] **A diagram's `themeVariables`/`themeCSS` could style the whole app, not just its own
+  drawing** (found in this plan's review; live since Mermaid diagrams shipped, 1.7.0). mermaid
+  scopes a diagram's styles itself, wrapping them in `#<id>{…}` through stylis — but stylis
+  reads a quoted string across newlines and the browser ends it at the first `"`, so a lone `"`
+  in any `themeVariables` value (or `fontFamily`) turned the rest of mermaid's stylesheet into
+  top-level rules. Measured: `%%{init: {"themeVariables": {"lineColor": "red\""},
+  "themeCSS": "body { background: red } #content { display: none }"}}%%` on a plain flowchart
+  turned the whole app red and hid `#content` (45 unscoped rules).
+  *Fixed c241696, 2026-09-27 (`archive/plans/mermaid-pipeline.md`): every drawing's `<style>` is
+  parsed the way the page will parse it (a `<style media="not all">` probe) and the diagram is
+  refused unless every rule is scoped under its own root id; `@keyframes` stay exempt (the app
+  defines none). Verified with the payload above plus a `fontSize` variant and a front-matter
+  form, each refused with "This diagram's styles reach outside it, so it isn't drawn." and the
+  page unchanged; a balanced `themeCSS` still draws. A first pass missed escaped and quoted
+  brackets in a selector (`.a\(`, `[title="("]`), fixed in the same commit's fixup round: 7
+  direct-call cases and 105 section-checks across three full passes (before the check, after it,
+  after the bracket fix) all held clean, with no diagram newly refused.*
+
 ## Deferred from the 2026-09-20 review
 
 - [x] **Unchecked, from #2: can a file that kills the app bring it down again on every
@@ -430,6 +448,17 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   960 (below the dialog's 804) to 787 (in view); at the app's real minimum, 420×320 by
   `drag-corner.ps1`, 286 is in view of 303. Layout at 1080 is unchanged (dialog height 960),
   and a Tab walk through Settings never lands a control under the footer.*
+- [x] **A Gantt `click … href` link does nothing** (added 2026-09-27, Plan A.1 review). Gantt
+  wires a task's `click` line through `bindFunctions`, called on the SVG mermaid draws into the
+  page — and the app has never called it, since diagrams first drew. It could not now anyway: a
+  diagram draws inside its own frame and reaches the page only as an SVG string. Other types'
+  links (`<a xlink:href>`, which mermaid writes straight into the SVG) still work.
+  *Fixed 910546d, 2026-09-27 (`archive/plans/mermaid-follow-ups.md`): the frame sends back
+  mermaid's own sanitised `{taskId → url}` map alongside the drawing, and the page wraps each
+  linked task's bar and label in an SVG `<a xlink:href>` for every URL except `about:blank`
+  (mermaid's mark for one it did not trust) — the app's existing link handler decides the rest,
+  as for a flowchart link. A task mermaid marked `clickable` but left unlinked loses the class,
+  so it no longer looks like a link.*
 - [x] **An OS light/dark flip doesn't redraw diagrams under a see-through theme** (added
   2026-09-26, review loop). `diagramLook` reads the page background composited on the
   dialog's `Canvas`, which follows the OS when a theme sets `color-scheme: light dark` and
@@ -446,6 +475,112 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   picture tab or the empty screen, and an opaque theme that ignores the OS is untouched. The
   overlay closes at the switch itself, and a diagram clicked in a look the page no longer has
   is brought up to date instead of opening in the old one; the next click opens it.*
+- [x] **Diagrams in the theme's own colours** (added 2026-09-26, `archive/plans/mermaid-diagrams.md`).
+  Diagrams take mermaid's `default` or `dark` palette by the theme's side, and the theme's body
+  font; a Dracula or Solarized document gets the same diagram colours as any other dark or light
+  one. Fix: mermaid's `base` theme, with `themeVariables` read from the theme's computed styles
+  (page background, text, code background, link colour), then a contrast check by eye across
+  all bundled themes. Reopen when a bundled theme's diagrams clash visibly, or someone asks.
+  *Fixed efc2b50, 2026-09-27 (`archive/plans/mermaid-pipeline.md`): a Settings choice, "Follow
+  the theme" (default) or "Mermaid's own", in Settings → Theme, shared by every window. Follow
+  the theme reads a palette from the page background, prose text, code background and link
+  colour (`diagramLook`), rotates category colours from the link colour by hue, and locks a
+  diagram's own `theme`/`themeVariables`/`darkMode`/`fontFamily`/`themeCSS` while its
+  `classDef`/`style` lines and a type's own colour options still work, as chosen by the author.
+  Verified across all 15 bundled themes: every palette colour a valid hex, `initialize` throws
+  on none of them, and category colours hold their 4.5:1 (or 3:1) target — lowest measured on
+  Solarized light (3.066 against text) and Solarized dark (3.006), the two themes whose own text
+  is already under 5:1 on their page. Radar's nested rings are drawn at 0.06 opacity rather than
+  mermaid's 0.3 (an owner ruling in the fix round, b6b2798): mermaid's five nested, filled rings
+  at 0.3 stack into a solid band on both sides of the curve.*
+- [x] **Some Mermaid ids are the document's own names, not namespaced** (added 2026-09-26,
+  third review of the Mermaid work). Swimlane clusters and state groups take the name written
+  in the diagram as their id (`attr("id", t.id)` in the bundle). So a state named `icons` wears
+  the app's `#icons { display: none }` and vanishes, and `[x](#tree)` with no such heading but
+  a state named `tree` finds it in `#content`, sets `location.hash = "tree"`, and the browser
+  scrolls to the sidebar's `#tree` instead. Needs a group named exactly like an app id. Fix:
+  at warm time, rename every id in a diagram's SVG under the diagram's own id, and rewrite
+  its `url(#…)` and `href="#…"` references to match (the overlay's rewrite is the model).
+  Reopen when a real diagram hits it.
+  *Fixed d730f11, 2026-09-27 (`archive/plans/mermaid-pipeline.md`): every id inside a diagram's
+  SVG is renamed under its own root id at draw time (`renameIds`), and every `url(#…)`,
+  `href="#…"` (except a `click` link, which names a document target, not part of the drawing),
+  aria id list, and `<style>` selector or `url(#…)` referencing it is rewritten to match.
+  Verified on `all-types.md`'s three swimlane sections: their `icons` groups, hidden before by
+  the app's own `#icons { display: none }`, now show inside the drawing; a flowchart's
+  `click A href "#heading-b"` still jumps to the heading, and `[to tree](#tree)` against a
+  diagram group named `tree` does nothing.*
+- [x] **The diagram cache empties itself past 200** (added 2026-09-26, third review; the
+  `ponytail:` note at `DIAGRAMS_KEPT`). A document with more than 200 distinct diagrams
+  redraws all of them on every open, save and return, and documents in one window that
+  together pass 200 evict each other's. Fix: keep the most recently used instead of clearing
+  (about five lines on the `Map`'s insertion order). Reopen when such a document exists.
+  *Fixed 404b7f9, 2026-09-27 (`archive/plans/mermaid-pipeline.md`): the cache keeps the 200 most
+  recently used instead of clearing wholesale past the limit — a `Map` in least-recently-used
+  order, a document's own drawings always moved to the newest end before the oldest elsewhere
+  are evicted. Verified: 205 stale entries plus a one-diagram document trims to exactly 200,
+  keeping the newest; a fully cached document revisited is marked used again; a document with
+  more diagrams than the limit keeps every one of them while the oldest elsewhere are dropped.*
+- [x] **The overlay's id rewrite can change a label's text** (added 2026-09-26, review loop).
+  `openDiagram` rewrites the diagram's own id in the SVG string, so a label whose text contains
+  `#Mermaid-N` or `"Mermaid-N` for that diagram's id reads differently in the overlay (the
+  page copy is untouched). Fix: rewrite ids on the parsed SVG (attributes and its `<style>`)
+  rather than the string; the unnamespaced-ids item above wants the same routine. Reopen with
+  that item, or when a real label hits it.
+  *Fixed d730f11, 2026-09-27 (`archive/plans/mermaid-pipeline.md`): the overlay now parses its
+  copy into an SVG element and reuses `renameIds` — the routine the unnamespaced-ids fix above
+  added — instead of a string `replaceAll`, renaming every id under a `-zoom` suffix and
+  rewriting every reference along with it. Verified: a label naming the diagram's own id reads
+  the same in the overlay as on the page, every id in the copy starts with the `-zoom` root, and
+  arrowheads still resolve.*
+- [x] **The foreignObject check runs after mermaid's temporary in-page render** (added
+  2026-09-26, review loop). `mermaid.render` draws into a temporary element in the document
+  before handing back the SVG string the backstop checks, so a drawing that is then refused
+  had its filtered markup live for that moment. It matters only for an HTML-label route not
+  yet known: the known ones are closed (math refused, HTML labels off) or accepted (event
+  modeling). Fix: render in an isolated document, such as a sandboxed iframe. Reopen when a
+  new HTML-label route is found, or on a mermaid major bump.
+  *Fixed 7a63106, 2026-09-27 (`archive/plans/mermaid-pipeline.md`): mermaid now renders inside a
+  sandboxed, origin-less `iframe` (`sandbox="allow-scripts"`, reached over `postMessage` through
+  the new `src/diagram-frame.js`) rather than in a temporary element of the app's own document,
+  so a drawing later refused — by this backstop, or the style check above — was never live in
+  the page. Verified: `window.mermaid` is `undefined`, no `script[src*="mermaid"]` in the page,
+  the frame's `contentDocument` is `null`, and a `MutationObserver` on the document sees no
+  mutation while a diagram renders. A renderer that fails to load leaves blocks as code within
+  about a second (or ~1.2 s for the bridge script specifically) and is rebuilt for the next
+  document. Cost: about +15 ms on a window's first diagram document, not the ~200 ms estimated;
+  later opens with new diagrams measured 13–18% faster than before the frame, since it has no
+  app stylesheet to recalculate against.*
+- [x] **The diagram overlay duplicates the image viewer's zoom and pan** (added 2026-09-26,
+  third review). About 70 lines of `openDiagram`/`zoomDiagram`/`onDiagram*` mirrored
+  `zoomTo`/`onImage*`, differing in the element and the state object, so a fix to one could
+  miss the other.
+  *Fixed 1658765, 2026-09-28 (`archive/plans/viewer-follow-ups.md`): both share one core now,
+  `zoomAbout` and `dragPan`, parameterised on the view, the element and the state; wheel,
+  double-click, toolbar and keys stay per viewer. Before/after measurements matched 290 of 290.*
+- [x] **`docTarget`'s lookup order can differ from GitHub's** (added 2026-09-26, third
+  review). It tried `user-content-<name>` across the whole page, then the bare name, then the
+  name without its prefix, only those two inside the document, so `#user-content-x` could land
+  on the wrong heading and a
+  footnote link could land on a heading of the same name.
+  *Fixed b5bb12b, 2026-09-28 (`archive/plans/viewer-follow-ups.md`): a name already carrying
+  `user-content-` is looked up as written first, GitHub's own order, and a `fn-`/`fnref-` name
+  tries the bare footnote in the document first.*
+- [x] **Link clicks on a page are dropped while its refresh draws diagrams** (added
+  2026-09-26, review loop). `onLinkClick` ignored every link click while
+  `shownToken !== renderToken`, so during a save or a switch in flight the links on the page
+  on screen went dead.
+  *Fixed de4aebb, 2026-09-28 (`archive/plans/viewer-follow-ups.md`): a click now acts on the
+  page on screen, and one that navigates outdates the pending render; a switch to another tab
+  or document still leaves its links dead, as before.*
+- [x] **A diagram or a picture opens only with a mouse** (added 2026-09-26, review of the
+  Mermaid work). Neither `.mermaid-diagram` nor `img[data-file]` was focusable, so neither
+  could be reached or opened from the keyboard.
+  *Fixed 1b655d5, 2026-09-28 (`archive/plans/viewer-follow-ups.md`): both take `tabindex="0"`
+  and a visible focus ring, and Enter or Space open them as a click would; closing the overlay
+  or a save returns focus to the same one. Keeping focus on a link inside a diagram across a
+  light/dark redraw, and keyboard access to sequence actor menus, stay open — see
+  `docs/open-items.md`.*
 
 ## Needs a Mac, a Dependabot run, or an older build
 
@@ -737,3 +872,73 @@ nobody rediscovers them.
   unconfirmed). Done sits in the pinned footer, inside the `scroll-padding-bottom` zone, so
   focusing it can scroll the dialog toward its end.
   *Kept 2026-09-27: harmless; the Tab walk and a click on Done both pass.*
+- [x] **The diagram frame's answer is trusted, as mermaid's own in-page output was** (Mermaid
+  pipeline, 7a63106). The frame's markup is trusted as mermaid's own: nothing checks that the
+  string a render comes back with is really mermaid's SVG rather than something else the
+  frame's script sent.
+  *Kept 2026-09-27: the frame is sandboxed to scripts alone with no origin. Against one a bug
+  or a compromise turned hostile, the page's CSP (`script-src 'self'`, no inline script) blocks
+  script, and the page checks styles itself: the drawing's root must carry the id the page
+  asked for, only that root is inserted, and every rule in it must be scoped under it. The CSP
+  does not cover styles.*
+- [x] **A swimlane group named like another figure's own root id keeps its raw id** (Mermaid
+  pipeline, d730f11). `Mermaid-12` written as a swimlane group name inside the figure whose own
+  root is `Mermaid-1` collides with it after renaming.
+  *Kept 2026-09-27, owner's call: self-inflicted, and reachable only inside one document that
+  names a group after another figure's internal id.*
+- [x] **`@keyframes` in a diagram's `themeCSS` stay global** (Mermaid pipeline, c241696). The
+  style check that refuses an unscoped rule exempts `CSSKeyframesRule`, since a keyframes name
+  has no selector to scope.
+  *Kept 2026-09-27: harmless here — the app defines no animations of its own for a diagram's
+  keyframe names to collide with.*
+- [x] **C4 relationship labels are mermaid's fixed `#444444` on every theme** (Mermaid pipeline,
+  efc2b50). No `themeVariables` key reaches them; 1.5–1.9:1 contrast on a dark theme.
+  *Kept 2026-09-27, owner's call, as on GitHub: mermaid has no key for this label to take.*
+- [x] **Author-chosen diagram fills are not adjusted to the theme** (Mermaid pipeline, efc2b50).
+  A diagram's own `classDef`/`style`/box colours always apply, in both colour modes, as on
+  GitHub.
+  *Kept 2026-09-27, owner's call: the author chose those colours for that diagram; adjusting
+  them would be recolouring what the file itself wrote.*
+- [x] **Both Solarized themes' category labels read at ~3:1** (Mermaid pipeline, efc2b50).
+  Category colours target 4.5:1 against the text, or 3:1 on a theme whose own text is under
+  5:1 on its page — both Solarized themes are 4.1–4.7 — since a higher bar left the colours,
+  and the lines mermaid draws in them, barely apart from the page (1.04–1.11 measured).
+  *Kept 2026-09-27, owner's call: distinct hues with ~3:1 labels, over pale, near-identical
+  tints.*
+- [x] **Radar rings are drawn at 0.06 opacity in the theme's colours, not mermaid's 0.3**
+  (Mermaid pipeline, b6b2798). mermaid's `radar.graticuleOpacity` default is 0.3; its five
+  nested, filled rings stack to about 83% and band solid on both sides of the curve under the
+  theme's palette.
+  *Kept 2026-09-27, owner's call: viewed on github-dark and github-light, 0.06 leaves the rings
+  faint and the curve clear.*
+- [x] **A sequence diagram's `link`/`links` on an `actor`/`boundary`/`control`/`entity`
+  participant fails the whole diagram** (Mermaid follow-ups, c4b4b89). mermaid's own menu-drawing
+  code errors on those participant kinds; the diagram is refused rather than only losing its
+  links.
+  *Kept 2026-09-27, owner's call: a mermaid bug — revisit on a mermaid version bump.*
+- [x] **`#` in a sequence `link`/`links` line starts a comment** (Mermaid follow-ups, c4b4b89),
+  anywhere in the link, so no link in a sequence menu can carry a `#` fragment (`notes.md#part`
+  and `https://x/#a` are cut too). A relative file or a web address without a fragment works.
+  *Kept 2026-09-27, owner's call: documented in README.md.*
+- [x] **A `database`/`queue` participant's bottom box doesn't open its link menu** (Mermaid
+  follow-ups, c4b4b89): only the top box and the lifeline are matched to a participant's name, and
+  a database/queue's bottom box is drawn with no `rect.actor[name]` to match. Its top box, its
+  lifeline and the full-window overlay all still work.
+  *Kept 2026-09-27, owner's call.*
+- [x] **`url(#…)` text inside a link's own URL is rewritten by `renameIds`** (Mermaid pipeline,
+  d730f11): a diagram link whose URL contains `url(#id)` naming one of the drawing's ids has
+  that id renamed with the drawing's.
+  *Kept 2026-09-27, owner's call.*
+- [x] **The diagram frame is trusted to send gantt links for any diagram** (Mermaid follow-ups,
+  910546d): the page wraps whatever tasks the frame's answer names.
+  *Kept 2026-09-27, owner's call: the same trust boundary as the SVG's own `<a>` links.*
+- [x] **`renameIds` doesn't rewrite `aria-owns`/`aria-controls`** (Mermaid pipeline, d730f11):
+  only `aria-labelledby` and `aria-describedby` are treated as id lists.
+  *Kept 2026-09-27, owner's call: mermaid doesn't emit them.*
+- [x] **The rightmost actor's link menu can be clipped at the viewBox edge** (Mermaid follow-ups,
+  c4b4b89): it can run past the drawing's edge, where it is cut off.
+  *Kept 2026-09-27, owner's call: mermaid's own layout.*
+- [x] **A gantt task named with its diagram's own root-prefixed id keeps it** (Mermaid pipeline,
+  d730f11): the draw-time rename skips ids already under the root, so a task named
+  `Mermaid-3x0zoom` or `Mermaid-3x2` could clash with the overlay copy or a repeat.
+  *Kept 2026-09-28, owner's call: the author would have to guess the app's id counter.*

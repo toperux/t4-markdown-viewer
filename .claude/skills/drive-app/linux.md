@@ -15,7 +15,7 @@ Proven on Ubuntu 26.04 (GNOME, Wayland host) against 1.6.9.
 The build dependencies in the README, then:
 
 ```bash
-sudo apt install webkitgtk-webdriver xvfb xdotool imagemagick
+sudo apt install webkit2gtk-driver xvfb xdotool imagemagick
 cargo install tauri-driver --locked
 ```
 
@@ -194,3 +194,8 @@ closes the app with a dialog open. Driving the dialog would take AT-SPI
 - **Closing the last window from the page** (`eval "appWindow.close()"`) exits
   the app and kills the WebDriver session with it: later calls say
   `invalid session id`. `stop` still cleans up.
+- **Driving WSL from Git Bash on Windows.** Git Bash rewrites arguments passed
+  to `wsl.exe`: MSYS path conversion mangles anything with a `/`, and a `-c`
+  string splits wrongly. Write each command to a `.sh` file and run it as
+  `MSYS_NO_PATHCONV=1 wsl.exe -d Ubuntu -- bash /mnt/c/…/script.sh`; never
+  pass the script inline.
