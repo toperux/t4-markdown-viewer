@@ -1558,6 +1558,10 @@ fn stay<R: Runtime>(webview: &Webview<R>, url: &Url) -> bool {
     if !cfg!(windows) && url.fragment().is_some() {
         return true;
     }
+    // WebKit asks about subframes too; WebView2 does not.
+    if subframe_doc(url) {
+        return true;
+    }
     let state = webview.state::<AppState>();
     let label = webview.label();
     let mut boot = state.boot.lock().unwrap();
@@ -1586,6 +1590,14 @@ fn stay<R: Runtime>(webview: &Webview<R>, url: &Url) -> bool {
         boot.pending.insert(label.to_string(), payload);
     }
     true
+}
+
+/// The diagram frame's first load. A top-level page cannot navigate to
+/// `about:srcdoc`, so only a subframe — the app's own sandboxed diagram frame —
+/// is let through; wherever that frame tries to go after it is still refused.
+/// Not `about:` as a whole: `about:blank` would wipe the page.
+fn subframe_doc(url: &Url) -> bool {
+    url.as_str() == "about:srcdoc"
 }
 
 /// A second launch hands its arguments to the running app through
@@ -2127,6 +2139,14 @@ mod tests {
             None
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// WebKit asks `stay` about the diagram frame's `srcdoc` load; only that
+    /// is let through, not `about:` as a whole.
+    #[test]
+    fn only_a_srcdoc_frame_is_let_through() {
+        assert!(subframe_doc(&Url::parse("about:srcdoc").unwrap()));
+        assert!(!subframe_doc(&Url::parse("about:blank").unwrap()));
     }
 
     #[test]

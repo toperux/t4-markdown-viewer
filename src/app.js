@@ -393,23 +393,94 @@ function highlight(root) {
 /* ---------------- diagrams ---------------- */
 
 /**
- * Mermaid is 3.5 MB of script, so it loads the first time a document has a
- * diagram rather than with the page: a window that never shows one never pays
- * for it.
+ * The diagram renderer: mermaid, in a hidden frame of its own. It is 3.5 MB of
+ * script, so it loads the first time a document has a diagram. And it runs in
+ * a frame sandboxed to scripts alone, with no origin: mermaid builds each
+ * drawing live in its document before handing back the string, so the
+ * unsanitised drawing is never in the app's page, and nothing it runs can
+ * reach the page or Tauri. The frame must be laid out, not hidden, for mermaid
+ * to measure text.
  */
-let mermaidLoad = null;
-function loadMermaid() {
-  mermaidLoad ??= new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = "vendor/mermaid.min.js";
-    s.onload = () => resolve(window.mermaid);
-    s.onerror = () => {
-      mermaidLoad = null; // the next document tries again
+let rendererLoad = null;
+function loadRenderer() {
+  if (rendererLoad) return rendererLoad;
+  const load = new Promise((resolve, reject) => {
+    const frame = document.createElement("iframe");
+    frame.setAttribute("sandbox", "allow-scripts");
+    frame.setAttribute("aria-hidden", "true");
+    frame.inert = true; // never focused or clicked into; its scripts still run
+    frame.style.cssText = "position:fixed;left:-20000px;top:0;width:1200px;height:1200px;border:0";
+    frame.srcdoc =
+      '<!doctype html><html><head><script src="vendor/mermaid.min.js"></script>' +
+      '<script src="diagram-frame.js"></script></head><body style="margin:0"></body></html>';
+    let n = 0;
+    // ~5× the slowest real diagram measured (a 600-node mindmap, ~6 s under
+    // load).
+    const RENDER_TIMEOUT = 30000;
+    let settled = false;
+    const waiting = new Map();
+    const fail = () => {
+      if (settled) return;
+      settled = true;
+      removeEventListener("message", onMessage);
+      frame.remove();
+      if (rendererLoad === load) rendererLoad = null; // the next document tries again
       reject(new Error("The diagram renderer did not load."));
     };
-    document.head.append(s);
+    // A frame that stopped answering — lost, or stuck in a render — would
+    // hold the queue, and with it every diagram document after this one. Give
+    // up on what it owes and drop it: whatever is drawn next gets a fresh
+    // frame. Where the frame runs in the page's own process — as in WebView2
+    // (measured) and likely WebKit — a render stuck in a loop freezes the page
+    // too, and nothing here gets to run; what this rescues is a frame that
+    // stops answering.
+    const stop = () => {
+      removeEventListener("message", onMessage);
+      frame.remove();
+      if (rendererLoad === load) rendererLoad = null;
+      for (const settle of waiting.values()) settle({ error: "The diagram took too long to draw." });
+      waiting.clear();
+    };
+    setTimeout(fail, 15000);
+    const render = (config, id, source) => {
+      // Given up on, or taken away: what is still to draw goes to a fresh frame.
+      if (!frame.isConnected) {
+        stop();
+        return loadRenderer().then((next) => next(config, id, source));
+      }
+      return new Promise((settle) => {
+        const mine = ++n;
+        const timer = setTimeout(stop, RENDER_TIMEOUT);
+        waiting.set(mine, (result) => (clearTimeout(timer), settle(result)));
+        // The width goes with the request: the frame may run in a process of
+        // its own, where a resize could land after the render.
+        frame.contentWindow.postMessage({ n: mine, config, id, source, width: document.body.offsetWidth }, "*");
+      });
+    };
+    function onMessage(e) {
+      if (e.source !== frame.contentWindow || typeof e.data !== "object" || !e.data) return;
+      if (e.data.failed) return fail();
+      if (e.data.ready) return settled || ((settled = true), resolve(render));
+      const settle = waiting.get(e.data.n);
+      if (!settle) return;
+      waiting.delete(e.data.n);
+      // Strings only: the frame runs whatever the file hands mermaid.
+      const { svg, diagramType, error } = e.data;
+      settle(typeof svg === "string" ? { svg, diagramType: String(diagramType) } : { error: String(error ?? "The diagram did not draw.") });
+    }
+    addEventListener("message", onMessage);
+    document.body.append(frame);
+    // The frame's scripts have run by its load event; a bridge that never
+    // loaded — or a webview that refused it — says nothing, so give it a
+    // moment past that rather than holding the document up for the backstop.
+    // Listened for only once the frame is in: a webview that fires `load` for
+    // the frame's initial blank document as it is inserted must not start the
+    // grace before mermaid has even loaded, and the real srcdoc load is always
+    // later.
+    frame.addEventListener("load", () => setTimeout(fail, 1000));
   });
-  return mermaidLoad;
+  rendererLoad = load;
+  return load;
 }
 
 const MERMAID_BLOCK = "pre > code.language-mermaid";
@@ -425,7 +496,7 @@ const MERMAID_BLOCK = "pre > code.language-mermaid";
 const diagrams = new Map();
 const DIAGRAMS_KEPT = 200;
 let diagramId = 0;
-/** One warm at a time: `initialize` is global, so two interleaved would draw in each other's look. */
+/** One warm at a time: the frame renders one diagram at a time, and a warm's look must not change under it. */
 let diagramQueue = Promise.resolve();
 /**
  * Diagram types `warmSources` draws despite foreignObjects in their drawing:
@@ -606,8 +677,7 @@ function warmSources(sources, stale) {
       diagrams.delete(key);
     }
     if (!todo.length) return;
-    const mermaid = await loadMermaid();
-    mermaid.initialize({
+    const config = {
       startOnLoad: false,
       securityLevel: "strict",
       suppressErrorRendering: true,
@@ -631,12 +701,15 @@ function warmSources(sources, stale) {
       ],
       theme: look.dark ? "dark" : "default",
       fontFamily: look.fontFamily,
-    });
+    };
     for (const source of todo) {
-      // mermaid renders without ever yielding, so without this a click that
-      // switches away could not run until every diagram here had drawn.
+      // Let a click that switches away run between diagrams, rather than after the last.
       await new Promise((r) => setTimeout(r));
       if (stale()) return; // the rest wait for this document to come back
+      // Each time, not once: after a frame is given up on, the next diagram
+      // needs the fresh one — and a renderer that will not load stops the pass
+      // here, caching nothing, as it always has.
+      const render = await loadRenderer();
       let done;
       try {
         // mermaid draws any label with `$$…$$` in it as HTML, whatever
@@ -647,7 +720,10 @@ function warmSources(sources, stale) {
           throw new Error("Math in labels ($$…$$) isn't supported here: this viewer draws diagram labels as plain text.");
         // Capitalised: comrak's heading slugs are lower case, so this id can
         // never collide with a `#section` link target.
-        const { svg, diagramType } = await mermaid.render(`Mermaid-${++diagramId}`, source);
+        const id = `Mermaid-${++diagramId}`;
+        const drawn = await render(config, id, source);
+        if (typeof drawn.svg !== "string") throw new Error(drawn.error || "The diagram did not draw.");
+        const { svg, diagramType } = drawn;
         // Any other way mermaid turns HTML labels back on is closed the same
         // way, except for `TEXT_ONLY_FO`. And event modeling: mermaid always
         // writes its entity names, and their data, as HTML (`<b>${…}</b>`
@@ -658,13 +734,19 @@ function warmSources(sources, stale) {
         const t = document.createElement("template");
         t.innerHTML = svg;
         const root = t.content.querySelector("svg");
+        // The style check trusts the root's id as the scope every rule must sit
+        // under, so it must be the id the page asked for, not whatever the
+        // frame sends back: a root named `content` would scope rules to the page.
+        if (root?.id !== id) throw new Error("The diagram did not draw.");
         if (!stylesStayInside(root))
           throw new Error("This diagram's styles reach outside it, so it isn't drawn.");
         // Every id under the drawing's own, so a group named like part of the
         // app — `icons`, `tree` — can neither wear the app's styles nor be
         // what a `#tree` link finds.
         renameIds(root, (id) => (id.startsWith(root.id) ? null : `${root.id}-${id}`));
-        done = { svg: t.innerHTML };
+        // The root alone: the check above read only its styles, so a `<style>`
+        // or anything else sent beside the drawing must never reach the page.
+        done = { svg: root.outerHTML };
       } catch (err) {
         done = { error: String(err?.message ?? err) };
       }

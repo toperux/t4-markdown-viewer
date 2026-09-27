@@ -61,7 +61,9 @@ jobs:
       # independent, so this runs once on the cheapest one.
       - name: Frontend syntax
         if: runner.os == 'Linux'
-        run: node --check ../src/app.js
+        run: |
+          node --check ../src/app.js
+          node --check ../src/diagram-frame.js
 
       # `-D warnings` goes after `--`, not in RUSTFLAGS: as an env var it also
       # applies to every dependency, so one warning in a crate we do not own
