@@ -1220,6 +1220,14 @@ html.image-mode {
   cursor: grabbing;
 }
 
+/* A click on a link in the copy is not followed, so it must not promise one:
+   the view's own cursor, over mermaid's `pointer` — an id rule inside the
+   drawing's own styles, hence `!important`. */
+#diagram-view a,
+#diagram-view a * {
+  cursor: inherit !important;
+}
+
 /* It is focused on opening, so the keys scroll it, and a ring round the whole
    window would mark nothing. The toolbar's buttons keep theirs. */
 #diagram-view:focus-visible {

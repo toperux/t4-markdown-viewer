@@ -470,7 +470,11 @@ function loadRenderer() {
       waiting.delete(e.data.n);
       // Strings only: the frame runs whatever the file hands mermaid.
       const { svg, diagramType, error } = e.data;
-      settle(typeof svg === "string" ? { svg, diagramType: String(diagramType) } : { error: String(error ?? "The diagram did not draw.") });
+      // Pairs of strings only, for the same reason.
+      const links = Array.isArray(e.data.links)
+        ? e.data.links.filter((p) => Array.isArray(p) && typeof p[0] === "string" && typeof p[1] === "string")
+        : [];
+      settle(typeof svg === "string" ? { svg, diagramType: String(diagramType), links } : { error: String(error ?? "The diagram did not draw.") });
     }
     addEventListener("message", onMessage);
     document.body.append(frame);
@@ -872,6 +876,27 @@ function warmSources(sources, stale) {
         // the app — `icons`, `tree` — can neither wear the app's styles nor be
         // what a `#tree` link finds.
         renameIds(root, (old) => (old.startsWith(root.id) ? null : `${root.id}-${old}`));
+        // A task with a link becomes one: its bar and its label each wrapped in
+        // the kind of link a flowchart's `click` makes, which the page already
+        // follows. Not `about:blank`: that is mermaid's mark for a URL it
+        // would not trust, and there is nothing to follow.
+        for (const [task, url] of drawn.links ?? []) {
+          if (url === "about:blank") continue;
+          for (const suffix of ["", "-text"]) {
+            // By element too: a task named `t1-text` has a bar with the id of
+            // `t1`'s label.
+            const el = root.querySelector(`${suffix ? "text" : "rect"}#${CSS.escape(`${root.id}-${task}${suffix}`)}`);
+            if (!el) continue;
+            const a = document.createElementNS("http://www.w3.org/2000/svg", "a");
+            a.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", url);
+            el.replaceWith(a);
+            a.append(el);
+          }
+        }
+        // A task mermaid marked as a link but that got none — an unsafe URL,
+        // or a `call` — should not look like one.
+        if (diagramType === "gantt")
+          for (const el of root.querySelectorAll(".clickable")) if (!el.closest("a")) el.classList.remove("clickable");
         // The root alone: the check above read only its styles, so a `<style>`
         // or anything else sent beside the drawing must never reach the page.
         done = { svg: root.outerHTML };

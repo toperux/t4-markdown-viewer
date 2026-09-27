@@ -14,7 +14,16 @@ else {
     try {
       mermaid.initialize(config);
       const { svg, diagramType } = await mermaid.render(id, source);
-      parent.postMessage({ n, svg, diagramType }, "*");
+      // A gantt's `click … href` links are not in its drawing: mermaid wires
+      // them to the page it drew in, which is gone by the time the app has the
+      // drawing. Its own map of them — URLs already made safe — goes back too.
+      // A failure to read it costs the links, not the drawing.
+      let links = [];
+      if (diagramType === "gantt" && /\bclick\b/.test(source))
+        try {
+          links = [...(await mermaid.mermaidAPI.getDiagramFromText(source)).db.getLinks()];
+        } catch {}
+      parent.postMessage({ n, svg, diagramType, links }, "*");
     } catch (err) {
       parent.postMessage({ n, error: String(err?.message ?? err) }, "*");
     }
