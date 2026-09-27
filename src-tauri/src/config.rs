@@ -35,6 +35,20 @@ pub fn folder_sort(raw: &str) -> &'static str {
     }
 }
 
+/// Whose colours a diagram wears: `"theme"` draws diagrams in colours read
+/// from the page, `"mermaid"` in mermaid's own default or dark palette,
+/// letting a diagram pick its own theme.
+pub const DEFAULT_DIAGRAM_COLOURS: &str = "theme";
+
+/// The diagram colours as one of the two values the app acts on, for the same
+/// reason as `folder_sort`: Settings ticks one of exactly two radios.
+pub fn diagram_colours(raw: &str) -> &'static str {
+    match raw {
+        "mermaid" => "mermaid",
+        _ => DEFAULT_DIAGRAM_COLOURS,
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct Config {
@@ -54,6 +68,8 @@ pub struct Config {
     /// anything else by name. One setting for every folder, because the
     /// question people ask of a list is about the list, not about where it is.
     pub folder_sort: String,
+    /// Whose colours diagrams are drawn in — see `DEFAULT_DIAGRAM_COLOURS`.
+    pub diagram_colours: String,
 }
 
 impl Default for Config {
@@ -65,6 +81,7 @@ impl Default for Config {
             last_folder: String::new(),
             reopen: DEFAULT_REOPEN.to_string(),
             folder_sort: "name".to_string(),
+            diagram_colours: DEFAULT_DIAGRAM_COLOURS.to_string(),
         }
     }
 }
@@ -130,6 +147,7 @@ pub fn load() -> Config {
         .unwrap_or_default();
     cfg.reopen = reopen_mode(&cfg.reopen).to_string();
     cfg.folder_sort = folder_sort(&cfg.folder_sort).to_string();
+    cfg.diagram_colours = diagram_colours(&cfg.diagram_colours).to_string();
     cfg
 }
 
@@ -275,6 +293,25 @@ mod tests {
         assert_eq!(folder_sort("name"), "name");
         assert_eq!(folder_sort("Modified"), "name");
         assert_eq!(folder_sort(""), "name");
+    }
+
+    /// And once more for `diagram_colours`: every config written before the
+    /// choice existed must arrive on the theme's colours.
+    #[test]
+    fn config_without_diagram_colours_still_loads() {
+        let c: Config =
+            serde_json::from_str(r#"{"theme":"dracula","folder_sort":"modified"}"#).unwrap();
+        assert_eq!(c.theme, "dracula");
+        assert_eq!(c.folder_sort, "modified");
+        assert_eq!(c.diagram_colours, "theme");
+    }
+
+    #[test]
+    fn diagram_colours_accepts_only_the_two() {
+        assert_eq!(diagram_colours("mermaid"), "mermaid");
+        assert_eq!(diagram_colours("theme"), "theme");
+        assert_eq!(diagram_colours("Mermaid"), "theme");
+        assert_eq!(diagram_colours(""), "theme");
     }
 
     /// A hand-edited `"Ask"` used to fall through every comparison and restore,

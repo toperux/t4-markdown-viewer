@@ -33,6 +33,7 @@ const els = {
   settings: document.getElementById("settings-dialog"),
   modeRadios: document.querySelectorAll('#settings-dialog input[name="open-mode"]'),
   reopenRadios: document.querySelectorAll('#settings-dialog input[name="reopen"]'),
+  diagramColourRadios: document.querySelectorAll('#settings-dialog input[name="diagram-colours"]'),
   autoUpdate: document.getElementById("auto-update"),
   checkNow: document.getElementById("check-now"),
   updateStatus: document.getElementById("update-status"),
@@ -109,6 +110,8 @@ const state = {
    * this is only what gets handed to it.
    */
   folderSort: "name",
+  /** Whose colours diagrams wear: `"theme"` or `"mermaid"`, from `get_settings` at boot. */
+  diagramColours: "theme",
 };
 
 // What opens as a document, by kind. The Open dialog's filters are built
@@ -408,7 +411,8 @@ function loadRenderer() {
     const frame = document.createElement("iframe");
     frame.setAttribute("sandbox", "allow-scripts");
     frame.setAttribute("aria-hidden", "true");
-    frame.inert = true; // never focused or clicked into; its scripts still run
+    // Never focused or clicked into; its scripts still run.
+    frame.inert = true;
     frame.style.cssText = "position:fixed;left:-20000px;top:0;width:1200px;height:1200px;border:0";
     frame.srcdoc =
       '<!doctype html><html><head><script src="vendor/mermaid.min.js"></script>' +
@@ -517,10 +521,11 @@ const TEXT_ONLY_FO = new Set(["journey", "venn"]);
  */
 function stylesStayInside(root) {
   const scope = `#${root.id}`;
-  // Split on top-level commas only: `:is(a, b)` is one selector. An escaped
-  // character (`.a\(`) or one in a string (`[title="("]`) is part of a name,
-  // not structure, or a comma could hide behind it; and a list whose brackets
-  // do not balance is not trusted at all (null).
+  // Split on top-level commas only: `:is(a, b)` is one selector. A comma or
+  // bracket that is escaped (`.a\(`) or inside a string (`[title="("]`) is
+  // part of a name, so it neither splits nor nests — otherwise a selector
+  // could hide a second, unscoped one behind it. A list whose brackets do not
+  // balance is not trusted at all (null).
   const selectors = (text) => {
     const out = [""];
     let depth = 0;
@@ -541,7 +546,8 @@ function stylesStayInside(root) {
     }
     return depth || quote ? null : out.map((s) => s.trim());
   };
-  // The root itself, or inside it — not its siblings (`~`, `+`), and not `#Mermaid-10` for `#Mermaid-1`.
+  // The root itself, or inside it — not its siblings (`~`, `+`), and not
+  // `#Mermaid-10` for `#Mermaid-1`.
   const scoped = (s) => s.startsWith(scope) && /^(\s*>|\s+[^\s~+]|$)/.test(s.slice(scope.length));
   const ok = (rules) =>
     [...rules].every((r) =>
@@ -565,31 +571,146 @@ function stylesStayInside(root) {
 }
 
 /**
- * One pixel to paint the page's background on and read back. The computed
- * colour can be any CSS form — `oklch(…)`, `color(srgb 0.97 …)` — whose
- * numbers are not 0–255 channels; a canvas hands back sRGB bytes for all.
+ * One pixel to paint colours on and read back. A computed colour can be any
+ * CSS form — `oklch(…)`, `color(srgb 0.97 …)` — whose numbers are not 0–255
+ * channels, and mermaid takes none of those; a canvas hands back sRGB bytes
+ * for all.
  */
 let pixel = null;
 
 /**
+ * Hidden stand-ins for prose, code and a link — a `<p>`, a `<pre>` and a `<p>`
+ * holding an `<a>` — put straight into the document for each read, so the
+ * theme styles them like its own.
+ */
+let themeProbe = null;
+
+/**
  * What a drawing depends on: the side of the page actually on screen — read
  * off its background, since a theme that failed to load leaves another's
- * there — and the font. Not the theme's name: editing a theme keeps it.
+ * there — and the font. Not the theme's name: editing a theme keeps it. With
+ * the theme's colours, also the palette: the page's text, code background and
+ * link colour, as the theme styles a document.
  */
 function diagramLook() {
   pixel ??= document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+  // A colour as sRGB bytes, painted over `under` — any CSS form, see-through or not.
+  const bytes = (css, under) => {
+    pixel.fillStyle = under;
+    pixel.fillRect(0, 0, 1, 1);
+    pixel.fillStyle = css;
+    pixel.fillRect(0, 0, 1, 1);
+    return [...pixel.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+  };
   // On the page's own canvas colour first: that is what the webview paints
   // behind a page with no background — dark under a dark `color-scheme` — and
   // a see-through colour read on its own comes back black. The overlay's
   // background colour is exactly that system `Canvas`.
-  pixel.fillStyle = getComputedStyle(els.diagramDialog).backgroundColor;
-  pixel.fillRect(0, 0, 1, 1);
-  pixel.fillStyle = getComputedStyle(document.body).backgroundColor;
-  pixel.fillRect(0, 0, 1, 1);
-  const [r, g, b] = pixel.getImageData(0, 0, 1, 1).data;
-  const dark = 0.299 * r + 0.587 * g + 0.114 * b < 128;
+  const bg = bytes(getComputedStyle(document.body).backgroundColor, getComputedStyle(els.diagramDialog).backgroundColor);
+  const dark = 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2] < 128;
   const fontFamily = getComputedStyle(els.content).fontFamily;
-  return { dark, fontFamily, key: `${dark}\0${fontFamily}` };
+  if (state.diagramColours !== "theme") return { dark, fontFamily, palette: null, key: `m\0${dark}\0${fontFamily}` };
+  if (!themeProbe) {
+    const t = document.createElement("template");
+    t.innerHTML = '<p>x</p><pre><code>x</code></pre><p><a href="#">x</a></p>';
+    themeProbe = [...t.content.children];
+    for (const el of themeProbe) {
+      el.setAttribute("aria-hidden", "true");
+      el.style.cssText = "position:absolute;left:-10000px;top:0;visibility:hidden";
+    }
+  }
+  const hexOf = (c) => `#${c.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+  const page = hexOf(bg);
+  const over = (el, prop) => bytes(getComputedStyle(el)[prop], page);
+  // Straight into the document itself, for this read only, so a theme's
+  // `#content p` or `#content > p` colours them as well as its
+  // `.markdown-body p`; out again before anything else can run and find them
+  // there.
+  els.content.append(...themeProbe);
+  let fg, code, accent;
+  try {
+    fg = over(themeProbe[0], "color");
+    code = over(themeProbe[1], "backgroundColor");
+    accent = over(themeProbe[2].querySelector("a"), "color");
+  } finally {
+    for (const el of themeProbe) el.remove();
+  }
+  const mix = (a, b, t) => hexOf(a.map((v, i) => Math.round(v * t + b[i] * (1 - t))));
+  const lum = (c) =>
+    c.map((v) => ((v /= 255) <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)).reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0);
+  const contrast = (a, b) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
+  const hue = ([r, g, b]) => {
+    const max = Math.max(r, g, b), d = max - Math.min(r, g, b);
+    if (!d) return 210;
+    const h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return Math.round(h * 60);
+  };
+  // Categories — pie slices, git branches, mindmap and timeline sections,
+  // event-modeling boxes, chart bars — need colours that differ: hues stepped
+  // by the golden angle from the link colour's. Each is taken toward the page's
+  // side until the text reads on it at 4.5:1 — or 3:1 on a theme whose own
+  // text is under 5:1 on its page (Solarized's is 4.1–4.7), where a higher
+  // bar would leave the colours, and the lines mermaid draws in them, barely
+  // apart from the page.
+  const target = contrast(fg, bg) >= 5 ? 4.5 : 3;
+  const hueAt = (i) => (hue(accent) + i * 137.5) % 360;
+  const cats = Array.from({ length: 12 }, (_, i) => {
+    for (let l = dark ? 32 : 82; ; l += dark ? -2 : 2) {
+      const c = bytes(`hsl(${hueAt(i)} ${dark ? 40 : 60}% ${l}%)`, page);
+      if (contrast(fg, c) >= target || l <= 0 || l >= 100) return hexOf(c);
+    }
+  });
+  // Venn writes a set's label in the set's own colour, 30 lighter or darker,
+  // so its sets sit mid-way rather than behind the text.
+  const venn = Array.from({ length: 8 }, (_, i) => hexOf(bytes(`hsl(${hueAt(i)} 60% ${dark ? 60 : 45}%)`, page)));
+  const each = (prefix, colours, from = 0) => Object.fromEntries(colours.map((c, i) => [`${prefix}${i + from}`, c]));
+  // Measured across the bundled themes (2026-09-27): their own border colours
+  // are too faint to outline a node, so borders and lines are the text mixed
+  // into the page; a code background as faint as the page gets the same.
+  const surface = contrast(code, bg) >= 1.05 ? hexOf(code) : mix(fg, bg, 0.08);
+  const border = mix(fg, bg, 0.6);
+  const text = hexOf(fg);
+  const link = hexOf(accent);
+  const faint = mix(fg, bg, 0.04);
+  const palette = {
+    // Inside the variables: mermaid reads the side from here, not the top level.
+    darkMode: dark, background: page, fontFamily,
+    primaryColor: surface, mainBkg: surface, primaryTextColor: text, textColor: text, titleColor: text,
+    primaryBorderColor: border, nodeBorder: border, clusterBorder: border,
+    secondaryColor: mix(accent, bg, 0.18), secondaryTextColor: text, secondaryBorderColor: border,
+    tertiaryColor: faint, tertiaryTextColor: text, tertiaryBorderColor: border,
+    clusterBkg: faint, lineColor: mix(fg, bg, 0.75), edgeLabelBackground: page,
+    noteBkgColor: mix(accent, bg, 0.14), noteTextColor: text, noteBorderColor: mix(accent, bg, 0.6),
+    ...each("pie", cats, 1), pieSectionTextColor: text, pieTitleTextColor: text, pieLegendTextColor: text,
+    pieStrokeColor: border, pieOuterStrokeColor: border,
+    ...each("git", cats.slice(0, 8)), ...each("gitBranchLabel", Array(8).fill(text)),
+    ...each("cScale", cats), ...each("cScaleLabel", Array(12).fill(text)),
+    ...each("fillType", cats.slice(0, 8)), ...each("venn", venn, 1),
+    // What mermaid's base theme fixes at light values whatever the side.
+    doneTaskBkgColor: mix(fg, bg, 0.2), doneTaskBorderColor: border, altSectionBkgColor: faint,
+    excludeBkgColor: mix(fg, bg, 0.08), taskTextClickableColor: link, vertLineColor: link,
+    archGroupBorderColor: border, faceColor: surface,
+    emUiFill: surface, emSwimlaneBackgroundOdd: faint, emSwimlaneBackgroundStroke: border, emUiStroke: border,
+    emProcessorFill: cats[0], emReadModelFill: cats[1], emCommandFill: cats[2], emEventFill: cats[3],
+    emProcessorStroke: border, emReadModelStroke: border, emCommandStroke: border, emEventStroke: border,
+    packet: { startByteColor: text, endByteColor: text, labelColor: text, titleColor: text, blockStrokeColor: border, blockFillColor: surface },
+    // Whole, not just the palette: mermaid puts a nested object given here in
+    // place of the one it derives, rather than merging the two.
+    xyChart: {
+      backgroundColor: page, titleColor: text, dataLabelColor: text, legendTextColor: text,
+      xAxisTitleColor: text, xAxisLabelColor: text, xAxisTickColor: text, xAxisLineColor: text,
+      yAxisTitleColor: text, yAxisLabelColor: text, yAxisTickColor: text, yAxisLineColor: text,
+      plotColorPalette: cats.slice(0, 10).join(","),
+    },
+    // Whole for the same reason, with mermaid's own sizes but not its rings:
+    // those are a fixed light grey, nested and each filled, so its 0.3 stacks
+    // to a solid band on either side that the curve drowns in.
+    radar: {
+      axisColor: mix(fg, bg, 0.75), axisStrokeWidth: 2, axisLabelFontSize: 12, curveOpacity: 0.5, curveStrokeWidth: 2,
+      graticuleColor: border, graticuleStrokeWidth: 1, graticuleOpacity: 0.06, legendBoxSize: 12, legendFontSize: 12,
+    },
+  };
+  return { dark, fontFamily, palette, key: `t\0${JSON.stringify(palette)}` };
 }
 
 function diagramKey(look, source) {
@@ -625,7 +746,7 @@ function renameIds(svg, rename) {
         (attr.name.startsWith("aria-") && attr.name !== "aria-labelledby" && attr.name !== "aria-describedby");
       if (words) continue;
       let value = attr.value.replace(url, toUrl);
-      if (attr.localName === "href" && el.localName !== "a" && renamed.has(value.slice(1)) && value.startsWith("#"))
+      if (attr.localName === "href" && el.localName !== "a" && value.startsWith("#") && renamed.has(value.slice(1)))
         value = `#${renamed.get(value.slice(1))}`;
       if (attr.name === "aria-labelledby" || attr.name === "aria-describedby")
         value = value.split(/\s+/).map((id) => renamed.get(id) ?? id).join(" ");
@@ -688,7 +809,8 @@ function warmSources(sources, stale) {
       flowchart: { htmlLabels: false },
       // mermaid's own six, plus the two switches above: a diagram's directive
       // or front matter could otherwise turn HTML labels back on. The cost is
-      // that a diagram can no longer set its own flowchart options.
+      // that a diagram can no longer set its own flowchart options. Plus, with
+      // the theme's colours, the five that would re-colour a diagram wholesale.
       secure: [
         "secure",
         "securityLevel",
@@ -698,9 +820,15 @@ function warmSources(sources, stale) {
         "maxEdges",
         "htmlLabels",
         "flowchart",
+        ...(look.palette ? ["theme", "themeVariables", "darkMode", "fontFamily", "themeCSS"] : []),
       ],
-      theme: look.dark ? "dark" : "default",
       fontFamily: look.fontFamily,
+      // The theme's colours, or mermaid's own light or dark. With the theme's,
+      // a diagram cannot re-colour itself wholesale — its own `theme`,
+      // `themeVariables` and the like are locked above — though `classDef`,
+      // `style` and a type's own colour options still colour it; with
+      // mermaid's, it may, as on GitHub.
+      ...(look.palette ? { theme: "base", themeVariables: look.palette } : { theme: look.dark ? "dark" : "default" }),
     };
     for (const source of todo) {
       // Let a click that switches away run between diagrams, rather than after the last.
@@ -740,10 +868,10 @@ function warmSources(sources, stale) {
         if (root?.id !== id) throw new Error("The diagram did not draw.");
         if (!stylesStayInside(root))
           throw new Error("This diagram's styles reach outside it, so it isn't drawn.");
-        // Every id under the drawing's own, so a group named like part of the
-        // app — `icons`, `tree` — can neither wear the app's styles nor be
+        // Every id goes under the drawing's own, so a group named like part of
+        // the app — `icons`, `tree` — can neither wear the app's styles nor be
         // what a `#tree` link finds.
-        renameIds(root, (id) => (id.startsWith(root.id) ? null : `${root.id}-${id}`));
+        renameIds(root, (old) => (old.startsWith(root.id) ? null : `${root.id}-${old}`));
         // The root alone: the check above read only its styles, so a `<style>`
         // or anything else sent beside the drawing must never reach the page.
         done = { svg: root.outerHTML };
@@ -951,7 +1079,10 @@ function openDiagram(fig) {
   t.innerHTML = fig.innerHTML;
   const svg = t.content.querySelector("svg");
   const root = original.id;
-  renameIds(svg, (id) => (id.startsWith(root) ? `${root}-zoom${id.slice(root.length)}` : null));
+  // Under `x0zoom`, not `-zoom`: a gantt task named `zoom` is already
+  // `<root>-zoom`, while mermaid never puts an `x` straight after the root
+  // and `numberRepeats` counts from `x2`.
+  renameIds(svg, (old) => (old.startsWith(root) ? `${root}x0zoom${old.slice(root.length)}` : null));
   els.diagramView.replaceChildren(t.content);
   // mermaid's `max-width` and `width="100%"` would hold it to the window. The
   // rest of its inline style — a background, on some diagrams — stays.
@@ -2648,6 +2779,24 @@ function setOpenMode(mode) {
   invoke("set_open_mode", { mode }).catch(console.error);
 }
 
+/* ---------------- diagram colours ---------------- */
+
+/**
+ * Reflect the choice and redraw what it changes. Also called when another
+ * window changes it, so it must not re-broadcast.
+ */
+function showDiagramColours(colours) {
+  for (const radio of els.diagramColourRadios) radio.checked = radio.value === colours;
+  if (colours === state.diagramColours) return;
+  // Blocks left as code count too: a diagram refused in one mode can draw in the other.
+  const drawn = !els.content.hidden && (diagramFigures().length > 0 || els.content.querySelector(MERMAID_BLOCK));
+  state.diagramColours = colours;
+  if (!drawn) return;
+  // The overlay's copy is of the old drawing.
+  els.diagramDialog.close();
+  redrawDiagrams().catch(console.error);
+}
+
 /* ---------------- reopening ---------------- */
 
 /**
@@ -3934,6 +4083,14 @@ async function main() {
       if (radio.checked) setOpenMode(radio.value);
     });
   }
+  for (const radio of els.diagramColourRadios) {
+    radio.addEventListener("change", () => {
+      if (radio.checked) {
+        showDiagramColours(radio.value);
+        invoke("set_diagram_colours", { colours: radio.value }).catch(console.error);
+      }
+    });
+  }
   for (const radio of els.reopenRadios) {
     radio.addEventListener("change", () => {
       if (!radio.checked) return;
@@ -4102,6 +4259,7 @@ async function main() {
   state.folderSort = settings.folder_sort === "modified" ? "modified" : "name";
   showOpenMode(settings.open_mode ?? "tab");
   showReopen(settings.reopen ?? "ask");
+  showDiagramColours(settings.diagram_colours === "mermaid" ? "mermaid" : "theme");
   await loadThemeList();
   await applyTheme(settings.theme);
   // The saved theme is the side the reader last chose, so start from it.
@@ -4147,6 +4305,7 @@ async function main() {
     if (state.theme) await applyTheme(state.theme);
   });
   await listen("open-mode-changed", (e) => showOpenMode(e.payload));
+  await listen("diagram-colours-changed", (e) => showDiagramColours(e.payload));
   // Broadcast on purpose: one install is happening to the whole app, so every
   // window's dialog should count along with it.
   await listen("update-progress", (e) => {

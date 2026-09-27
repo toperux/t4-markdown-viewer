@@ -615,6 +615,11 @@ li[aria-expanded="true"] > .tree-row .tree-twist {
   color: var(--ui-fg-muted);
 }
 
+/* The hint follows the picker, not a legend. */
+#settings-dialog .diagram-colours-hint {
+  margin-top: 0.75rem;
+}
+
 #settings-dialog fieldset .hint:last-child {
   margin: 0.75rem 0 0;
 }

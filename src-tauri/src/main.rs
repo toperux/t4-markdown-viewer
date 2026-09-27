@@ -1190,6 +1190,17 @@ fn set_open_mode(app: AppHandle, mode: String) {
     let _ = app.emit("open-mode-changed", mode);
 }
 
+/// Broadcast, like the open mode: every window's diagrams should agree about
+/// whose colours they wear.
+#[tauri::command]
+fn set_diagram_colours(app: AppHandle, colours: String) {
+    let colours = config::diagram_colours(&colours).to_string();
+    let mut cfg = config::load();
+    cfg.diagram_colours = colours.clone();
+    config::save(&cfg);
+    let _ = app.emit("diagram-colours-changed", colours);
+}
+
 /// Not broadcast, unlike the open mode: this one is only ever read at boot, so
 /// two open Settings dialogs disagreeing about it until one of them is
 /// reopened costs nothing.
@@ -1682,6 +1693,7 @@ fn main() {
             get_settings,
             set_theme,
             set_open_mode,
+            set_diagram_colours,
             set_reopen,
             restore_offered_session,
             picker_dir,
