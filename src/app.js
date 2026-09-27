@@ -2713,21 +2713,23 @@ const DOC_ID_PREFIX = "user-content-";
 
 /**
  * The element in the document that `id` names, or null. Prefixed first — no
- * app id can carry the prefix, which a test pins — then as written, which is
- * how footnotes are named and how a link copied from GitHub
- * (`#user-content-x`) already reads. Last, a GitHub link without its prefix:
- * GitHub prefixes footnotes too (`#user-content-fn-1`), and ours are bare. The
- * bare names are looked for inside the document only: the app's own elements
- * come first in the page, and a link must never land on one.
+ * app id can carry the prefix, which a test pins — then as written, then a
+ * GitHub link without its prefix, since GitHub prefixes footnotes too
+ * (`#user-content-fn-1`) and ours are bare. Two kinds of name go as written
+ * first: one that already carries the prefix, which is GitHub's order, so
+ * `#user-content-x` finds `## X` rather than `## User content X`; and a
+ * footnote's, since comrak writes its own footnote links bare (`#fn-1`,
+ * `#fnref-1`) and they must find the footnote rather than a heading named
+ * `fn 1`. The bare names are looked for inside the document only: the app's
+ * own elements come first in the page, and a link must never land on one.
  */
 function docTarget(id) {
   if (!id) return null;
   const inDoc = (name) => els.content.querySelector(`#${CSS.escape(name)}`);
-  return (
-    document.getElementById(DOC_ID_PREFIX + id) ??
-    inDoc(id) ??
-    (id.startsWith(DOC_ID_PREFIX) ? inDoc(id.slice(DOC_ID_PREFIX.length)) : null)
-  );
+  const prefixed = () => document.getElementById(DOC_ID_PREFIX + id);
+  const stripped = () => (id.startsWith(DOC_ID_PREFIX) ? inDoc(id.slice(DOC_ID_PREFIX.length)) : null);
+  if (id.startsWith(DOC_ID_PREFIX) || /^fn(ref)?-/.test(id)) return inDoc(id) ?? prefixed() ?? stripped();
+  return prefixed() ?? inDoc(id) ?? stripped();
 }
 
 /**
