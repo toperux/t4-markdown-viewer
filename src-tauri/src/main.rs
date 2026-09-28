@@ -1579,11 +1579,7 @@ fn stay<R: Runtime>(webview: &Webview<R>, url: &Url) -> bool {
     if !boot.ready.contains(label) {
         return true;
     }
-    // The app's own page and nothing else: `tauri://localhost/`
-    // on macOS and Linux, `http://tauri.localhost/` on Windows.
-    let own = (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
-        || url.host_str() == Some("tauri.localhost");
-    if !own || url.path() != "/" {
+    if !own_page(url) {
         return false;
     }
     // Not through `claim_in`: that marks the window as restoring,
@@ -1609,6 +1605,15 @@ fn stay<R: Runtime>(webview: &Webview<R>, url: &Url) -> bool {
 /// Not `about:` as a whole: `about:blank` would wipe the page.
 fn subframe_doc(url: &Url) -> bool {
     url.as_str() == "about:srcdoc"
+}
+
+/// The app's own page and nothing else: `tauri://localhost` on macOS and
+/// Linux (on Linux with an empty path, not `/`), `http://tauri.localhost/`
+/// on Windows.
+fn own_page(url: &Url) -> bool {
+    let own = (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
+        || url.host_str() == Some("tauri.localhost");
+    own && matches!(url.path(), "" | "/")
 }
 
 /// A second launch hands its arguments to the running app through
@@ -2159,6 +2164,22 @@ mod tests {
     fn only_a_srcdoc_frame_is_let_through() {
         assert!(subframe_doc(&Url::parse("about:srcdoc").unwrap()));
         assert!(!subframe_doc(&Url::parse("about:blank").unwrap()));
+    }
+
+    /// Linux reports its page as `tauri://localhost`, whose path is empty,
+    /// not `/`; a reload of it is still the app's own page.
+    #[test]
+    fn own_page_with_or_without_its_slash() {
+        for own in [
+            "tauri://localhost",
+            "tauri://localhost/",
+            "http://tauri.localhost/",
+        ] {
+            assert!(own_page(&Url::parse(own).unwrap()), "{own}");
+        }
+        for other in ["tauri://localhost/x", "https://example.com/"] {
+            assert!(!own_page(&Url::parse(other).unwrap()), "{other}");
+        }
     }
 
     #[test]
