@@ -56,7 +56,9 @@
   - For `plugin:opener|open_url`, record it and never release it.
   - For `load_file`, hold it and release it later. That is how a check keeps a refresh pending for as long as it needs.
   - `invoke` and `openUrl` in app.js are captured at load and can't be stubbed.
-- Fixtures go in this session's scratchpad, never in the repo: `C:\Users\toper\AppData\Local\Temp\claude\f--src---pet-projects-t4-markdown-viewer\0c500661-cce1-4257-939d-10c9d8ffc8b1\scratchpad\`. That includes `all-types.md`, which has 35 diagram sections.
+- Fixtures live in `docs/fixtures/`, including `all-types.md` (35 diagram
+  sections). Scratch docs made while driving the app go in this session's
+  scratchpad, never in the repo.
 - Line numbers are the current file's (HEAD `6eae568`). Find code by the content quoted.
 - Comments say why, in full sentences, like the surrounding code.
 - **Anything a task can't do as written, or any choice it would need, goes back to the controller and on to the owner.** A check that must "bite first" is run on the build before the task's change. Relaunch afterwards, backing up and restoring `session.json` around it.
@@ -88,7 +90,7 @@
 
 **Files:** Modify `src/app.js` (`docTarget`, ~2714–2731).
 
-- [ ] **Step 1: Fixture** `scratchpad/b1-targets.md`:
+- [ ] **Step 1: Fixture** `docs/fixtures/b1-targets.md`:
   ```markdown
   [to x](#user-content-x) · [to fn](#fn-1) · [to ref](#fnref-1) · [plain x](#x) · [gh fn heading](#user-content-fn-1)
 
@@ -145,7 +147,7 @@
 
 **Interfaces:** Consumes `shownToken`, `renderToken`, `shownEntry`, `currentEntry(activeTab())`, `refresh()`.
 
-- [ ] **Step 1: Fixture** `scratchpad/b2-links.md`:
+- [ ] **Step 1: Fixture** `docs/fixtures/b2-links.md`:
   - an external link `[ext](https://example.com)`;
   - `[sec](#far)`, with `## Far` 80 lines down;
   - `[self](b2-links.md#far)`, for `loadPath`'s same-file branch;
@@ -374,7 +376,7 @@ Modify `src/base.css`, next to `.markdown-body img[data-file]`.
 - `markOpenable(el): { at: number, what: string }`
 - `refocusOpenable(mark): void`
 
-- [ ] **Step 1: Fixture** `scratchpad/b4-keys.md`, in this order:
+- [ ] **Step 1: Fixture** `docs/fixtures/b4-keys.md`, in this order:
   - a paragraph with a link;
   - a flowchart with `click A "https://example.com"`;
   - `![alt text](b2-pic.png)`;
@@ -384,7 +386,7 @@ Modify `src/base.css`, next to `.markdown-body img[data-file]`.
   - a sequence diagram: `participant Alice`, `link Alice: Profile @ https://example.com`, `Alice->>Bob: hi`;
   - about 80 filler lines, so the page is taller than the window.
 
-  A second fixture, `scratchpad/b4-noalt.md`, holds only `![](b2-pic.png)`.
+  A second fixture, `docs/fixtures/b4-noalt.md`, holds only `![](b2-pic.png)`.
 - [ ] **Step 2: Bite first** (HEAD build): Tab through the page. Neither diagram nor the unlinked picture takes focus.
 - [ ] **Step 3: Make them focusable.**
   - In `renderDiagrams`, after `fig.className = "mermaid-diagram";`:

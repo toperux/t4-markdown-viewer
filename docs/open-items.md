@@ -175,7 +175,7 @@ run passes, with the run id; when all are ticked, move the item to `closed-items
   script running in it first — a mermaid bug past its sandbox. Worst case, plausibly, a reload
   loop. Fix: wry passing only main-frame navigations to the handler, as it does on WebView2, or
   telling it which frame (wry #1593, open). Reopen when wry ships that, or on any mermaid escape
-  of its sandbox.
+  of its sandbox. A comment is drafted, not posted: `notes/wry-1593-comment.md`.
 
 ## Accepted limits
 
