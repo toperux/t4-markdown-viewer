@@ -69,17 +69,35 @@ Node 20 or later (`toReversed`, global `fetch`).
 
 ## 2. Launch
 
-Two background jobs, then the session. Env and shell variables do not carry
-between Bash calls, so each command carries what it needs — set `S` again in
-every call that uses it:
+Two helpers, then the session. Start the helpers with a plain `&` inside a
+Bash call, not as the tool's background jobs: they outlive the call, and `&`
+gives Xvfb's process ID. Env and shell variables do not carry between Bash
+calls, so each command carries what it needs — set `S` again in every call
+that uses it:
 
 ```bash
-Xvfb :99 -screen 0 1600x1000x24                                  # background
+S=<scratchpad>/app
+Xvfb :99 -screen 0 1600x1000x24 >/dev/null 2>&1 &
+echo $! > $S/pids                                  # Xvfb's ID
 DISPLAY=:99 GDK_BACKEND=x11 TAURI_WEBVIEW_AUTOMATION=true \
   XDG_CONFIG_HOME=$S/config XDG_DATA_HOME=$S/data XDG_CACHE_HOME=$S/cache \
-  tauri-driver                                                   # background
+  tauri-driver > $S/tauri-driver.log 2>&1 &
+```
+
+```bash
 node .claude/skills/drive-app/scripts/wd.mjs start \
   "$PWD/src-tauri/target/debug/t4-markdown-viewer" "$PWD/examples/kitchen-sink.md"
+```
+
+**Record the drivers' IDs** once `start` returns, so clean-up kills only what
+this run started. Take them from the ports, not from `$!`: after `setsid
+tauri-driver &`, `$!` named a process already gone (without `setsid`,
+untested), and WebKitWebDriver is started by tauri-driver, not by you. §1
+checked both ports were free, so their owners now are this run's:
+
+```bash
+S=<scratchpad>/app
+ss -ltnp | grep -E ':444[45] ' | grep -o 'pid=[0-9]*' | cut -d= -f2 >> $S/pids
 ```
 
 Paths to the app and to files must be absolute: the app's working directory is
@@ -119,6 +137,7 @@ export DISPLAY=:99
 W=$(xdotool search --all --onlyvisible --pid <pid> --name 'Markdown Viewer$' | head -1)
 xdotool windowfocus --sync $W key ctrl+Tab               # a real keystroke
 xdotool mousemove 100 200 click 1                        # a real click, screen px
+xdotool mousemove 500 300 keydown ctrl click 4 keyup ctrl  # Ctrl+wheel up, one notch
 xdotool windowraise $W; import -window $W out.png        # the whole window
 xdotool windowsize $W 800 600
 ```
@@ -127,6 +146,12 @@ With several windows open, `head -1` picks any of them; put the file name in
 `--name` to pick one. `import` of a covered window is black, hence the
 `windowraise`. `windowsize` respects the minimum size (asking for 200×150 gives
 420×320), so a minimum can be tested here.
+
+Buttons 4 and 5 are the wheel, up and down, at the pointer; `keydown` /
+`keyup` round them make a chord. One notch reached the page as a `wheel` with
+`deltaY` -90 and `ctrlKey` true. With the window at 0,0 (no window manager),
+page coordinates are screen coordinates: a `mousemove 500 300` read back in
+the page as 500,300.
 
 ## 4. Native dialogs
 
@@ -156,22 +181,69 @@ node .claude/skills/drive-app/scripts/wd.mjs click "#open-btn"
    app runs, not at exit, and a relaunch after `stop` brought back the tabs, the
    active one and the scroll position. So there's no need to close windows
    first — only to leave half a second after the last change.
-2. `pkill -f '^tauri-driver$'; pkill -f '^/usr/bin/WebKitWebDriver'; pkill -f
-   '^Xvfb :99'`, then check `pgrep -af
-   '^[^ ]*(target/debug/t4-markdown-viewer|tauri-driver|WebKitWebDriver|Xvfb :99)'`
-   comes back empty.
-3. Nothing to restore: the user's settings were never touched.
+2. `kill $(sort -u $S/pids); rm -f $S/pids` (with `S` set; `sort -u`
+   because a process listening on two addresses is listed twice). The `rm`
+   matters: §2 appends, and an ID left from an earlier run may belong to
+   someone else's process by now. Give them a second to exit (`sleep 1`; the
+   checks passed with it, and weren't tried without), then check nothing is
+   left: `ss -ltn | grep -E ':444[45] '` and `ls /tmp/.X11-unix/ | grep X99`
+   print nothing, and so does
+   `pgrep -af '^[^ ]*(target/debug/t4-markdown-viewer|tauri-driver|WebKitWebDriver|Xvfb :99)'`.
+   That `pgrep` only looks: whatever it lists is another session's or a leak.
+   Report it; don't kill it.
+3. Nothing to restore: the user's settings were never touched — unless the
+   OS light/dark switch was flipped; then put their `gsettings` values back
+   (see *The OS light/dark switch*).
 
 ## On the live Wayland desktop
 
 When Wayland behaviour is what's under test, run the same tauri-driver command
 without Xvfb, `DISPLAY=:99` or `GDK_BACKEND`, and ask the user first: the window
-appears on their desktop. The app runs as a native Wayland client, and `wd.mjs`
-works as before (`eval`, `click`, `key`, `shot`, `window`). Nothing OS-level
-does: xdotool on the desktop's `DISPLAY` (XWayland) finds none of the app's
-windows, so `xdialog.sh` can't see the file dialog either. `wd.mjs stop` still
-closes the app with a dialog open. Driving the dialog would take AT-SPI
-(`python3` with `gi` `Atspi`, installed) — not written yet.
+appears on their desktop. Record the drivers' IDs from their ports as in §2.
+With no Xvfb nothing truncates `$S/pids`, so check it isn't there first. If it
+is, an earlier run never finished clean-up: don't kill its IDs, which may be
+reused by now — delete the file and look for leftovers with §5's `pgrep`.
+
+The app runs as a native Wayland client, and `wd.mjs` works as before (`eval`,
+`click`, `key`, `shot`, `window`). Nothing OS-level does: xdotool on the
+desktop's `DISPLAY` (XWayland) finds none of the app's windows, so
+`xdialog.sh` can't see the file dialog either. `wd.mjs stop` still closes the
+app with a dialog open. Driving the dialog would take AT-SPI (`python3` with
+`gi` `Atspi`, installed) — not written yet.
+
+## The OS light/dark switch
+
+A check that the page follows the OS ran on the live desktop (above);
+whether a switch reaches the app under Xvfb wasn't tried. Switching changes
+the look of the user's desktop: ask first, and note their values to put
+back.
+
+```bash
+gsettings get org.gnome.desktop.interface color-scheme
+gsettings get org.gnome.desktop.interface gtk-theme
+```
+
+- **Link the desktop's settings into the scratch config.** With
+  `XDG_CONFIG_HOME` in the scratchpad, GTK looks for the desktop's settings
+  there. Before launching, link in the three folders the 2026-09-28 run
+  linked (with `S` set, as in §2):
+  `for d in dconf gtk-3.0 gtk-4.0; do ln -s ~/.config/$d $S/config/$d; done`.
+  That GTK misses the switch without them is that run's reasoning; it
+  wasn't tried without.
+- **GNOME has two switches, and the page is dark if either is.**
+  `color-scheme` (Settings' Dark Style: `prefer-dark` / `default`) and
+  `gtk-theme` (a dark one such as Ubuntu's default `Yaru-dark`, or
+  `Adwaita-dark`). Light needs both light. So set one light and flip the
+  other: under `Yaru-dark`, flipping `color-scheme` alone never reaches the
+  page — GNOME's doing, not a failure.
+- **Check the page saw it** before judging anything that follows the OS: an
+  `eval` that adds a `change` listener to
+  `matchMedia('(prefers-color-scheme: dark)')` and counts, then `matches`
+  after each switch. No change event means the webview never saw it.
+- **Put the user's values back** with `gsettings set` when done.
+
+Measured 2026-09-28 on Ubuntu 26.04.1, GNOME 50.1, Wayland, WebKitGTK
+2.52.6, with the Yaru and Adwaita pairs.
 
 ## Gotchas
 
