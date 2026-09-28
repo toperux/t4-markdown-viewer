@@ -251,9 +251,11 @@ double-clicking zooms in on what you pointed at and then back out. Plain and
 switching away and back returns to the same place.
 
 macOS keeps `Cmd+W` for closing a **tab**, as browsers do, and moves closing the
-window to `Shift+Cmd+W`. That is the one departure from the menu Tauri would
-build by default, which binds `Cmd+W` to the window and would leave no way to
-close a tab from the keyboard.
+window to **Window › Close Window** (`Shift+Cmd+W`). That is the one departure
+from the menu Tauri would build by default, which binds `Cmd+W` to the window and
+would leave no way to close a tab from the keyboard. For now `Shift+Cmd+W` closes
+a tab instead, because the page sees the key before the menu does; use the menu
+item or the window's close button to close a window.
 
 Theme cycling used to be `Ctrl+T`; it moved to `F8` so the tab shortcuts could
 follow the conventions every browser and editor already uses.

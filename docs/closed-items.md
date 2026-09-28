@@ -702,8 +702,8 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
 
 ## Accepted limits
 
-Limits the owner has ruled to keep, moved here once ruled on. Still true of the app; listed so
-nobody rediscovers them.
+Limits the owner has ruled to keep, moved here once ruled on. Still true of the app or its
+tooling; listed so nobody rediscovers them.
 
 - [x] **`session.json` is a record of a moment, not a log** (session restore, 1.6.3). Close one
   window and read on in another, and the closed one is gone from the record. Closing every
@@ -942,3 +942,36 @@ nobody rediscovers them.
   d730f11): the draw-time rename skips ids already under the root, so a task named
   `Mermaid-3x0zoom` or `Mermaid-3x2` could clash with the overlay copy or a repeat.
   *Kept 2026-09-28, owner's call: the author would have to guess the app's id counter.*
+- [x] **drive-app on macOS: `macdialog.sh` types ASCII paths only** (2026-09-28,
+  `archive/plans/drive-app-macos.md`). It types the path with System Events `keystroke`, through
+  the keyboard layout, so a character the layout lacks may be dropped.
+  *Kept 2026-09-28, owner's call: the repo's paths are ASCII, and a walk that needs another path
+  can open it with `eval "openTab(…)"` instead of the dialog.*
+- [x] **drive-app on macOS: the clipboard backup keeps text only** (2026-09-28,
+  `archive/plans/drive-app-macos.md`). `pbpaste` / `pbcopy` around a copy-button check lose an
+  image, a file or rich text on the owner's clipboard.
+  *Kept 2026-09-28, owner's call: `macos.md` says to ask first when the clipboard may hold one,
+  and such checks are rare.*
+- [x] **drive-app on macOS: WebKit's data goes to the real `~/Library`** (2026-09-28,
+  `archive/plans/drive-app-macos.md`). The scratch `HOME` isolates the app's own settings, but
+  WebKit ignores `HOME` and writes to `~/Library/WebKit/t4-markdown-viewer` and
+  `~/Library/Caches/t4-markdown-viewer` (measured).
+  *Kept 2026-09-28, owner's call: those folders belong to the unbundled dev binary, apart from
+  the installed app's, and hold nothing the app relies on.*
+- [x] **drive-app on macOS runs on the owner's desktop** (2026-09-28,
+  `archive/plans/drive-app-macos.md`). There's no Xvfb: debug windows open on the real screen
+  and take focus, real input needs the app in front, and the owner's own pointer reaches the
+  page mid-walk (seen in an event log).
+  *Kept 2026-09-28, owner's call: inherent to macOS; `macos.md` warns before a launch and asks
+  the owner to keep off the trackpad during real-input checks.*
+- [x] **The `webdriver` feature isn't built in CI** (2026-09-28,
+  `archive/plans/drive-app-macos.md`). CI's clippy and tests run without it, so the gated plugin
+  line in `main.rs` is never compiled there, and `Cargo.lock` carries the plugin's 21 packages
+  (no existing version changed; the default build's graph is identical, measured).
+  *Kept 2026-09-28, owner's call: a broken feature build shows at the first walk's build step,
+  which is where it matters.*
+- [x] **drive-app on macOS: `macpt.sh` assumes page zoom 1** (2026-09-28,
+  `archive/plans/drive-app-macos.md`). It maps CSS px to screen points 1:1; a zoomed page would
+  send every real click and drag off target.
+  *Kept 2026-09-28, owner's call: nothing zooms the page today, and a wrong landing shows at
+  once in the `eval` that checks each step.*

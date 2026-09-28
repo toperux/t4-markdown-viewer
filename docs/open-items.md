@@ -176,10 +176,47 @@ run passes, with the run id; when all are ticked, move the item to `closed-items
   loop. Fix: wry passing only main-frame navigations to the handler, as it does on WebView2, or
   telling it which frame (wry #1593, open). Reopen when wry ships that, or on any mermaid escape
   of its sandbox. A comment is drafted, not posted: `notes/wry-1593-comment.md`.
+- [ ] **A macOS tab tear-off probably lands about 32 pt high** (added 2026-09-28, the drive-app
+  macOS run, `archive/plans/drive-app-macos.md`). On macOS `invoke("window_origin")` was measured
+  to return the top of the window frame, not of the content: 32 pt higher, the title bar. The
+  tear-off maps the cursor with it (`screenPoint` in `app.js`, then `drop_tab`'s
+  `Placement::Cursor`), so the new window should land that much high. That is reasoned from the
+  measurement; no tear-off was watched. Cause unknown: tao 0.35.3's `inner_position` reads as
+  the content rect. Reopen when a macOS tear-off is seen landing high, or when `window_origin`
+  is touched.
+- [ ] **On macOS Shift+Cmd+W closes a tab, not the window** (added 2026-09-28, the drive-app
+  macOS run, measured). README gives `Shift+Cmd+W` as the shortcut for Close Window, and
+  `macos_menu` binds it so. But the webview sees a real key before the menu, and `onKeydown`
+  handles `w` with any Shift as close-tab with `preventDefault`, so the menu item never fires: a
+  window with two tabs was left with one. Clicking **Window › Close Window** does close the
+  window (measured), and README now says to use it; drop that sentence from README with the fix.
+  Likely fix: let `onKeydown` skip Shift+Cmd+W on macOS so the menu gets it, checked with a real
+  keystroke through `drive-app`'s `macos.md`. Reopen with the next macOS keyboard or menu work,
+  or on a user report.
 
 ## Accepted limits
 
 Not bugs to fix; here so nobody rediscovers them. The three the 2026-09-12 review parked were
-all lifted or retired on 2026-09-25 (`closed-items.md`). A limit the owner rules to keep moves
-to `closed-items.md`, under *Accepted limits*. None is waiting for a ruling: each limit is
-ruled on as it is found.
+all lifted or retired on 2026-09-25 (`closed-items.md`). A limit the owner keeps with a reopen
+trigger stays here until it reopens or lifts; one kept with no trigger moves to
+`closed-items.md`, under *Accepted limits*. None is waiting for a ruling: each limit is ruled on
+as it is found.
+
+- [ ] **drive-app on macOS: a picker on a window not in front is untested** (added 2026-09-28,
+  `archive/plans/drive-app-macos.md`). `macdialog.sh` finds the window holding the sheet and
+  raises it before typing; only the case with that window already in front was measured. If
+  the raise fails, the typed path could land in another window's page.
+  *Accepted 2026-09-28. Reopen on the first walk that opens a picker from a window not in
+  front.*
+- [ ] **drive-app on macOS: no scripted check of the minimum window size** (added 2026-09-28,
+  `archive/plans/drive-app-macos.md`). `wd.mjs raw POST /window/rect` ignores the minimum
+  (measured: 200×150 physical px left 100×43 pt of content). Likely way in: a real corner drag
+  with `macmouse.js drag`, as `drag-corner.ps1` does on Windows — untested.
+  *Accepted 2026-09-28. Reopen when a change touches the minimum size or window sizing on
+  macOS.*
+- [ ] **drive-app on macOS: other menu shortcuts vs the page are unmeasured** (added
+  2026-09-28, `archive/plans/drive-app-macos.md`). A real Shift+Cmd+W was seen reaching the page
+  before the menu. Whether Cmd+Q/H/M and the Edit menu's Cmd+A/C/V/X/Z do too is unknown; the
+  page doesn't handle them today, so the menu probably still gets them.
+  *Accepted 2026-09-28. Reopen with the deferred Shift+Cmd+W fix, which will test keys against
+  the menu anyway.*
