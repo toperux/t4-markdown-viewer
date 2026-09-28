@@ -682,6 +682,105 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   opens; the app starts on `caf\xe9.md`. It also found the second-instance abort, now under
   *Bugs*.*
 
+- [x] **`.json` / `.jsonc` file registration** (added 2026-09-12, see
+  `archive/plans/json-viewer.md`). Only an installed build proves it: on Windows, Explorer's
+  *Open with* on a `.json` lists the viewer and the Type column reads "JSON Document" (its own
+  ProgID, `T4MarkdownViewer.Json`); on macOS, Finder's *Open With* offers it; on a deb/rpm
+  install, `xdg-mime query filetype x.jsonc` gives `application/json` and *Open With* lists the
+  app.
+  *Windows proven 2026-09-13 on the installed 1.6.0: `HKCU\Software\Classes` has
+  `T4MarkdownViewer.Json` ("JSON Document", icon, open command) and both `.json` and `.jsonc`
+  list it under `OpenWithProgids`; `.md` still maps to `T4MarkdownViewer.Document`.*
+  *deb proven 2026-09-26 on dry run 36186470162's .deb, in WSL Ubuntu 24.04:
+  `xdg-mime query filetype x.jsonc` gives `application/json`, `gio mime application/json` and
+  `text/markdown` list the app (and default to it), and `desktop-file-validate` passes. rpm
+  proven the same way the same day on Fedora 44.*
+  *macOS `.json` proven 2026-09-28 on the installed 1.7.1 (macOS 26.7): the bundle's
+  `T4MarkdownViewer.Json` type claims `public.json`, LaunchServices lists the app for a
+  `.json`, and Finder's *Open With* shows it. `.jsonc` does not bind on macOS — deferred in
+  `open-items.md`, owner's call.*
+
+- [x] **Mermaid diagrams on macOS and Linux** (added 2026-09-26, `archive/plans/mermaid-diagrams.md`).
+  `drive-app` proves them on Windows (WebView2) only. On a Mac (WKWebView, macOS 13 floor)
+  and a deb/rpm install (WebKitGTK), open `examples/kitchen-sink.md`: the diagram draws,
+  clicking it opens the overlay, `Ctrl`+wheel (or a trackpad pinch) zooms about the cursor —
+  `Cmd`+wheel doesn't, as in a picture tab (`onImageWheel`) and per the README — dragging pans,
+  Escape comes back at the same scroll, and the light/dark toggle redraws it, as does an OS
+  light/dark switch under a theme that follows the OS. No bundled theme does, so save one in
+  the app's themes folder (`src-tauri/themes/README.md` says where) holding
+  `:root { color-scheme: light dark } body { background: transparent }`, pick it, and switch
+  the OS setting; then again with the body rule replaced by `body { background: #fff }` plus
+  `@media (prefers-color-scheme: dark) { body { background: #111 } }`. The page itself must
+  change side first — if it doesn't, the webview never saw the switch, which is not this
+  check failing.
+  *Linux is fully proven, 2026-09-28, on an Ubuntu 26.04 VM (GNOME 50, Wayland, WebKitGTK
+  2.52.6), the debug build at e82fe38. Under Xvfb, with real input through xdotool: a click
+  opens the overlay; Ctrl+wheel (`xdotool keydown ctrl click 4 keyup ctrl`) zooms about the
+  cursor — held sideways at every level, and up and down once the drawing is taller than the
+  view (while it is shorter it is centred, so there is nothing to hold it by); a drag of
+  (-200, -100) pans exactly that; Escape comes back at the same scroll; the bar's light/dark
+  toggle redraws the diagrams both ways. On the live desktop, both test themes changed side
+  with the OS and redrew their diagrams at every switch. GNOME has two switches, and the
+  webview is dark if either is: Settings' Dark Style (`color-scheme prefer-dark`) or a dark
+  GTK theme (`gtk-theme Yaru-dark`, Ubuntu's default, or `Adwaita-dark`). So under a dark GTK
+  theme, turning Dark Style off never reaches the app — GNOME's doing, not a failure here.
+  macOS still needs a Mac.*
+  *Diagrams draw in a sandboxed frame since Task 4 of `archive/plans/mermaid-pipeline.md`
+  (2026-09-27), which the check above must also cover: on macOS 13 (WKWebView) and on Linux
+  (WebKitGTK), the frame must still load and the diagram still draw, click and zoom as before.
+  Windows is proven (`drive-app`, the debug build). Linux is too, since 2026-09-28 (WSL Ubuntu
+  24.04, WebKitGTK 2.52.6, the debug build under Xvfb): Task 4 Step 5 (a) drew 35 of 35, (b)
+  and (d) passed, and a gantt link, a sequence menu and the keyboard basics worked. Its first run
+  drew nothing: wry hands WebKitGTK's subframe navigations to the app's `stay` guard, which
+  refused the frame's `about:srcdoc`; `stay` now lets exactly that through (WebView2 never shows
+  subframes to it). macOS still needs a Mac. There, per wry #1593, an iframe's navigation
+  reaches the new-window handler rather than the navigation handler, so `stay` may never see the
+  frame: check the frame loads and the diagrams draw, that nothing opens a window as it does,
+  and that a reload (the context menu's Reload) comes back with every tab.*
+  *The keyboard work of `archive/plans/viewer-follow-ups.md` (2026-09-28) was measured on
+  WebView2 only. On each: Tab to a diagram and to a picture shows the ring; Enter and Space
+  open them; a click, Escape, then Space scrolls the page; Escape from a keyboard-opened
+  overlay returns focus to the diagram.*
+  *macOS run 2026-09-28: macOS 26.7 (arm64), WebKit 21624.5.1.11.3, main at 622f29b,
+  `drive-app`'s `macos.md`.
+  On a plain debug build, by the owner's eye (the feature build swaps WKWebView's UI delegate,
+  which wry #1593 is about): the diagram draws, no second window opens, and the context menu's
+  Reload comes back with both tabs and the diagram.
+  On the feature build, with real input: 1 block, 1 figure, none left as code, no
+  `window.mermaid`; a click opens the overlay; `Ctrl`+wheel and pinch zoom (0.057 to 8.69) —
+  sideways the point held to 0.0004 of the width from scale 2 up, and drifted below that (max
+  0.16 below scale 1, 0.044 between 1 and 2), where the drawing is centred or the scroll is at
+  an edge (reasoned; passed by the owner); up and down it held to 0.025 once the drawing was
+  taller than the view; a (-200, -100) drag moved `scrollLeft` exactly 200; Escape came back at
+  scroll 2399; the bar's toggle redrew both ways (SVG hash and node fill). Both test themes
+  changed side with the OS appearance and redrew at each switch. Keyboard: Tab rings the
+  diagram and the picture, Enter and Space open both, Escape from a keyboard-opened overlay
+  returns focus to the diagram. The feature build doesn't scroll from the keyboard at all (plain
+  builds do, measured), so "a click, Escape, then Space scrolls the page" ran on a plain debug
+  build, 2026-09-29: the owner clicked the diagram, Escape closed the overlay, and Space
+  scrolled the page (the scroll bar's value 0.8588 → 1.0) without reopening it. macOS proven;
+  the item is done.*
+  *Closed on macOS 26.7, not the macOS 13 floor the item names: that check is deferred in
+  `open-items.md` (2026-09-29, owner's call).*
+
+- [x] **Mac keeps folder access across an update.** 1.5.8 was the first signed build and 1.5.9
+  the first signed-to-signed update. CI proves both carry the cert (SHA-1 `53effb03…`). Only a
+  Mac updating 1.5.8 → 1.5.9 without a new Documents/Desktop/Downloads prompt proves 929fe3a
+  did its job. Any later signed-to-signed step is the same proof: every release since, through
+  1.6.8, carries the same certificate.
+  *Proven 2026-09-29 on macOS 26.7, the owner at the keys: the signed 1.7.0 in
+  `/Applications`, its Documents grant reset (`tccutil reset SystemPolicyDocumentsFolder
+  com.montevirgen.t4-markdown-viewer`), listed `~/Documents` in the sidebar on its own
+  (Shift+Cmd+O, no Open panel) and macOS asked; the owner allowed it. A relaunch restored the
+  sidebar there with no prompt. Then the in-app update to 1.7.1 (same certificate, SHA-1
+  `53:EF:FB:03…`, updated in place) relaunched and restored the sidebar on `~/Documents` with
+  no prompt: the grant held across the update. Two first attempts proved nothing and were
+  redone: one ran an older copy in `~/Applications` whose version was unknown, and opened its
+  files through Finder's *Open With* (a file the user opens that way likely skips the Documents
+  check; reasoned); in the other, a file picked through the Open panel reopened on restore
+  without the Documents check (plausibly the `com.apple.macl` mark the panel leaves;
+  reasoned) — so a folder listing is the test, not a file opened by the user.*
+
 ## Housekeeping
 
 - [x] **Docs folder layout.** Plans, the review and this tracker all sat in `plans/`.

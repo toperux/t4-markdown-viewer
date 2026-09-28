@@ -30,28 +30,8 @@ section, so this file lists only what is still to do. Finished plans and reviews
   *Snoozed by the owner 2026-09-24 until 2026-12-23, three months before the first brownout:
   not to be raised or offered before then.*
 
-## Needs a Mac or a Linux install
+## Needs a Mac
 
-- [ ] **Mac keeps folder access across an update.** 1.5.8 was the first signed build and 1.5.9
-  the first signed-to-signed update. CI proves both carry the cert (SHA-1 `53effb03…`). Only a
-  Mac updating 1.5.8 → 1.5.9 without a new Documents/Desktop/Downloads prompt proves 929fe3a
-  did its job. Any later signed-to-signed step is the same proof: every release since, through
-  1.6.8, carries the same certificate.
-- [ ] **`.json` / `.jsonc` file registration** (added 2026-09-12, see
-  `archive/plans/json-viewer.md`). Only an installed build proves it: on Windows, Explorer's
-  *Open with* on a `.json` lists the viewer and the Type column reads "JSON Document" (its own
-  ProgID, `T4MarkdownViewer.Json`); on macOS, Finder's *Open With* offers it; on a deb/rpm
-  install, `xdg-mime query filetype x.jsonc` gives `application/json` and *Open With* lists the
-  app.
-  *Windows proven 2026-09-13 on the installed 1.6.0: `HKCU\Software\Classes` has
-  `T4MarkdownViewer.Json` ("JSON Document", icon, open command) and both `.json` and `.jsonc`
-  list it under `OpenWithProgids`; `.md` still maps to `T4MarkdownViewer.Document`. macOS and
-  deb/rpm still unchecked.*
-  *deb proven 2026-09-26 on dry run 36186470162's .deb, in WSL Ubuntu 24.04:
-  `xdg-mime query filetype x.jsonc` gives `application/json`, `gio mime application/json` and
-  `text/markdown` list the app (and default to it), and `desktop-file-validate` passes. rpm
-  proven the same way the same day on Fedora 44 (`closed-items.md`). macOS alone keeps this
-  open.*
 - [ ] **Cmd+Q loses the last 500 ms of changes** (added 2026-09-25, split from the session
   restore limit; the kill and shutdown half is kept in `closed-items.md`). A report waits
   500 ms for things to settle, and since 21384f3 closing a window waits for it — but the
@@ -61,39 +41,13 @@ section, so this file lists only what is still to do. Finished plans and reviews
   last; the session code already reads a quit as windows closing one after another. Dock →
   Quit and logout stay on the terminate path. Reopen on a Mac, and prove it there: scroll, then
   Cmd+Q within 500 ms, and the next launch comes back at the scroll, every window in order.
-- [ ] **Mermaid diagrams on macOS and Linux** (added 2026-09-26, `archive/plans/mermaid-diagrams.md`).
-  `drive-app` proves them on Windows (WebView2) only. On a Mac (WKWebView, macOS 13 floor)
-  and a deb/rpm install (WebKitGTK), open `examples/kitchen-sink.md`: the diagram draws,
-  clicking it opens the overlay, `Cmd`/`Ctrl`+wheel zooms about the cursor, dragging pans,
-  Escape comes back at the same scroll, and the light/dark toggle redraws it, as does an OS
-  light/dark switch under a theme that follows the OS. No bundled theme does, so save one in
-  the app's themes folder (`src-tauri/themes/README.md` says where) holding
-  `:root { color-scheme: light dark } body { background: transparent }`, pick it, and switch
-  the OS setting; then again with the body rule replaced by `body { background: #fff }` plus
-  `@media (prefers-color-scheme: dark) { body { background: #111 } }`. The page itself must
-  change side first — if it doesn't, the webview never saw the switch, which is not this
-  check failing. On GNOME, WebKitGTK may follow the GTK theme rather than the Dark Style
-  switch (`gsettings set org.gnome.desktop.interface gtk-theme Adwaita-dark`; unverified).
-  Headless Xvfb has no desktop setting to switch, so on Linux use a desktop session.
-  *Linux no longer needs an install: since cd315c4, `drive-app` drives a debug build on
-  WebKitGTK (`linux.md`); `wd.mjs` has no wheel command, so Ctrl+wheel would go through
-  xdotool under Xvfb (`keydown ctrl click 4 keyup ctrl`, untried). macOS still needs a Mac.*
-  *Diagrams draw in a sandboxed frame since Task 4 of `archive/plans/mermaid-pipeline.md`
-  (2026-09-27), which the check above must also cover: on macOS 13 (WKWebView) and on Linux
-  (WebKitGTK), the frame must still load and the diagram still draw, click and zoom as before.
-  Windows is proven (`drive-app`, the debug build). Linux is too, since 2026-09-28 (WSL Ubuntu
-  24.04, WebKitGTK 2.52.6, the debug build under Xvfb): Task 4 Step 5 (a) drew 35 of 35, (b)
-  and (d) passed, and a gantt link, a sequence menu and the keyboard basics worked. Its first run
-  drew nothing: wry hands WebKitGTK's subframe navigations to the app's `stay` guard, which
-  refused the frame's `about:srcdoc`; `stay` now lets exactly that through (WebView2 never shows
-  subframes to it). macOS still needs a Mac. There, per wry #1593, an iframe's navigation
-  reaches the new-window handler rather than the navigation handler, so `stay` may never see the
-  frame: check the frame loads and the diagrams draw, that nothing opens a window as it does,
-  and that a reload (the context menu's Reload) comes back with every tab.*
-  *The keyboard work of `archive/plans/viewer-follow-ups.md` (2026-09-28) was measured on
-  WebView2 only. On each: Tab to a diagram and to a picture shows the ring; Enter and Space
-  open them; a click, Escape, then Space scrolls the page; Escape from a keyboard-opened
-  overlay returns focus to the diagram.*
+  *Reproduced 2026-09-28 on macOS 26.7, the debug build at 622f29b (`drive-app`'s `macos.md`),
+  with two windows at 1500 and 2400 on disk: the front one scrolled to 3000, then a real Cmd+Q
+  through the menu 233 ms later; the app quit, `session.json` still held 2400, and the next
+  launch came back at 2400 — the 3000 lost, window order kept. The control, Cmd+Q 1762 ms after
+  the scroll, came back at 3000. So the fix above is still to do; the same check proves it. A
+  first Cmd+Q about 270 ms after a WebDriver call didn't quit at all (a second did); cause
+  unknown, ruled noise by the owner.*
 
 ## First runs after the 2026-09-26 changes
 
@@ -193,6 +147,27 @@ run passes, with the run id; when all are ticked, move the item to `closed-items
   Likely fix: let `onKeydown` skip Shift+Cmd+W on macOS so the menu gets it, checked with a real
   keystroke through `drive-app`'s `macos.md`. Reopen with the next macOS keyboard or menu work,
   or on a user report.
+- [ ] **Diagrams are unproven on the macOS 13 floor** (added 2026-09-29, found after the Mermaid
+  item closed). The app supports macOS 13 and up (`minimumSystemVersion` in
+  `tauri.conf.json`), and the Mermaid item asked for a check on macOS 13's WKWebView, but it
+  was closed on macOS 26.7 (`closed-items.md`). WKWebView uses the system WebKit, which Safari
+  updates raise, so the worst case is a macOS 13 that never updated Safari past 16. If
+  mermaid 11 or the sandboxed frame needs something newer, diagrams there stay as code blocks —
+  reasoned from the versions; nothing is seen to fail. Check: install the release on macOS 13
+  with Safari left at 16 (a UTM guest on Apple Silicon should do; untried) and open
+  `examples/kitchen-sink.md` — the diagram draws, a click opens the overlay, and no second
+  window opens. Reopen on a report from a macOS 13 user, before any
+  mermaid bump (the release skill already holds 12.x back for this check), or when a macOS 13
+  machine or VM is at hand.
+- [ ] **`.jsonc` isn't associated with the app on macOS** (added 2026-09-28, the Mac run,
+  measured on the installed 1.7.1). Finder's *Open With* on a `.jsonc` doesn't list the app, and
+  macOS offers no app for it at all. The bundle's `T4MarkdownViewer.Json` type lists `json` and
+  `jsonc` as extensions but claims `public.json` as its content type; `.jsonc` has no system
+  type (it reads as a `dyn.` one), so LaunchServices binds only `public.json`. That macOS
+  ignores the extension list once a content type is given is reasoned, not measured. `.json`
+  works, and so does `.jsonc` on Windows, deb and rpm. Fix: declare a `.jsonc` type of the
+  app's own in the bundle — unknown whether `tauri.conf.json`'s file associations can express
+  one. Reopen when someone asks, or with the next file-association work.
 
 ## Accepted limits
 
