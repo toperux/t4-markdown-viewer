@@ -297,3 +297,21 @@ Accessibility and Automation before V2.
     Shift+Cmd+W should drop `window` handles from 2 to 1, with `tabs` in the remaining window unchanged. A
     closed tab would leave both handles. Then `window 0`, since the session may point at the gone window.
 - **V6. Clean up.** No debug-app process is left, 4445 is free, and the last `cargo build` is plain.
+
+## Outcome (execution, 2026-09-28)
+
+V1–V6 ran on this Mac; `macos.md` records the measurements. Where execution departed from the plan:
+
+- **Event tap.** Events posted with no source at the HID tap moved the cursor but never reached the webview.
+  `macmouse.js` posts with an HID-state source at the session tap, which works.
+- **Mapping.** `invoke("window_origin")` gives the frame's top, not the content's (measured: 32 pt off, the
+  title bar). The mapping uses `/window/rect` (outer, physical) and `innerHeight` instead, in a new helper,
+  `scripts/macpt.sh`.
+- **Menu.** A real Shift+Cmd+W closed a tab, not the window: the webview sees the key before the menu. That is
+  an app bug against README's "closing a window moves to Shift+Cmd+W", outside this change. The owner deferred
+  it, and the tear-off offset that the `window_origin` finding implies, to `docs/open-items.md` › Deferred.
+- **Window handles** change order between calls; switch by label with `raw POST /window`.
+- **Minimum size.** `/window/rect` doesn't respect it.
+- **Startup race.** `start` can attach before `app.js` has run; the launch polls `typeof openTab`.
+- **Dialogs.** The file and the folder picker each close after one `macdialog.sh` call. System Events sees the
+  sheet but not its buttons.

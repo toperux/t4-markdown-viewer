@@ -1,6 +1,6 @@
 ---
 name: drive-app
-description: Launch the T4 Markdown Viewer debug build and drive it for real — run JS in the page, click elements, take screenshots, and answer the native Open / Select Folder dialogs, on Windows (WebView2/CDP) or Linux (WebKitGTK/WebDriver). Use whenever a UI change needs checking in the running app, for smoke tests, screenshots, theme checks, or reproducing a frontend bug, even if the user only says "try it" or "does it work". The frontend has no test harness, so this is the only way to see behaviour instead of assuming it.
+description: Launch the T4 Markdown Viewer debug build and drive it for real — run JS in the page, click elements, take screenshots, and answer the native Open / Select Folder dialogs, on Windows (WebView2/CDP), Linux (WebKitGTK/WebDriver) or macOS (WKWebView/in-app WebDriver). Use whenever a UI change needs checking in the running app, for smoke tests, screenshots, theme checks, or reproducing a frontend bug, even if the user only says "try it" or "does it work". The frontend has no test harness, so this is the only way to see behaviour instead of assuming it.
 ---
 
 # Driving the app
@@ -8,9 +8,10 @@ description: Launch the T4 Markdown Viewer debug build and drive it for real —
 `cargo test` covers only Rust. The frontend (`src/app.js`, a plain script, no
 bundler) is checked by launching the debug exe with WebView2 remote debugging
 on and talking Chrome DevTools Protocol to it. That is Windows; on Linux,
-follow `linux.md` in this folder instead for steps 1, 2, 4 and 5 — step 3
-and the page-level gotchas below (JSON documents, keyboard scrolling, `#content`,
-`state.themes`, timing a render, one call at a time) apply to both.
+follow `linux.md` in this folder instead for steps 1, 2, 4 and 5, and on macOS
+`macos.md` — step 3 and the page-level gotchas below (JSON documents, keyboard
+scrolling, `#content`, `state.themes`, timing a render, one call at a time)
+apply to all three.
 
 Scripts in `.claude/skills/drive-app/scripts/` (run from the repo root):
 
