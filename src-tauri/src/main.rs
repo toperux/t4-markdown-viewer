@@ -1838,6 +1838,12 @@ fn main() {
             Ok(())
         });
 
+    // An unauthenticated WebDriver server on 127.0.0.1: never in a release build.
+    #[cfg(all(feature = "webdriver", not(debug_assertions)))]
+    compile_error!("the webdriver feature is for debug builds only");
+    #[cfg(feature = "webdriver")]
+    let builder = builder.plugin(tauri_plugin_webdriver::init());
+
     #[cfg(target_os = "macos")]
     let builder = builder.menu(macos_menu).on_menu_event(|app, event| {
         if event.id().as_ref() == CLOSE_WINDOW {
