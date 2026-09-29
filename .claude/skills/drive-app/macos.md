@@ -225,8 +225,10 @@ node $W click "#open-btn"
   "(setTimeout(() => appWindow.close(), 100), 1)"` so the `eval` answers first.
 - **Shift+Cmd+W closes a tab, not the window** (measured). The webview sees a
   real key before the menu, and `onKeydown` handles `w` with any Shift, so the
-  menu's Close Window never fires. Cmd+Q, Cmd+H, Cmd+M and the Edit menu's
-  Cmd+A/C/V/X/Z are menu items; whether the page sees them first is unmeasured.
+  menu's Close Window never fires. A real Cmd+Q does reach the menu's Quit
+  (measured 2026-09-28 and 2026-09-29). Cmd+H, Cmd+M and the Edit menu's
+  Cmd+A/C/V/X/Z are menu items too; whether the page sees them first is
+  unmeasured.
 - **Window size.** `raw POST /window/rect '{"width":…,"height":…}'` sets the
   outer size in physical px (on Retina, `width: 1200` is 600 pt), and it does
   **not** respect the minimum size: 200×150 left 100×43 pt of content. Test a
