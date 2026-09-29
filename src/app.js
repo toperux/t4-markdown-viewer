@@ -1849,10 +1849,10 @@ function scheduleReport() {
 
 /**
  * Report now if it has been quiet, and a moment after things settle if it has
- * not. Nothing fires on a Cmd+Q or a kill, so a tab closed just before one
- * has to be on disk already or it comes back — but a document being
- * rewritten under the reader lands here several times a second, and that must
- * not become several writes a second.
+ * not. Nothing fires on a Quit from outside the app (Dock, app switcher) or a
+ * kill, so a tab closed just before one has to be on disk already or it comes
+ * back — but a document being rewritten under the reader lands here several
+ * times a second, and that must not become several writes a second.
  */
 function reportSoon() {
   if (Date.now() - lastReport >= REPORT_DELAY) reportSession();
@@ -4609,6 +4609,11 @@ async function main() {
   // anyway if the page cannot answer (`CLOSE_WAIT`). Registered with the
   // others, after boot: a window still restoring has nothing to add.
   appWindow.onCloseRequested(() => reportSession()).catch(console.error);
+  // The same last report for the macOS Quit, the only thing that sends this:
+  // Rust waits for every booted window's answer before it exits. Registered
+  // after boot for the same reason as the close listener, and a window that
+  // does not answer in time keeps its last report.
+  listen("quit-requested", () => reportSession()).catch(console.error);
 
   // Last, and not awaited: the document is already on screen, and a slow or
   // unreachable GitHub must cost the reader nothing.

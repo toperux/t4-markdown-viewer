@@ -537,6 +537,86 @@ fn a_window_closed_outside_the_grace_drops_out() {
     assert_eq!(saved_paths(), vec![vec!["m.md"]]);
 }
 
+/* ---------------- asking for the last reports ---------------- */
+
+/// A window that has not booted has no listener to answer with, so `gather`
+/// does not wait on it: it returns at once, with nobody left awaited.
+#[test]
+fn gather_does_not_wait_on_a_window_still_booting() {
+    let app = app();
+    let _main = main_window(&app);
+
+    let start = Instant::now();
+    tauri::async_runtime::block_on(session::gather(app.handle(), "quit-requested"));
+
+    assert!(start.elapsed() < session::REPORT_TIMEOUT / 2);
+    assert!(app.state::<AppState>().awaiting.lock().unwrap().is_empty());
+}
+
+/// A booted window is awaited before the event goes out, and its answer is on
+/// disk by the time `gather` returns — well inside the timeout, since the
+/// macOS Quit exits the moment it does.
+#[test]
+fn gather_waits_for_a_ready_window_and_saves_its_answer() {
+    let app = remembering_app();
+    let main = main_window(&app);
+    take_pending(app.state(), main.as_ref().window());
+
+    // The mock emits on the calling thread, which is the one `block_on` polls
+    // on, so the save lands in this test's own folder.
+    let handle = app.handle().clone();
+    let answering = main.clone();
+    app.listen_any("quit-requested", move |_| {
+        assert!(handle
+            .state::<AppState>()
+            .awaiting
+            .lock()
+            .unwrap()
+            .contains("main"));
+        let tabs = vec![json!({ "path": "q.md" })];
+        set_session(
+            handle.state(),
+            answering.as_ref().window(),
+            tabs,
+            0,
+            false,
+            false,
+        );
+    });
+
+    let start = Instant::now();
+    tauri::async_runtime::block_on(session::gather(app.handle(), "quit-requested"));
+
+    assert!(start.elapsed() < session::REPORT_TIMEOUT / 2);
+    assert_eq!(saved_paths(), vec![vec!["q.md"]]);
+    assert!(app.state::<AppState>().awaiting.lock().unwrap().is_empty());
+}
+
+/// An answer that lands while `gather` is already waiting wakes it: the wait
+/// ends on the answer, not on the timeout — otherwise every Quit would sit
+/// out the whole second.
+#[test]
+fn gather_wakes_for_an_answer_that_arrives_while_it_waits() {
+    let app = app();
+    let main = main_window(&app);
+    take_pending(app.state(), main.as_ref().window());
+
+    let handle = app.handle().clone();
+    app.listen_any("quit-requested", move |_| {
+        let handle = handle.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            session::reported(&handle.state::<AppState>(), "main");
+        });
+    });
+
+    let start = Instant::now();
+    tauri::async_runtime::block_on(session::gather(app.handle(), "quit-requested"));
+
+    assert!(start.elapsed() >= Duration::from_millis(50));
+    assert!(start.elapsed() < session::REPORT_TIMEOUT / 2);
+}
+
 /* ---------------- dropping a tab ---------------- */
 
 /// Far off every screen, so no window is under the point. Nothing — not the
