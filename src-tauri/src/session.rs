@@ -9,8 +9,10 @@
 //!
 //! The same file now also tracks ordinary use — `remember` rewrites it as tabs
 //! come and go — so an ordinary launch has something to come back to as well.
-//! There is no hook that fires as the last window goes, so the only way to
-//! know what was open at the end is to have been writing it all along.
+//! A closing window reports on its way out, and the macOS Quit asks every
+//! window before the app goes, but a crash or a kill fires nothing at all — so
+//! the only way to know what was open at the end is to have been writing it
+//! all along.
 
 use crate::{config, AppState};
 use serde::{Deserialize, Serialize};
@@ -22,9 +24,10 @@ use tauri::{
     AppHandle, Emitter, Manager, Monitor, PhysicalPosition, PhysicalSize, Runtime, WebviewWindow,
 };
 
-/// How long `snapshot` waits for the windows to answer. A webview that is
-/// busy for longer than this keeps whatever it last reported.
-const REPORT_TIMEOUT: Duration = Duration::from_secs(1);
+/// How long `gather` waits for the windows to answer, for the update snapshot
+/// and the macOS Quit alike. A webview that is busy for longer than this keeps
+/// whatever it last reported.
+pub(crate) const REPORT_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// How long a closed window stays in the saved session. Quitting is every
 /// window closing one after another, and each close restarts this clock — so
@@ -234,9 +237,31 @@ pub async fn snapshot(app: &AppHandle, version: String) {
     // reporting — `sessions` wants to be current when the save comes — but
     // none of those reports may write.
     state.installing.store(true, Ordering::SeqCst);
+    gather(app, "update-installing").await;
+
+    // Lossy for the reason `setup` gives: `args()` panics on a name that is
+    // not Unicode.
+    let args = std::env::args_os()
+        .skip(1)
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    save(app, version, args, true);
+}
+
+/// Send `event` to every window that has booted and wait, up to
+/// `REPORT_TIMEOUT`, for each to answer through `set_session`. Shared by the
+/// update snapshot and the macOS Quit, which both need the last moment on
+/// disk before the process goes.
+///
+/// A window that has not booted is not waited on: it has no listener yet, and
+/// what it was created to open already stands in for its report. Filled
+/// before the emit, so an answer that arrives at once still finds itself
+/// awaited.
+pub async fn gather<R: Runtime>(app: &AppHandle<R>, event: &str) {
+    let state = app.state::<AppState>();
     let ready = state.boot.lock().unwrap().ready.clone();
     *state.awaiting.lock().unwrap() = ready;
-    let _ = app.emit("update-installing", ());
+    let _ = app.emit(event, ());
 
     let waiter = app.clone();
     let _ = tauri::async_runtime::spawn_blocking(move || {
@@ -251,20 +276,13 @@ pub async fn snapshot(app: &AppHandle, version: String) {
         }
     })
     .await;
-
-    // Lossy for the reason `setup` gives: `args()` panics on a name that is
-    // not Unicode.
-    let args = std::env::args_os()
-        .skip(1)
-        .map(|a| a.to_string_lossy().into_owned())
-        .collect();
-    save(app, version, args, true);
 }
 
 /// Write down what is open right now, for an ordinary launch to come back to.
 /// Called whenever a window reports a change, when one closes, and once more
-/// when the grace after a close is over — nothing fires as the app quits, so
-/// the last write before the end is what comes back.
+/// when the grace after a close is over. The macOS Quit asks every page
+/// before it exits, but nothing else fires as the app goes, so the last write
+/// before the end is what comes back.
 ///
 /// Nothing is written when nothing is open and no window has just closed: the
 /// reader closing their last tab must leave the waiting session where it is
@@ -359,8 +377,8 @@ pub fn window_closed<R: Runtime>(app: &AppHandle<R>, label: &str) {
     });
 }
 
-/// A window has answered `snapshot` — or gone away, which is as much of an
-/// answer as it will give.
+/// A window has answered `gather`, for the update snapshot or the macOS Quit —
+/// or gone away, which is as much of an answer as it will give.
 pub fn reported(state: &AppState, label: &str) {
     state.awaiting.lock().unwrap().remove(label);
     state.reported.notify_all();

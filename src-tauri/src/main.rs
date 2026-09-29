@@ -99,8 +99,8 @@ struct AppState {
     /// Where each window last stood. A window that has closed cannot be asked,
     /// and one that is minimized gives no answer worth keeping.
     frames: Mutex<HashMap<String, session::Frame>>,
-    /// Windows a session snapshot is still waiting to hear from, and the bell
-    /// each answer rings. See `session::snapshot`.
+    /// Windows the update snapshot or the macOS Quit is still waiting to hear
+    /// from, and the bell each answer rings. See `session::gather`.
     awaiting: Mutex<HashSet<String>>,
     reported: Condvar,
     /// One watcher per window, covering every directory that window has a tab in.
@@ -1013,12 +1013,13 @@ fn open_window(app: AppHandle, path: Option<String>) -> String {
 }
 
 /// A window saying what it has open: while it works, and once more when
-/// `update-installing` asks. `tabs` is the frontend's own shape, kept opaque
-/// here.
+/// `update-installing` or the macOS Quit's `quit-requested` asks. `tabs` is
+/// the frontend's own shape, kept opaque here.
 ///
 /// Each report also goes to disk, which is what makes an ordinary quit
-/// recoverable — a close waits for the page's last report, but a Cmd+Q or a
-/// kill waits for nothing, so the file has to be current before either.
+/// recoverable — a close waits for the page's last report, but a Quit from
+/// outside the app (Dock, app switcher) or a kill waits for nothing, so the
+/// file has to be current before either.
 #[tauri::command]
 fn set_session<R: Runtime>(
     state: State<AppState>,
@@ -1044,7 +1045,8 @@ fn set_session<R: Runtime>(
     // Written before the answer is rung in: `reported` is what releases a
     // waiting snapshot, and the save it then makes is the one that has to
     // survive. Both write the same file, and the loser of that race would be
-    // the restart the reader is waiting on.
+    // the restart the reader is waiting on. The macOS Quit exits as soon as
+    // the answers are in, so there too each answer must be on disk first.
     session::remember(window.app_handle());
     session::reported(&state, label);
 }
@@ -1461,15 +1463,19 @@ fn offer_session(state: &AppState, session: session::Session) {
     }
 }
 
-/// Menu id for the one item that is not predefined.
+/// Menu ids for the two items that are our own rather than predefined.
 #[cfg(target_os = "macos")]
 const CLOSE_WINDOW: &str = "close-window";
+#[cfg(target_os = "macos")]
+const QUIT: &str = "quit";
 
 /// macOS routes clipboard commands through the menu bar: with no Edit menu,
 /// Cmd+C does nothing at all inside the webview. Tauri's default menu supplies
 /// those, but it also binds Cmd+W to Close Window, which would shadow this app's
-/// close-tab. So this is the default menu minus that collision — closing a
-/// window moves to Shift+Cmd+W, leaving plain Cmd+W to the frontend.
+/// close-tab. So this is the default's Edit menu, with Close Window and Quit as
+/// our own items — closing a window moves to Shift+Cmd+W, leaving plain Cmd+W
+/// to the frontend. The predefined Quit exits with no page asked, so each
+/// window's last report would be lost; ours asks first.
 #[cfg(target_os = "macos")]
 fn macos_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{Menu, MenuItem, PredefinedMenuItem as Item, Submenu};
@@ -1487,7 +1493,13 @@ fn macos_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
             &Item::hide_others(app, None)?,
             &Item::show_all(app, None)?,
             &Item::separator(app)?,
-            &Item::quit(app, None)?,
+            &MenuItem::with_id(
+                app,
+                QUIT,
+                "Quit T4 Markdown Viewer",
+                true,
+                Some("CmdOrCtrl+Q"),
+            )?,
         ],
     )?;
 
@@ -1852,6 +1864,16 @@ fn main() {
                     let _ = w.close();
                 }
             }
+        }
+        // Not blocking here: this is the main thread, and the answers arrive
+        // as commands on it. A second Cmd+Q during the wait starts a second
+        // gather that ends in the same exit.
+        if event.id().as_ref() == QUIT {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                session::gather(&app, "quit-requested").await;
+                app.exit(0);
+            });
         }
     });
 
