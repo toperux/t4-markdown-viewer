@@ -30,25 +30,6 @@ section, so this file lists only what is still to do. Finished plans and reviews
   *Snoozed by the owner 2026-09-24 until 2026-12-23, three months before the first brownout:
   not to be raised or offered before then.*
 
-## Needs a Mac
-
-- [ ] **Cmd+Q loses the last 500 ms of changes** (added 2026-09-25, split from the session
-  restore limit; the kill and shutdown half is kept in `closed-items.md`). A report waits
-  500 ms for things to settle, and since 21384f3 closing a window waits for it — but the
-  predefined Quit (`Item::quit` in `macos_menu`) ends in `applicationWillTerminate`, which `tao`
-  turns straight into `RunEvent::Exit` with nothing to hold it. Fix: a Quit item of our own on
-  Cmd+Q that closes every window, so each waits for its report and the app exits with the
-  last; the session code already reads a quit as windows closing one after another. Dock →
-  Quit and logout stay on the terminate path. Reopen on a Mac, and prove it there: scroll, then
-  Cmd+Q within 500 ms, and the next launch comes back at the scroll, every window in order.
-  *Reproduced 2026-09-28 on macOS 26.7, the debug build at 622f29b (`drive-app`'s `macos.md`),
-  with two windows at 1500 and 2400 on disk: the front one scrolled to 3000, then a real Cmd+Q
-  through the menu 233 ms later; the app quit, `session.json` still held 2400, and the next
-  launch came back at 2400 — the 3000 lost, window order kept. The control, Cmd+Q 1762 ms after
-  the scroll, came back at 3000. So the fix above is still to do; the same check proves it. A
-  first Cmd+Q about 270 ms after a WebDriver call didn't quit at all (a second did); cause
-  unknown, ruled noise by the owner.*
-
 ## First runs after the 2026-09-26 changes
 
 Each condition proves itself on an event that has not happened yet. Tick a sub-item when its
@@ -191,7 +172,8 @@ as it is found.
   macOS.*
 - [ ] **drive-app on macOS: other menu shortcuts vs the page are unmeasured** (added
   2026-09-28, `archive/plans/drive-app-macos.md`). A real Shift+Cmd+W was seen reaching the page
-  before the menu. Whether Cmd+Q/H/M and the Edit menu's Cmd+A/C/V/X/Z do too is unknown; the
-  page doesn't handle them today, so the menu probably still gets them.
+  before the menu. Cmd+Q reaches the menu (measured 2026-09-28 and 2026-09-29,
+  `archive/plans/macos-quit-report.md`). Whether Cmd+H/M and the Edit menu's Cmd+A/C/V/X/Z do
+  too is unknown; the page doesn't handle them today, so the menu probably still gets them.
   *Accepted 2026-09-28. Reopen with the deferred Shift+Cmd+W fix, which will test keys against
   the menu anyway.*
