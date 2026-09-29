@@ -241,7 +241,7 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   said `scrollY` 0 without the listener and 3000 with it, closing in about 110 ms. A page made to
   spin for 8 s still closed after 2073 ms. Dragging a window's only tab into another window
   still closed the empty window. A Cmd+Q, a kill or a shutdown still lose the wait; that
-  remainder stays under Accepted limits.*
+  remainder stays under Accepted limits. (Cmd+Q fixed 2026-09-29.)*
 - [x] **#18, the superseded case: an `openFolder` overtaken by a newer one keeps its
   unverified pick** (an accepted limit from the 2026-09-20 review; the closed-mid-listing case
   was fixed in 74f2192).
@@ -780,6 +780,35 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   check; reasoned); in the other, a file picked through the Open panel reopened on restore
   without the Documents check (plausibly the `com.apple.macl` mark the panel leaves;
   reasoned) — so a folder listing is the test, not a file opened by the user.*
+- [x] **Cmd+Q loses the last 500 ms of changes** (added 2026-09-25, split from the session
+  restore limit; the kill and shutdown half is kept below, under *Accepted limits*). A report
+  waits 500 ms for things to settle, and since 21384f3 closing a window waits for it — but the
+  predefined Quit (`Item::quit` in `macos_menu`) ends in `applicationWillTerminate`, which `tao`
+  turns straight into `RunEvent::Exit` with nothing to hold it.
+  *Reproduced 2026-09-28 on macOS 26.7, the debug build at 622f29b (`drive-app`'s `macos.md`),
+  with two windows at 1500 and 2400 on disk: the front one scrolled to 3000, then a real Cmd+Q
+  through the menu 233 ms later; the app quit, `session.json` still held 2400, and the next
+  launch came back at 2400 — the 3000 lost, window order kept. The control, Cmd+Q 1762 ms after
+  the scroll, came back at 3000. A first Cmd+Q about 270 ms after a WebDriver call didn't quit
+  at all (a second did); cause unknown, ruled noise by the owner.*
+  *Fixed 2026-09-29 (ede4c0e, `archive/plans/macos-quit-report.md`): report, then exit. The
+  app menu's Quit is our own item on Cmd+Q. It asks every booted window to report
+  (`quit-requested`), waits up to 1 s for the answers through `session::gather` — the wait the
+  update snapshot already used, now shared — and then calls `app.exit(0)`. No window is
+  closed on the way out. Checked the same day on macOS 26.7, a debug build of the fix with its
+  own `HOME`:*
+  - *Q1: the same two windows (README.md behind at 1500, closed-items.md in front at 2400 on
+    disk), the front one scrolled to 3000 and a real Cmd+Q 230 ms later. The app exited 337 ms
+    after the scroll, and `session.json` held 3000 and 1500, back window first,
+    `restart: false`. The next launch, with no file argument, came back at 3000 in front and
+    1500 behind. No retry was needed.*
+  - *Q2: the app menu shows "Quit T4 Markdown Viewer" with Cmd+Q; clicking it through System
+    Events quit the app in about 100 ms.*
+  - *Q3: closed-items.md scrolled to 3600 and on disk; then the app brought to the front, which
+    made the README.md window key, and Cmd+O opened the Open panel as a sheet on README.md.
+    Cmd+Q quit the app in about 100 ms — no crash report, 3600 kept.*
+  *A Quit from outside the app (Dock, app switcher), logout and shutdown still go the
+  terminate path — see the kill and shutdown limit under *Accepted limits*.*
 
 ## Housekeeping
 
@@ -838,14 +867,20 @@ tooling; listed so nobody rediscovers them.
   The middle ground — a first pass that finds the deepest level whose folds stay under the
   weight, and folds only down to it — is ~40 lines in `json.rs` and a fresh WebView2
   measurement, for documents this heavy are rare. Reopen if one turns up that needs folds.*
-- [x] **A kill or a Windows shutdown loses the last 500 ms of changes** (session restore,
-  1.6.3). A report waits 500 ms for things to settle — scrolling, moving or resizing a window,
-  a tab change hard on another — and what is inside that wait lives only in the page.
+- [x] **A kill, a shutdown or a Quit from outside the app loses the last 500 ms of changes**
+  (session restore, 1.6.3; widened to macOS 2026-09-29). A report waits 500 ms for things to
+  settle — scrolling, moving or resizing a window, a tab change hard on another — and what is
+  inside that wait lives only in the page.
   *Kept 2026-09-25. Closing a window waits for the report since 21384f3, but a kill sends
-  nothing, and a shutdown or logoff reaches `tao` as `WM_ENDSESSION`, which it turns straight
-  into `RunEvent::Exit` (`WM_QUERYENDSESSION` is left unhandled there on purpose), with the
-  event loop gone before any page could be asked. macOS Cmd+Q is fixable and stays open under
-  *Needs a Mac* in `open-items.md`.*
+  nothing, and a Windows shutdown or logoff reaches `tao` as `WM_ENDSESSION`, which it turns
+  straight into `RunEvent::Exit` (`WM_QUERYENDSESSION` is left unhandled there on purpose), with
+  the event loop gone before any page could be asked. The macOS menu's Quit (Cmd+Q) was fixed on
+  2026-09-29 (ede4c0e) — see *Cmd+Q loses the last 500 ms of changes* under *Needs a Mac, a
+  Dependabot run, or an older build*. On macOS a Quit from outside the app (the Dock, the app
+  switcher, Activity Monitor, AppleScript), logout and shutdown still send `terminate:`, which
+  `tao` ends in `applicationWillTerminate` with no page asked; holding them would take our own
+  `applicationShouldTerminate:` on `tao`'s app delegate class. Kept by the owner 2026-09-29,
+  with no reopen trigger.*
 - [x] **#49: Add/Remove Programs shows the publisher as "montevirgen", not the signer's name**
   (2026-09-25 review). *Kept 2026-09-25: `bundle.publisher` also moves the NSIS registry key,
   losing the remembered install folder once and leaving the old key behind — worse than the
