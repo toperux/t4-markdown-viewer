@@ -130,7 +130,7 @@ under Tauri's own name, `T4 Markdown Viewer_<version>_x64-setup.exe`.
 It is a **per-user** install — no admin prompt — landing in
 `%LOCALAPPDATA%\T4 Markdown Viewer`. Uninstall from Add/Remove Programs.
 
-Releases after 1.6.7 are code-signed, with "Open Source Developer, Christopher
+Releases after 1.6.7 are code-signed, with "Open Source Developer Christopher
 Montevirgen" as the publisher. SmartScreen can still show "Windows protected
 your PC" while the certificate is new, until it has built up a download
 reputation: click **More info** → **Run anyway**. 1.6.7 and earlier are not
