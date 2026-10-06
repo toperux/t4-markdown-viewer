@@ -36,7 +36,7 @@ Each condition proves itself on an event that has not happened yet. Tick a sub-i
 run passes, with the run id; when all are ticked, move the item to `closed-items.md`.
 
 - [ ] **Tauri 2.12.1's crates have each run once for real** (added 2026-10-07,
-  `docs/plans/tauri-2.12.md`).
+  `archive/plans/tauri-2.12.md`).
   - [ ] *Updater 2.13.1's install path*: the first in-app update **from** a build carrying it —
     the release after the first one with tauri 2.12.1, since an update is installed by the
     outgoing version's updater. The installed copy is offered the new version, installs it and
@@ -108,8 +108,8 @@ run passes, with the run id; when all are ticked, move the item to `closed-items
   `Placement::Cursor`), so the new window should land that much high. Cause unknown: tao
   0.35.3's `inner_position` reads as the content rect. Reopen when a macOS tear-off is seen
   landing high, or when `window_origin` is touched.
-  *Seen 2026-10-07 on macOS 26.7.1, tauri 2.12.1 / tao 0.37.1 (`docs/plans/tauri-2.12.md`, walk
-  W2): a real drag released at 200,140 pt opened the window's frame at 60,84 — 140 pt left and
+  *Seen 2026-10-07 on macOS 26.7.1, tauri 2.12.1 / tao 0.37.1 (`archive/plans/tauri-2.12.md`,
+  walk W2): a real drag released at 200,140 pt opened the window's frame at 60,84 — 140 pt left and
   56 pt up of the cursor, 32 pt higher than the 140,24 the code intends (`drop_tab`,
   `main.rs:1149`). On Windows and Linux the same drop lands at exactly 140,24. That trigger
   fired; kept deferred by the owner 2026-10-07, now with the trigger *the tear-off placement
@@ -146,25 +146,26 @@ run passes, with the run id; when all are ticked, move the item to `closed-items
   app's own in the bundle — unknown whether `tauri.conf.json`'s file associations can express
   one. Reopen when someone asks, or with the next file-association work.
 
-The next seven came out of the Tauri 2.12 walks (`docs/plans/tauri-2.12.md`, 2026-10-07). Each
-also shows on 1.7.2, so none comes from that change; each was deferred by the owner at its
-triage.
+The next nine came out of the Tauri 2.12 walks (`archive/plans/tauri-2.12.md`, 2026-10-07).
+Each also shows on 1.7.2 or 1.7.1, so none comes from that change; each was deferred by the
+owner at its triage.
 
 - [ ] **A document with images comes back lower than it was left** (added 2026-10-07). A
   restore or Back sets the saved scroll one frame after render (`app.js:1413-1426`) without
   waiting for images, so an image above that spot that loads afterwards pushes the text down by
   its height. Measured: on Windows, README saved at 800 came back at about 1422 (the top
-  screenshot's height), on 1.7.2 and on tauri 2.12.1; on Linux, Back to README landed at 14079
-  for 15819. The Mac showed no drift (the image likely loaded first; reasoned). Likely fix:
+  screenshot's height), on the installed 1.7.1 (same Tauri as 1.7.2) and on tauri 2.12.1; on
+  Linux, Back to README landed at 14079 for 15819. The Mac showed no drift (the image likely
+  loaded first; reasoned). Likely fix:
   re-apply the saved scroll once images above it have loaded, or wait for them first; walk on
-  all three, since timing differs per webview. Reopen with the session-restore plan, the next
-  plan after Tauri 2.12 (with the next two items and *On GNOME, a restored window grows*).
+  all three, since timing differs per webview. Reopen with the session-restore plan, the plan
+  after the CLI 2.12.1 one (with the next two items and *On GNOME, a restored window grows*).
 - [ ] **On Windows, the last-used window doesn't come back in front** (added 2026-10-07). Two
   windows, the normal one used last, the other (`main`) maximized: after a restore `main` was
-  in front, on 1.7.2 and on 2.12.1. The Mac and Linux put the last-used one in front. Not
-  investigated; a guess is that maximizing `main` after it shows also activates it, so it only
-  happens with a maximized first window (untested — the first step is that probe). Reopen with
-  the session-restore plan.
+  in front, on the installed 1.7.1 and on 2.12.1. The Mac and Linux put the last-used one in
+  front. Not investigated; a guess is that maximizing `main` after it shows also activates it,
+  so it only happens with a maximized first window (untested — the first step is that probe).
+  Reopen with the session-restore plan.
 - [ ] **On GNOME, a restored window grows each launch** (added 2026-10-07, measured on Ubuntu
   26.04's GNOME Wayland). A normal window came back 52×89 px bigger each time (1100×860 →
   1152×949 → 1204×1038; 1.7.2: +52×99). `Frame::of` saves `inner_size()`, which there includes
@@ -198,6 +199,26 @@ triage.
   and the closed-tab record keeps no position, where browsers put it back in its place. Likely
   fix: save the index on close and insert there. Reopen with the next tab-strip work, or on a
   report.
+- [ ] **The AppImage can't start on Ubuntu 26.04** (added 2026-10-07, the Tauri 2.12 plan's W12
+  on the Linux VM: GNOME 50 Wayland, Mesa 26.0.8, libegl1 1.7.0). The web process aborts with
+  "Could not create default EGL display: EGL_BAD_PARAMETER" and no window opens — on the dry
+  run's AppImage and the released 1.7.2 alike, with or without `GDK_BACKEND=x11`,
+  `WEBKIT_DISABLE_DMABUF_RENDERER=1` or `WEBKIT_DISABLE_COMPOSITING_MODE=1`. The AppImage
+  bundles the `ubuntu-22.04` build host's `libwayland-client`, `-cursor`, `-egl` and `-server`
+  (`release.yml:105` builds there); an extracted copy with those four moved out rendered and
+  passed the smoke rows (measured). t4-git-ui hit the same (its `ee39631`: the host's Mesa
+  `libEGL_mesa` needs symbols 22.04's libwayland-client 1.20 lacks) and ended with tauri-cli
+  2.12.1, whose linuxdeploy `07333c6` leaves `libwayland-client` out itself (its `308c378`). An
+  AppImage that can't start can't update itself, so a fix reaches new downloads only; the `.deb`
+  and `.rpm` use the system's libraries (reasoned). Not measured: other distributions, and when
+  it began. The 2026-09-28 Linux proof in `closed-items.md` was the debug build, not the
+  AppImage. *Ruled by the owner 2026-10-07: fix next, through the deferred tauri-cli 2.12.1
+  bump (`archive/plans/tauri-2.12.md`, Decision 2), ahead of the session-restore plan.*
+- [ ] **On macOS and Linux, some app text speaks Windows** (added 2026-10-07, the Mac's W12).
+  The Open-mode hint says "double-click a `.md` file in Explorer" (`index.html:179`), and the
+  Open button's tooltip says Ctrl+O on every platform (`index.html:30`, `app.js:2883`); macOS
+  says Finder and Cmd. Likely fix: pick the words per platform. Reopen with the next UI-text or
+  macOS keyboard work (the Shift+Cmd+W item), or on a report.
 
 ## Accepted limits
 
@@ -234,7 +255,7 @@ as it is found.
   earlier rect is never saved. t4-git-ui saves it (its N6, about 100 lines).
   *Accepted 2026-10-07. Reopen on a report, or if the session-restore plan touches frames.*
 - [ ] **Linux update checks off Debian are unwalked under updater 2.13** (added 2026-10-07,
-  `docs/plans/tauri-2.12.md`). Updater 2.13 no longer points `SSL_CERT_FILE`/`SSL_CERT_DIR` at
+  `archive/plans/tauri-2.12.md`). Updater 2.13 no longer points `SSL_CERT_FILE`/`SSL_CERT_DIR` at
   Debian's paths when they are unset (t4-git-ui's reading of the source). Debian and Ubuntu are
   unaffected (*Check now* passed on the Ubuntu VM); on Fedora, Arch and others the check might
   not verify GitHub's certificate, though rustls's platform verifier likely finds the system
@@ -242,7 +263,7 @@ as it is found.
   *Accepted 2026-10-07. Reopen on a report of a failing update check on a non-Debian
   distribution.*
 - [ ] **Video and audio in documents are unwalked under tauri 2.12** (added 2026-10-07,
-  `docs/plans/tauri-2.12.md`). Tauri 2.12 fixed malformed multi-range answers from the asset
+  `archive/plans/tauri-2.12.md`). Tauri 2.12 fixed malformed multi-range answers from the asset
   protocol (#15838), which media seeking can use; no fixture has video or audio, so none was
   played. An ordinary single-range request is not touched (reasoned from the release note).
   *Accepted 2026-10-07. Reopen on a report of video or audio in a document not playing or

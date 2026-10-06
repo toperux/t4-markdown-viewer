@@ -818,7 +818,7 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
     *Ticked by the owner 2026-10-07: the Updates runs 36910987673 and 36910984666 passed on
     2026-10-01. The cargo PR they opened, #9, passed CI (36911229040) on Windows and Linux and
     failed on macOS only, at Clippy, on tauri 2.12.0's own test mock (`transparent` missing) —
-    not on the pinning. #9 is replaced by `docs/plans/tauri-2.12.md`.*
+    not on the pinning. #9 is replaced by `archive/plans/tauri-2.12.md`.*
   - [x] *The approval gate on `signing`*: the 1.6.9 tag — the run waits at the build legs,
     and after approval signs and publishes.
     *Release run 36225335885, 2026-09-26: all three legs `waiting` until approved; then every

@@ -1,13 +1,21 @@
 # Tauri 2.12.1 Implementation Plan
 
-> **Status (2026-10-07):** executing. Task 1 done (b4407b7, lock hash `ca17bb28…0292`); the
+> **Status (2026-10-07):** executed in full. Task 1: b4407b7 (lock hash `ca17bb28…0292`); the
 > change review found nothing. Task 2 passed on Linux (198 tests) and the Mac (195; Clippy
-> clean, so 2.12.1 fixes PR #9's failure). W1–W11 passed on all three platforms, with no
-> regression from the new crates. Task 4 done. Triage done (owner, 2026-10-07): 14 items, all
-> pre-existing — seven deferred to `open-items.md` (three to the session-restore plan, next;
-> two to the tear-off placement work, with the macOS 32 pt item, whose trigger fired and which
-> stays deferred), drive-app's `sendkeys.ps1` guard fixed (1f10e5f), updater 2.13.1's install
-> made a First runs check, three open accepted limits, one closed. Next: Task 5.
+> clean, so 2.12.1 fixes PR #9's failure, which Dependabot closed itself). W1–W11 passed on
+> all three platforms with no regression from the new crates. Triage (owner, 2026-10-07): 14
+> pre-existing items — seven deferred (three to the session-restore plan; two to the tear-off
+> placement work, with the macOS 32 pt item, whose trigger fired and which stays deferred),
+> drive-app's `sendkeys.ps1` guard fixed (1f10e5f), updater 2.13.1's install made a First runs
+> check, three open accepted limits, one closed. Task 5: pushed as 01b983c, CI green
+> (37519990658); the dry run 37521122923 built and signed every package with CLI 2.11.4, so
+> Decision 2's unknown is settled. W12 passed on Windows (the signed installer over 1.7.1) and
+> the Mac (the `.dmg`'s app over 1.7.1, same self-signed cert, no Gatekeeper prompt). On Linux
+> the AppImage can't start on Ubuntu 26.04 — the released 1.7.2 neither — because it bundles
+> 22.04's libwayland; ruled to fix next through the CLI 2.12.1 bump (`open-items.md`). Two more
+> items from W12 deferred: that one, and Windows wording on macOS. Deviation: the walks'
+> Windows baseline was the installed 1.7.1, not 1.7.2 — the same Tauri, so it stands. Paths,
+> line numbers and unticked boxes below are as they stood when it was written.
 
 > **For agentic workers:** Execute per the **Execution** section below. Steps use checkbox
 > (`- [ ]`) syntax for tracking.
