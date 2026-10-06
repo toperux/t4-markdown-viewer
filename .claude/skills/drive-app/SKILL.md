@@ -31,10 +31,12 @@ Scripts in `.claude/skills/drive-app/scripts/` (run from the repo root):
 - `winshot.ps1` — `-Out <path.png> [-Exe <path>]`: captures the debug app's
   main window with `PrintWindow` and prints its screen rect, for finding
   screen coordinates to feed `click.ps1`.
-- `sendkeys.ps1` — `-ProcId <pid> -Keys <SendKeys string>`: brings the
-  process's main window to the front and types through the OS (`^r` is
-  Ctrl+R), so WebView2's browser accelerators see a real key press — CDP's
-  `Input.dispatchKeyEvent` goes straight to the renderer and skips them.
+- `sendkeys.ps1` — `-ProcId <pid> [-Hwnd <handle>] -Keys <SendKeys string>`:
+  brings the process's main window (or `-Hwnd`'s) to the front and types
+  through the OS (`^r` is Ctrl+R), so WebView2's browser accelerators see a
+  real key press — CDP's `Input.dispatchKeyEvent` goes straight to the
+  renderer and skips them. Refuses (exit 2) unless that window is really in
+  front; see *Real OS keystrokes* below.
 - `drag-corner.ps1` — `-Hwnd <handle>`: resizes a window as a user would, by
   dragging its bottom-right corner up to its top-left, and prints the client
   size left. The only way to test a minimum size — see *Window size* below.
@@ -206,12 +208,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/drive-app/scr
   does.
 - **Real OS keystrokes for reload and Back accelerators.** CDP key events
   skip WebView2's browser accelerators; F5/Ctrl+R and Alt+←/→ need a real
-  keystroke through `sendkeys.ps1` (`WScript.Shell` `AppActivate` +
-  `SendKeys`), not `key` in `cdp.mjs`.
-  **Check it landed:** Windows' foreground lock can refuse the switch while
-  `AppActivate` still returns True, and the keys then go to whatever window has
-  focus — the user's editor or terminal. Read `document.hasFocus()` first and
-  stop if it is false. Alt+←/→ as the app's own shortcut (`onKeydown` → `go`)
+  keystroke through `sendkeys.ps1` (`SetForegroundWindow` + `SendKeys`), not
+  `key` in `cdp.mjs`.
+  **It refuses rather than guess:** Windows' foreground lock can refuse the
+  switch while reporting success, and keys would then go to whatever window has
+  focus — the user's editor or terminal. So the script checks that the target
+  is the foreground window just before typing, and exits 2 with `REFUSED`
+  otherwise; stop there, don't retry blind. With several windows, pass the one
+  you mean with `-Hwnd`. Alt+←/→ as the app's own shortcut (`onKeydown` → `go`)
   also works as a CDP key event with `modifiers: 1`; only the webview's own
   accelerators need the OS.
 - **Never install a local NSIS build on the host.** Use Windows Sandbox.
