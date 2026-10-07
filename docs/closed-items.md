@@ -609,6 +609,50 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   or a save returns focus to the same one. Keeping focus on a link inside a diagram across a
   light/dark redraw, and keyboard access to sequence actor menus, stay open — see
   `docs/open-items.md`.*
+- [x] **A document with images comes back lower than it was left** (added 2026-10-07). A
+  restore or Back sets the saved scroll one frame after render (`app.js:1413-1426`) without
+  waiting for images, so an image above that spot that loads afterwards pushes the text down by
+  its height. Measured: on Windows, README saved at 800 came back at about 1422 (the top
+  screenshot's height), on the installed 1.7.1 (same Tauri as 1.7.2) and on tauri 2.12.1; on
+  Linux, Back to README landed at 14079 for 15819. The Mac showed no drift (the image likely
+  loaded first; reasoned). Likely fix:
+  re-apply the saved scroll once images above it have loaded, or wait for them first; walk on
+  all three, since timing differs per webview. Reopen with the session-restore plan, the next
+  one now that the CLI 2.12.1 plan is done (with the next two items and *On GNOME, a restored
+  window grows*).
+  *Fixed 2026-10-08, 91a3a9b (`archive/plans/session-restore.md` Task 1): a restored or Back
+  position is held while the page grows, re-applied at every height change (a ResizeObserver, again
+  a frame later, and a 100 ms timer, since WebKitGTK on Wayland holds every rendering update for
+  about 2 s while large images decode), and let go at the reader's own scroll (a wheel, a scroll
+  key, a touch, a scrollbar press, or a move with the height unchanged), once every image has
+  settled, or after 60 s. Walked: on Windows the drift is gone (README 1500 → 2297, +797 px, in the
+  plan's scroll probe P3; README and Back exact; reader input during the load kept in every trial);
+  on Linux Wayland the saved position is back within 52 ms of the page reaching its full height; the
+  Mac exact.*
+- [x] **On Windows, the last-used window doesn't come back in front** (added 2026-10-07). Two
+  windows, the normal one used last, the other (`main`) maximized: after a restore `main` was
+  in front, on the installed 1.7.1 and on 2.12.1. The Mac and Linux put the last-used one in
+  front. Not investigated; a guess is that maximizing `main` after it shows also activates it,
+  so it only happens with a maximized first window (untested — the first step is that probe).
+  Reopen with the session-restore plan.
+  *Fixed 2026-10-08, f68844c and b0b1d7f (`archive/plans/session-restore.md` Tasks 2 and 2b): the
+  plan's first probe found the saved order itself wrong: closing the back window first saved it as
+  the most recent, so it came back in front. Closed windows are now written by a focus-order
+  snapshot taken at the first close request, and every restored window hands the front to the
+  last-used one through `behind`. Walked: a real × front first and a scripted close back first (all
+  three), the taskbar thumbnail's × and *Close all windows* (Windows), Cmd+Q and the red button on a
+  background window (Mac), *Reopen* and a file opened while restoring (all three).*
+- [x] **On GNOME, a restored window grows each launch** (added 2026-10-07, measured on Ubuntu
+  26.04's GNOME Wayland). A normal window came back 52×89 px bigger each time (1100×860 →
+  1152×949 → 1204×1038; 1.7.2: +52×99). `Frame::of` saves `inner_size()`, which there includes
+  the GTK title bar and shadow, and `apply()` sets it back as the content size
+  (`session.rs:106-128`). Windows and the Mac came back at exactly their size. Not measured:
+  GNOME on X11, KDE, others. Likely fix: measure the decoration difference at runtime and save a
+  size that round-trips. Reopen with the session-restore plan.
+  *Fixed 2026-10-08, a5f4e35 (`archive/plans/session-restore.md` Task 4): on Linux the saved size is
+  GTK's (`gtk_window_get_size`, read on the main thread), the counterpart of the resize that sets it
+  back. Walked on the VM: 1100×860 through three cycles on Wayland (was +52×89 each); X11
+  unchanged.*
 
 ## Needs a Mac, a Dependabot run, or an older build
 
@@ -1172,3 +1216,29 @@ tooling; listed so nobody rediscovers them.
   stay: the gtk hook points WebKit's helper paths at `././`. The pickers themselves start at home
   or the document's folder. t4-git-ui keeps the same.
   *Kept 2026-10-07, owner's call, no trigger.*
+- [x] **Un-maximizing a restored window loses where it was before the maximize** (added
+  2026-10-07, the Tauri 2.12 walks). A window maximized at quit comes back maximized; un-maximized,
+  it takes the default 1100×860 at the screen's corner (Windows: -8,-8; Mac: 0,34), not its
+  earlier size and place. By design: `session.rs:113-118` keeps only a maximized frame's
+  position, to pick the monitor, so un-maximizing doesn't leave a screen-sized window; the
+  earlier rect is never saved. t4-git-ui saves it (its N6, about 100 lines).
+  *Accepted 2026-10-07. Reopen on a report, or if the session-restore plan touches frames.*
+  *Reopened by the session-restore plan, which touched frames, and fixed 2026-10-08, 77f73cd
+  (`archive/plans/session-restore.md` Task 3): a maximized window keeps its last normal rectangle
+  (while that is on the monitor it is maximized on; always on Wayland) and gets it before the
+  maximize; full screen and a window not yet shown keep the last frame. Walked: exact on Windows and
+  the Mac over two relaunches and through *Reopen*; a 1.7.3 file un-maximizes to the default size,
+  not the screen's; Wayland keeps the size; X11 keeps the size but not the place (deferred,
+  `open-items.md`).*
+- [x] **A move followed by a maximize within half a second keeps the older normal place**
+  (2026-10-08, the session-restore change review). Frame reports wait 500 ms, so a window moved and
+  maximized inside that (dragged to the top edge on Windows) keeps its pre-move rectangle as the
+  normal one and un-maximizes there after a restart. A real fix needs the OS's restore rectangle,
+  which Tauri doesn't expose; t4-git-ui has the same gap.
+  *Kept 2026-10-08, owner's call, no trigger.*
+- [x] **A real click on a back window's × brings it back in front** (2026-10-08,
+  `archive/plans/session-restore.md`, ruling R10). The click activates the window before it closes
+  (reasoned, unmeasured; Windows, and GNOME with click-to-focus), so it ranks as the last used, as
+  before the plan. Closes that don't activate it (a taskbar thumbnail's ×, *Close all windows*, the
+  macOS red button on a background window) keep the stacking (walked).
+  *Kept 2026-10-08, owner's call, no trigger.*

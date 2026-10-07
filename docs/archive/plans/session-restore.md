@@ -1,5 +1,48 @@
 # Session Restore Implementation Plan
 
+> **Status (2026-10-08):** executed in full, in the order 1, 2, 2b, 4, 3.
+> - **Commits:** Task 1 91a3a9b, Task 2 f68844c, Task 2b b0b1d7f, Task 4 a5f4e35, Task 3 77f73cd.
+> - **Gates:** Windows 210 tests; Linux (VM) 211 at Task 3, before the review's added tests.
+> - **Change review:** six passes, the last clean. Its findings and the walks' were fixed as
+>   fixups onto their tasks:
+>   - Task 1's hold now also stops at reader input (wheel, scroll key, touch, scrollbar press),
+>     since the height check alone lost 6 of 8 wheel turns on WebView2 (owner, revising R3/R7);
+>   - a wheel over the sidebar stops it when the tree can't scroll that way;
+>   - a 100 ms height poll, because WebKitGTK on Wayland holds rAF and ResizeObserver for about
+>     2 s while large images decode (measured); the frame-later retry alone didn't help;
+>   - the input stops narrow R7's first edge (a reader scroll in the same frame as an image
+>     landing) to an overlay-scrollbar drag.
+> - **Walks:** every W1-W5 step passed on the Windows VM, the Linux VM (Wayland and X11) and the
+>   Mac, except X11's un-maximize place. Second-monitor and gone-monitor steps were not possible
+>   (one display everywhere).
+> - **Walk results (2026-10-08):**
+>   - Windows VM: W1 README and Back exact; the scroll probe's drift (1500 → 2297) gone; reader
+>     input during a slow load kept in every trial (scripted and real wheel, PageDown, a
+>     scrollbar drag, a wheel over the sidebar, arrows in the tree). W2 every quit order,
+>     including real × clicks, the taskbar thumbnail's × and *Close all windows*, plus *Reopen*
+>     and a file opened while restoring. W3 exact over two relaunches and through *Reopen*; a
+>     1.7.3 file un-maximizes to the default size; a window maximized within ~1 s of opening
+>     un-maximizes to the default size (deferred). W5 exact.
+>   - Linux VM (GNOME 50): on Wayland, with the 100 ms poll, the position is back within 52 ms of
+>     the page reaching full height; before the poll it landed ≈2 s late, only as the last image
+>     loaded. The size stays 1100×860 through three cycles (was +52×89 each). W2 passes; W3 passes
+>     on Wayland. On X11 un-maximizing keeps the size but lands at 67,32, not 300,200 (five
+>     relaunches). X11 freezes the page on long or image-heavy documents, 5 of 5, on 1.7.3 too.
+>   - Mac (real input): every W1-W3 and W5 step. Full screen comes back at its pre-full-screen size.
+>     A window maximized (zoomed) within ~1 s of opening un-maximizes to the default size
+>     (deferred). After *Reopen*, `session.json` listed the windows in the wrong order for ~0.3 s
+>     and was right by 2.5 s.
+> - **Triage (owner):**
+>   - deferred: a window maximized right after it first opens; the X11 freeze on long documents
+>     (it predates this plan, and is the next plan); the X11 un-maximize place;
+>   - accepted, open: the order briefly wrong after *Reopen*; R4; R7's two edges; 200 % on
+>     Wayland unwalked; multi-monitor un-maximize unwalked;
+>   - accepted, closed: a move then maximize within 0.5 s; R10.
+> - **Deviation:** the probes P1 and P3 moved from the owner's PC to the Windows VM midway, at the
+>   owner's request.
+>
+> Paths and line numbers below are as they stood when it was written.
+
 > **For agentic workers:** Execute per the **Execution** section below. Steps use checkbox
 > (`- [ ]`) syntax for tracking.
 
@@ -313,8 +356,9 @@ windows* every request arrives before any destroy.
   `&chain.entries`), and `the_chain_is_written_behind_first` 670-692.
 - `src-tauri/src/routing_tests.rs`: `a_quit_within_the_grace_keeps_every_window` (501-518).
 
-- [ ] The chain becomes `closed: Mutex<Chain>`, `struct Chain { order: Vec<String>, entries:
-  Vec<(Instant, Option<usize>, WindowSession)>, pending_rank: HashMap<String, Option<usize>> }`. `order` is the focus order as it stood when
+- [ ] The chain becomes `closed: Mutex<Chain>`, with
+  `struct Chain { order: Vec<String>, entries: Vec<(Instant, Option<usize>, WindowSession)>,
+  pending_rank: HashMap<String, Option<usize>> }`. `order` is the focus order as it stood when
   the chain began; each entry carries the closing window's rank in it. One mutex, so no new
   `AppState` field and no lock pair.
 - [ ] `Chain::clear()` empties `order`, `entries` and `pending_rank` together. Every place that
