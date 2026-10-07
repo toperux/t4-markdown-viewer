@@ -131,6 +131,7 @@ fn saved_window(paths: &[&str], sidebar: bool) -> session::WindowSession {
             width: 800,
             height: 600,
             maximized: false,
+            normal: false,
         }),
     }
 }
@@ -451,6 +452,32 @@ fn a_held_restore_keeps_main_in_front() {
     assert_eq!(main.get("behind"), None);
     wait_for(&app, "w1");
     assert_eq!(pending(&app, "w1").unwrap()["behind"], "main");
+}
+
+/// A restored frame is recorded as it is restored, `main`'s and a spawned
+/// window's alike, so a save before either is sampled keeps the normal
+/// rectangle of a window restored maximized.
+#[test]
+fn a_restore_records_each_window_frame() {
+    let app = app();
+    let _main = main_window(&app);
+    let mut first = saved_window(&["a.md"], false);
+    first.frame = Some(session::Frame {
+        x: 30,
+        y: 40,
+        width: 900,
+        height: 700,
+        maximized: true,
+        normal: true,
+    });
+    let second = saved_window(&["b.md"], false);
+
+    restore_session(app.handle(), vec![first.clone(), second.clone()], false);
+
+    let frames = app.state::<AppState>().frames.lock().unwrap().clone();
+    assert_eq!(frames.get("main"), first.frame.as_ref());
+    assert_eq!(frames.get("w1"), second.frame.as_ref());
+    wait_for(&app, "w1");
 }
 
 /// The window the button was on takes the first saved window as its answer,

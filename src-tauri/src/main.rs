@@ -395,6 +395,16 @@ fn spawn_window<R: Runtime>(
     if let Some(p) = pending {
         claim_pending(&state, &label, p);
     }
+    // Recorded now rather than once the window is up: a save before then
+    // writes this, not nothing, and a window restored maximized keeps the
+    // normal rectangle it holds even if never sampled un-maximized.
+    if let Placement::Frame(frame) = &place {
+        state
+            .frames
+            .lock()
+            .unwrap()
+            .insert(label.clone(), frame.clone());
+    }
 
     let app = app.clone();
     let target = label.clone();
@@ -421,6 +431,7 @@ fn spawn_window<R: Runtime>(
                 let state = app.state::<AppState>();
                 let mut stashed = state.boot.lock().unwrap().pending.remove(&target);
                 state.sessions.lock().unwrap().remove(&target);
+                state.frames.lock().unwrap().remove(&target);
                 // A restored window that never opened is done restoring, or
                 // the file stays marked for the rest of the run. The save puts
                 // back what the discard may just have taken — on the main
@@ -1266,6 +1277,12 @@ fn restore_offered_session<R: Runtime>(app: AppHandle<R>, window: Window<R>) -> 
         .insert(window.label().to_string(), first.open.clone());
 
     if let (Some(frame), Some(w)) = (&first.frame, app.get_webview_window(window.label())) {
+        // Recorded as `spawn_window` records it.
+        state
+            .frames
+            .lock()
+            .unwrap()
+            .insert(window.label().to_string(), frame.clone());
         frame.apply(&w);
     }
     for (i, w) in windows.enumerate() {
@@ -1450,6 +1467,12 @@ fn restore_session<R: Runtime>(
     if let Some(w) = first {
         if claimed {
             if let (Some(frame), Some(main)) = (&w.frame, app.get_webview_window("main")) {
+                // Recorded as `spawn_window` records it.
+                state
+                    .frames
+                    .lock()
+                    .unwrap()
+                    .insert("main".to_string(), frame.clone());
                 frame.apply(&main);
             }
         } else {

@@ -90,27 +90,124 @@ pub struct Frame {
     pub width: u32,
     pub height: u32,
     pub maximized: bool,
+    /// Whether a maximized frame's rectangle is the one the window had before
+    /// the maximize, so un-maximizing goes back to it. False when it is the
+    /// maximized rectangle itself — the only kind 1.7.3 and earlier wrote,
+    /// hence the default — which must never become the window's normal size.
+    /// Means nothing on a frame that is not maximized.
+    #[serde(default)]
+    pub normal: bool,
+}
+
+/// A physical rectangle: x, y, width, height.
+type Rect = (i32, i32, u32, u32);
+
+fn rect(monitor: &Monitor) -> Rect {
+    let (pos, size) = (monitor.position(), monitor.size());
+    (pos.x, pos.y, size.width, size.height)
+}
+
+/// What a window says about itself at one moment — what `sampled` decides on.
+struct Sample {
+    minimized: bool,
+    fullscreen: bool,
+    visible: bool,
+    maximized: bool,
+    position: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+    /// The monitor the window is on and every monitor attached. None when
+    /// either cannot be read, and on Wayland, where no window knows where it
+    /// stands.
+    monitors: Option<(Rect, Vec<Rect>)>,
+}
+
+/// The frame to keep for a window, given the one kept before and how it stands
+/// now.
+///
+/// A window not showing its own rectangle keeps the last one it did: minimized
+/// (Windows parks it at (-32000, -32000), off every screen), in full screen
+/// (it comes back at its size from before), or not shown yet — a restored
+/// window saves before its maximize, and must not record itself un-maximized.
+///
+/// A maximized window's own rectangle is the screen's, and un-maximizing to
+/// that gives a screen-sized window. So the normal rectangle kept before the
+/// maximize stays, marked maximized — but only while it lies mostly on the
+/// monitor the window is maximized on. Moved maximized to another monitor, the
+/// window must come back there, and the maximized rectangle is what says so.
+/// On Wayland there is no telling, and the normal one always stays.
+fn sampled(old: Option<&Frame>, now: Sample) -> Option<Frame> {
+    if now.minimized || now.fullscreen || !now.visible {
+        return old.cloned();
+    }
+    let current = Frame {
+        x: now.position.x,
+        y: now.position.y,
+        width: now.size.width,
+        height: now.size.height,
+        maximized: now.maximized,
+        normal: false,
+    };
+    if !now.maximized {
+        return Some(current);
+    }
+    let kept = old
+        .filter(|old| !old.maximized || old.normal)
+        .filter(|old| match &now.monitors {
+            None => true,
+            Some((on, all)) => old.home(all) == Some(*on),
+        });
+    Some(match kept {
+        Some(old) => Frame {
+            maximized: true,
+            normal: true,
+            ..old.clone()
+        },
+        None => current,
+    })
 }
 
 impl Frame {
-    fn of<R: Runtime>(window: &WebviewWindow<R>) -> Option<Self> {
-        // Windows parks a minimized window at (-32000, -32000); restoring that
-        // would put it off every screen. No frame means default placement.
-        if window.is_minimized().unwrap_or(false) {
-            return None;
-        }
-        let pos = window.outer_position().ok()?;
+    /// Where the window stands now, judged against `old`, the frame kept for
+    /// it before — see `sampled`. A position or size that cannot be read keeps
+    /// `old` too.
+    ///
+    /// Asks the window, which off the main thread is a round trip through the
+    /// event loop, so no lock may be held across this.
+    fn of<R: Runtime>(window: &WebviewWindow<R>, old: Option<&Self>) -> Option<Self> {
+        // Whether this is Wayland is known only once GTK answers; unknown, the
+        // monitor check is skipped as it is on Wayland.
         #[cfg(all(target_os = "linux", not(test)))]
-        let size = gtk_read(window).or_else(|| window.inner_size().ok())?;
+        let (size, wayland) = match gtk_read(window) {
+            Some((size, wayland)) => (Some(size), Some(wayland)),
+            None => (window.inner_size().ok(), None),
+        };
         #[cfg(not(all(target_os = "linux", not(test))))]
-        let size = window.inner_size().ok()?;
-        Some(Self {
-            x: pos.x,
-            y: pos.y,
-            width: size.width,
-            height: size.height,
-            maximized: window.is_maximized().unwrap_or(false),
-        })
+        let (size, wayland) = (window.inner_size().ok(), Some(false));
+        let (Ok(position), Some(size)) = (window.outer_position(), size) else {
+            return old.cloned();
+        };
+        let monitors = match (
+            wayland,
+            window.current_monitor(),
+            window.available_monitors(),
+        ) {
+            (Some(false), Ok(Some(on)), Ok(all)) => {
+                Some((rect(&on), all.iter().map(rect).collect()))
+            }
+            _ => None,
+        };
+        sampled(
+            old,
+            Sample {
+                minimized: window.is_minimized().unwrap_or(false),
+                fullscreen: window.is_fullscreen().unwrap_or(false),
+                visible: window.is_visible().unwrap_or(true),
+                maximized: window.is_maximized().unwrap_or(false),
+                position,
+                size,
+                monitors,
+            },
+        )
     }
 
     /// Put a window back where it stood. A frame no attached monitor shows any
@@ -118,30 +215,50 @@ impl Frame {
     /// window gets default placement rather than landing where nothing can
     /// reach it.
     ///
-    /// A maximized frame gets its position only: that picks the monitor, while
-    /// the saved size is the monitor's own and would leave un-maximizing with a
-    /// screen-sized window. Maximizing itself is left to the frontend, once it
-    /// shows the window — on Windows, maximizing a hidden window shows it.
+    /// A maximized frame holding its normal rectangle gets all of it, so
+    /// un-maximizing goes back there. One holding the maximized rectangle gets
+    /// its position only: that picks the monitor, while the size is the
+    /// monitor's own and would leave un-maximizing with a screen-sized window.
+    /// Maximizing itself is left to the frontend, once it shows the window — on
+    /// Windows, maximizing a hidden window shows it.
     pub fn apply<R: Runtime>(&self, window: &WebviewWindow<R>) {
         let on_screen = window
             .available_monitors()
-            .map(|monitors| monitors.iter().any(|m| self.overlaps(m)))
+            .map(|monitors| monitors.iter().any(|m| self.overlap_area(rect(m)) > 0))
             .unwrap_or(true);
         if !on_screen {
             return;
         }
         let _ = window.set_position(PhysicalPosition::new(self.x, self.y));
-        if !self.maximized {
+        if !self.maximized || self.normal {
             let _ = window.set_size(PhysicalSize::new(self.width, self.height));
         }
     }
 
-    fn overlaps(&self, monitor: &Monitor) -> bool {
-        let (pos, size) = (monitor.position(), monitor.size());
-        self.x < pos.x + size.width as i32
-            && self.x + self.width as i32 > pos.x
-            && self.y < pos.y + size.height as i32
-            && self.y + self.height as i32 > pos.y
+    /// How much of a monitor's rectangle this frame covers, in square pixels.
+    /// Also what `apply` asks of each monitor, as any overlap at all. Worked in
+    /// `i64`, so no coordinate is far enough out to overflow it.
+    fn overlap_area(&self, (x, y, width, height): Rect) -> u64 {
+        let span = |a: i32, a_len: u32, b: i32, b_len: u32| {
+            let (a, b) = (i64::from(a), i64::from(b));
+            let end = (a + i64::from(a_len)).min(b + i64::from(b_len));
+            (end - a.max(b)).max(0) as u64
+        };
+        span(self.x, self.width, x, width) * span(self.y, self.height, y, height)
+    }
+
+    /// The monitor this frame lies on most, which is how Windows picks the one
+    /// to maximize on. The first wins a tie; none when it lies on none.
+    fn home(&self, monitors: &[Rect]) -> Option<Rect> {
+        let mut best = None;
+        let mut most = 0;
+        for &m in monitors {
+            let area = self.overlap_area(m);
+            if area > most {
+                (best, most) = (Some(m), area);
+            }
+        }
+        best
     }
 }
 
@@ -152,26 +269,36 @@ impl Frame {
 /// (+52×89 on GNOME Wayland; nothing on X11, where the two agree). This reads
 /// the counterpart of that resize instead.
 ///
+/// Also whether the display is Wayland, read in the same trip: there every
+/// window reads as standing at 0,0, so where one is says nothing about the
+/// monitor it is on.
+///
 /// GTK is main-thread only. `run_on_main_thread` runs the closure inline when
 /// already there, so the reply is in the channel before `recv`; from any other
 /// thread (the update snapshot's) it waits on the event loop, which is why no
 /// lock may be held across this. A closure dropped unrun drops the sender and
 /// ends the wait. Not in tests: the mock runtime has no GTK window.
 #[cfg(all(target_os = "linux", not(test)))]
-fn gtk_read<R: Runtime>(window: &WebviewWindow<R>) -> Option<PhysicalSize<u32>> {
+fn gtk_read<R: Runtime>(window: &WebviewWindow<R>) -> Option<(PhysicalSize<u32>, bool)> {
     use gtk::prelude::*;
     let (tx, rx) = std::sync::mpsc::channel();
     let w = window.clone();
     window
         .run_on_main_thread(move || {
-            let _ = tx.send(w.gtk_window().ok().map(|g| g.size()));
+            let _ = tx.send(w.gtk_window().ok().map(|g| {
+                let wayland = g.display().type_().name() == "GdkWaylandDisplay";
+                (g.size(), wayland)
+            }));
         })
         .ok()?;
-    let (width, height) = rx.recv().ok()??;
+    let ((width, height), wayland) = rx.recv().ok()??;
     let scale = window.scale_factor().ok()?;
-    Some(PhysicalSize::new(
-        (width as f64 * scale).round() as u32,
-        (height as f64 * scale).round() as u32,
+    Some((
+        PhysicalSize::new(
+            (width as f64 * scale).round() as u32,
+            (height as f64 * scale).round() as u32,
+        ),
+        wayland,
     ))
 }
 
@@ -358,8 +485,14 @@ pub fn remember<R: Runtime>(app: &AppHandle<R>) {
 /// Note where a window stands while it can still be asked — it is about to
 /// close, and the save that follows has only this to go on.
 pub fn note_frame<R: Runtime>(app: &AppHandle<R>, label: &str) {
-    if let Some(frame) = app.get_webview_window(label).and_then(|w| Frame::of(&w)) {
-        app.state::<AppState>()
+    let Some(window) = app.get_webview_window(label) else {
+        return;
+    };
+    let state = app.state::<AppState>();
+    // Copied and let go before the window is asked — see `Frame::of`.
+    let old = state.frames.lock().unwrap().get(label).cloned();
+    if let Some(frame) = Frame::of(&window, old.as_ref()) {
+        state
             .frames
             .lock()
             .unwrap()
@@ -540,16 +673,23 @@ fn save<R: Runtime>(app: &AppHandle<R>, version: String, argv: Vec<String>, rest
     let open: Vec<WindowSession> = windows
         .into_iter()
         .map(|(label, open)| {
-            // A window still being built has no frame to speak of yet, and a
-            // minimized one has none worth keeping — the last one it did have
-            // stands in, which is also what a closed window is written with.
-            let live = app.get_webview_window(&label).and_then(|w| Frame::of(&w));
-            let mut frames = state.frames.lock().unwrap();
+            // A window still being built has no frame to speak of yet — the
+            // last one kept for it stands in, the one its restore recorded or
+            // what a closed window is written with. Copied and let go before
+            // the window is asked — see `Frame::of`.
+            let old = state.frames.lock().unwrap().get(&label).cloned();
+            let live = app
+                .get_webview_window(&label)
+                .and_then(|w| Frame::of(&w, old.as_ref()));
             if let Some(frame) = &live {
-                frames.insert(label.clone(), frame.clone());
+                state
+                    .frames
+                    .lock()
+                    .unwrap()
+                    .insert(label.clone(), frame.clone());
             }
             WindowSession {
-                frame: live.or_else(|| frames.get(&label).cloned()),
+                frame: live.or(old),
                 open,
             }
         })
@@ -683,6 +823,7 @@ mod tests {
                     width: 800,
                     height: 600,
                     maximized: false,
+                    normal: false,
                 }),
             }],
         }
@@ -932,6 +1073,163 @@ mod tests {
         )
         .unwrap();
         assert_eq!(s.windows[0].frame, None);
+    }
+
+    /// 1.7.3 wrote a maximized window's maximized rectangle, with no word on
+    /// it: read back, it is not a normal size to un-maximize to.
+    #[test]
+    fn an_old_maximized_frame_is_not_normal() {
+        let s: Session = serde_json::from_str(
+            r#"{"version":"1.7.3","argv":[],"restart":false,"windows":[{"tabs":[],"active":0,
+                "frame":{"x":-8,"y":-8,"width":1936,"height":1048,"maximized":true}}]}"#,
+        )
+        .unwrap();
+        let frame = s.windows[0].frame.as_ref().unwrap();
+        assert!(frame.maximized);
+        assert!(!frame.normal);
+    }
+
+    /// Two side-by-side 1000×800 monitors.
+    const LEFT: Rect = (0, 0, 1000, 800);
+    const RIGHT: Rect = (1000, 0, 1000, 800);
+
+    fn frame(x: i32, y: i32, width: u32, height: u32, maximized: bool, normal: bool) -> Frame {
+        Frame {
+            x,
+            y,
+            width,
+            height,
+            maximized,
+            normal,
+        }
+    }
+
+    /// A normal window at 100,100 600×400, on the left monitor.
+    fn normal() -> Frame {
+        frame(100, 100, 600, 400, false, false)
+    }
+
+    /// The window as it stands now: shown, normal, at the given rectangle,
+    /// on the left monitor.
+    fn now(x: i32, y: i32, width: u32, height: u32) -> Sample {
+        Sample {
+            minimized: false,
+            fullscreen: false,
+            visible: true,
+            maximized: false,
+            position: PhysicalPosition::new(x, y),
+            size: PhysicalSize::new(width, height),
+            monitors: Some((LEFT, vec![LEFT, RIGHT])),
+        }
+    }
+
+    /// Maximized on the left monitor.
+    fn maximized_left() -> Sample {
+        Sample {
+            maximized: true,
+            ..now(0, 0, 1000, 800)
+        }
+    }
+
+    #[test]
+    fn maximizing_keeps_the_normal_rectangle() {
+        assert_eq!(
+            sampled(Some(&normal()), maximized_left()),
+            Some(frame(100, 100, 600, 400, true, true))
+        );
+        // And the next sample, still maximized, keeps it again.
+        let kept = frame(100, 100, 600, 400, true, true);
+        assert_eq!(sampled(Some(&kept), maximized_left()), Some(kept.clone()));
+    }
+
+    /// With nothing kept before, or only a 1.7.3 maximized rectangle, there
+    /// is no normal size to keep: the maximized one is written, as before.
+    #[test]
+    fn maximized_with_no_normal_rectangle_writes_the_maximized_one() {
+        let maximized = frame(0, 0, 1000, 800, true, false);
+        assert_eq!(sampled(None, maximized_left()), Some(maximized.clone()));
+        let old = frame(-8, -8, 1016, 816, true, false);
+        assert_eq!(sampled(Some(&old), maximized_left()), Some(maximized));
+    }
+
+    /// Moved maximized to the other monitor, the window must come back there:
+    /// a normal rectangle on the first would take it back with it.
+    #[test]
+    fn maximized_on_another_monitor_drops_the_normal_rectangle() {
+        let on_right = Sample {
+            maximized: true,
+            monitors: Some((RIGHT, vec![LEFT, RIGHT])),
+            ..now(1000, 0, 1000, 800)
+        };
+        assert_eq!(
+            sampled(Some(&normal()), on_right),
+            Some(frame(1000, 0, 1000, 800, true, false))
+        );
+    }
+
+    /// Straddling both monitors, mostly on the one it is maximized on: kept.
+    #[test]
+    fn a_straddling_rectangle_counts_where_most_of_it_is() {
+        let old = frame(500, 100, 800, 400, false, false); // 500 px left, 300 right
+        assert_eq!(
+            sampled(Some(&old), maximized_left()),
+            Some(frame(500, 100, 800, 400, true, true))
+        );
+    }
+
+    /// No monitors to go by — Wayland, or a read that failed: kept.
+    #[test]
+    fn maximized_with_no_monitors_keeps_the_normal_rectangle() {
+        let unknown = Sample {
+            monitors: None,
+            ..maximized_left()
+        };
+        assert_eq!(
+            sampled(Some(&normal()), unknown),
+            Some(frame(100, 100, 600, 400, true, true))
+        );
+    }
+
+    /// A normal rectangle on a monitor that is gone is on none of these.
+    #[test]
+    fn a_rectangle_on_no_monitor_is_not_kept() {
+        let gone = frame(5000, 100, 600, 400, false, false);
+        assert_eq!(
+            sampled(Some(&gone), maximized_left()),
+            Some(frame(0, 0, 1000, 800, true, false))
+        );
+    }
+
+    /// Minimized, in full screen or not shown yet, the window's own rectangle
+    /// is not one to keep: the last frame stands, or none if there was none.
+    #[test]
+    fn a_window_not_showing_its_rectangle_keeps_the_old_frame() {
+        let restored = frame(100, 100, 600, 400, true, true);
+        let minimized = Sample {
+            minimized: true,
+            ..now(-32000, -32000, 160, 28)
+        };
+        let fullscreen = Sample {
+            fullscreen: true,
+            ..now(0, 0, 1000, 800)
+        };
+        let hidden = || Sample {
+            visible: false,
+            ..now(300, 300, 1100, 860)
+        };
+        assert_eq!(sampled(Some(&normal()), minimized), Some(normal()));
+        assert_eq!(sampled(Some(&normal()), fullscreen), Some(normal()));
+        assert_eq!(sampled(Some(&restored), hidden()), Some(restored));
+        assert_eq!(sampled(None, hidden()), None);
+    }
+
+    #[test]
+    fn un_maximized_takes_the_new_rectangle() {
+        let kept = frame(100, 100, 600, 400, true, true);
+        assert_eq!(
+            sampled(Some(&kept), now(200, 150, 700, 500)),
+            Some(frame(200, 150, 700, 500, false, false))
+        );
     }
 
     /// Files written before the sidebar was saved bring every window back with

@@ -3077,9 +3077,13 @@ async function reopenSession() {
   const session = await invoke("restore_offered_session");
   if (!session) return;
   // The other windows are already being built, each with its own tabs; this
-  // one takes the first, the same three steps the boot arm for a restart runs.
-  await restoreTabs(session.tabs, session.active, session.sidebar);
+  // one takes the first, much as the boot arm for a restart does: the tabs,
+  // the maximize, and the focus hand-off at the end. The order differs, though.
+  // The maximize comes first here: this window is already shown, so the
+  // report `restoreTabs` makes would otherwise save it un-maximized, and the
+  // tabs render at the width they will be read at.
   if (session.maximized) await appWindow.maximize().catch(() => {});
+  await restoreTabs(session.tabs, session.active, session.sidebar);
   // Shown already, but the windows being built beside it raise themselves as
   // they finish, so the front goes to the one used last, as the boot hands it.
   const front = session.behind
