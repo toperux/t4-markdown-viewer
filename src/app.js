@@ -1423,7 +1423,149 @@ function renderDocument(doc, scrollY, hash) {
       return;
     }
     window.scrollTo(0, scrollY ?? 0);
+    if (scrollY > 0) holdScroll(scrollY, token, entry);
   });
+}
+
+/** Keys that scroll the page; one ends a `holdScroll`, bar the exceptions its listener makes. */
+const SCROLL_KEYS = new Set([
+  "ArrowUp",
+  "ArrowDown",
+  "PageUp",
+  "PageDown",
+  "Home",
+  "End",
+  " ",
+]);
+
+/*
+ * Keep a restored position while the page is still growing under it. On
+ * WebView2 the images reload after the `scrollTo`, and scroll anchoring then
+ * carries the view down with the text (README saved at 1500 came back at
+ * 2297), so the saved position is put back each time the content changes size.
+ * It stops once every image has settled, at the reader's own scroll, when
+ * another render or entry is shown, or at the cap. The reader's scroll is told
+ * from anchoring's by the input that makes it, and failing that by the height:
+ * anchoring moves the page only as it grows.
+ */
+function holdScroll(target, token, entry) {
+  const hold = new AbortController();
+  const { signal } = hold;
+  const settled = () => [...els.content.querySelectorAll("img")].every((img) => img.complete);
+  let height = els.content.offsetHeight;
+  let expected = window.scrollY;
+  const observer = new ResizeObserver(() => {
+    if (token !== shownToken || shownEntry !== entry) return hold.abort();
+    height = els.content.offsetHeight;
+    window.scrollTo(0, target);
+    expected = window.scrollY;
+    // Again a frame later, in case a compositor that scrolls on its own
+    // thread has not yet learnt the new height and clamped the `scrollTo`
+    // above (reasoned, unmeasured). The hold ends only after that second try,
+    // or a frame where the last image lands with the growth would keep the
+    // clamped one.
+    requestAnimationFrame(() => {
+      if (signal.aborted || token !== shownToken || shownEntry !== entry) return;
+      window.scrollTo(0, target);
+      expected = window.scrollY;
+      if (settled()) hold.abort();
+    });
+  });
+  signal.addEventListener("abort", () => observer.disconnect());
+  // WebKitGTK on Wayland holds back every rendering update, this observer and
+  // `requestAnimationFrame` alike, for ~2 s while large images decode, though
+  // timers still run (measured): the position landed only as the last image
+  // settled. So a timer watches the height too; `scrollTo` lays out first.
+  const poll = setInterval(() => {
+    if (token !== shownToken || shownEntry !== entry) return hold.abort();
+    if (els.content.offsetHeight === height) return;
+    height = els.content.offsetHeight;
+    window.scrollTo(0, target);
+    expected = window.scrollY;
+  }, 100);
+  signal.addEventListener("abort", () => clearInterval(poll));
+  // An image that settles without changing the height fires no observer
+  // callback, and a hold left running would undo scroll anchoring at a later
+  // sidebar toggle or window resize. `load` and `error` don't bubble, hence
+  // the capture. The event comes before the layout it causes, so the last
+  // image's growth is answered a frame later, by `scrollTo` (which lays out
+  // first), and only then is the hold let go.
+  // Twice, a frame apart, for the same compositor reason as the observer's.
+  const onSettle = () => {
+    if (!settled()) return;
+    const again = () => !signal.aborted && token === shownToken && shownEntry === entry;
+    requestAnimationFrame(() => {
+      if (again()) window.scrollTo(0, target);
+      requestAnimationFrame(() => {
+        if (again()) window.scrollTo(0, target);
+        hold.abort();
+      });
+    });
+  };
+  els.content.addEventListener("load", onSettle, { capture: true, signal });
+  els.content.addEventListener("error", onSettle, { capture: true, signal });
+  // The slack allows for a fractional scroll at zoom.
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (Math.abs(window.scrollY - expected) > 1 && els.content.offsetHeight === height)
+        hold.abort();
+    },
+    { passive: true, signal },
+  );
+  // The height test alone misses most wheel turns on WebView2: the wheel
+  // pulls the pending image layout into its own frame, so the reader's scroll
+  // arrives with the height changed and reads as anchoring (6 of 8 measured,
+  // and the reader stayed pulled back). Whatever scrolls the page stops the
+  // hold outright: a wheel, unless the sidebar under it takes the scroll
+  // itself; a key that scrolls, which the app's own handlers did not take; a
+  // touch; a press on the page's own scrollbar.
+  const stop = () => hold.abort();
+  // A sidebar at its end in the wheel's direction, or too short to scroll,
+  // hands the wheel on to the page.
+  const sidebarTakes = (event) => {
+    const bar = els.sidebar;
+    if (!bar.contains(event.target)) return false;
+    if (event.deltaY > 0) return bar.scrollTop + bar.clientHeight < bar.scrollHeight - 1;
+    if (event.deltaY < 0) return bar.scrollTop > 1;
+    return true;
+  };
+  window.addEventListener(
+    "wheel",
+    (event) => {
+      if (!sidebarTakes(event)) stop();
+    },
+    { passive: true, capture: true, signal },
+  );
+  // Bubbling, after the app's handlers: the tree, the menus and the tab strip
+  // take their arrows and Space and stop them, a picture's Space is
+  // prevented, and Space on a button presses it. None of those moves the page.
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.defaultPrevented || event.altKey || event.metaKey) return;
+      if (!SCROLL_KEYS.has(event.key)) return;
+      const t = event.target;
+      if (t.closest?.("input, textarea, select, [contenteditable]")) return;
+      if (els.sidebar.contains(t)) return;
+      if (event.key === " " && t.closest?.("button")) return;
+      stop();
+    },
+    { signal },
+  );
+  window.addEventListener("touchstart", stop, { passive: true, capture: true, signal });
+  // Classic scrollbars only, right of the client width. Overlay scrollbars
+  // (macOS, some GTK themes) sit inside it and are left to the height test.
+  window.addEventListener(
+    "pointerdown",
+    (event) => {
+      if (event.clientX >= document.documentElement.clientWidth) stop();
+    },
+    { capture: true, signal },
+  );
+  // ponytail: fixed fallback cap; images that settle later drift as before
+  setTimeout(() => hold.abort(), 60000);
+  observer.observe(els.content);
 }
 
 /* ---------------- image viewer ---------------- */
