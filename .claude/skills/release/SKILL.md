@@ -151,10 +151,20 @@ in that check, and a new QR means updating `CERTUM_OTP`.
 
 **After any tauri-cli bump, run a dry run before the next tag.** *Pin the
 AppImage tools* seeds the bundler's tool cache with hashed copies under the
-file names tauri-bundler 2.9.4 uses. A bundler that renames or adds a tool
-downloads it again, and *Bundle and sign* fails on the Linux leg when its log
-shows a download. Update the names, URLs and hashes there, and the version in
-*Install the Tauri CLI*.
+file names tauri-bundler 2.10.1 (tauri-cli 2.12.1) uses: AppRun, linuxdeploy
+`07333c6`, the appimage plugin and the runtime. The gtk and gstreamer plugin
+scripts ride inside the bundler, pinned by the CLI's own checksum. A bundler
+that renames or adds a tool downloads it again, and *Bundle and sign* fails on
+the Linux leg when its log shows a download. Update the names, URLs and hashes
+there, and the version in *Install the Tauri CLI*.
+
+**When *Check the AppImage has no libwayland-client* fails.** Library found:
+a CLI or linuxdeploy change bundled the runner's `libwayland-client` again, and
+that AppImage opens no window on a recent Mesa (1.7.2 on Ubuntu 26.04). Find
+which change did it and don't ship; t4-git-ui's `ee39631` repacked the image
+without it, if a way back is needed. AppDir missing: the bundler stopped
+leaving it beside the image. Change the check to list the built image instead;
+don't drop it.
 
 ## Gotchas
 
