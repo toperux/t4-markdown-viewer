@@ -1652,6 +1652,17 @@ fn exec_with_unicode_args() {
         .exec();
 }
 
+/// The `GDK_BACKEND` to force: `x11` inside an AppImage, whatever the variable
+/// held, else none. linuxdeploy's gtk hook used to export it (tauri#8541, a
+/// crash on Wayland), and native Wayland ignores the app's window positions —
+/// a restored frame, a torn-off tab's window; the hook embedded in
+/// tauri-bundler 2.10 no longer does. The programs the app starts inherit it,
+/// as they did under the old hook.
+#[cfg(target_os = "linux")]
+fn gdk_backend(in_appimage: bool) -> Option<&'static str> {
+    in_appimage.then_some("x11")
+}
+
 /// Every argument made Unicode, or `None` when they all are already.
 #[cfg(target_os = "linux")]
 fn lossy_args(args: impl IntoIterator<Item = std::ffi::OsString>) -> Option<Vec<String>> {
@@ -1667,8 +1678,15 @@ fn lossy_args(args: impl IntoIterator<Item = std::ffi::OsString>) -> Option<Vec<
 }
 
 fn main() {
+    // Before anything starts a thread: `set_var` must not race another
+    // thread's read. A block, since `#[cfg]` can't sit on an `if`.
     #[cfg(target_os = "linux")]
-    exec_with_unicode_args();
+    {
+        if let Some(backend) = gdk_backend(std::env::var_os("APPIMAGE").is_some()) {
+            std::env::set_var("GDK_BACKEND", backend);
+        }
+        exec_with_unicode_args();
+    }
     let builder = tauri::Builder::default()
         // Must be registered first: plugins run in registration order, and this
         // one has to intercept the second process before anything else starts.
@@ -1899,6 +1917,13 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn gdk_backend_is_x11_only_inside_an_appimage() {
+        assert_eq!(gdk_backend(true), Some("x11"));
+        assert_eq!(gdk_backend(false), None);
+    }
 
     #[cfg(target_os = "linux")]
     #[test]
