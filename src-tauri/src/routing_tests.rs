@@ -17,6 +17,7 @@
 
 use super::*;
 use std::sync::mpsc;
+use std::time::Instant;
 use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime};
 use tauri::{Listener, WebviewWindow};
 
@@ -527,6 +528,8 @@ fn a_quit_within_the_grace_keeps_every_window() {
     let app = remembering_app();
     let main = main_window(&app);
     let w1 = window(&app, "w1");
+    // `w1` was used last, after `main`.
+    touch_focus(&app.state::<AppState>(), "w1");
     report(&app, &main, &["m.md"]);
     report(&app, &w1, &["w.md"]);
 
@@ -540,6 +543,46 @@ fn a_quit_within_the_grace_keeps_every_window() {
     // What the grace thread does once it is over.
     std::thread::sleep(session::CLOSE_GRACE + Duration::from_millis(100));
     session::remember(app.handle());
+    assert_eq!(saved_paths(), vec![vec!["m.md"], vec!["w.md"]]);
+}
+
+/// The window behind closed first — a close that does not raise its window —
+/// and the window used last still comes back in front, where close order
+/// alone would bring the back one forward. The second request comes before
+/// the first window goes.
+#[test]
+fn a_quit_from_the_back_keeps_the_last_used_window_in_front() {
+    let app = remembering_app();
+    let main = main_window(&app);
+    let w1 = window(&app, "w1");
+    touch_focus(&app.state::<AppState>(), "w1");
+    report(&app, &main, &["m.md"]);
+    report(&app, &w1, &["w.md"]);
+
+    session::note_close(app.handle(), "main");
+    session::note_close(app.handle(), "w1");
+    session::window_closed(app.handle(), "main");
+    session::window_closed(app.handle(), "w1");
+    assert_eq!(saved_paths(), vec![vec!["m.md"], vec!["w.md"]]);
+}
+
+/// A request made while another window is still on its way out ranks against
+/// the order the first request copied, though focus has moved since: `main`
+/// was raised between the two, and a fresh copy would rank `w1` behind it.
+#[test]
+fn a_second_request_ranks_against_the_first_ones_copy() {
+    let app = remembering_app();
+    let main = main_window(&app);
+    let w1 = window(&app, "w1");
+    touch_focus(&app.state::<AppState>(), "w1");
+    report(&app, &main, &["m.md"]);
+    report(&app, &w1, &["w.md"]);
+
+    session::note_close(app.handle(), "main");
+    touch_focus(&app.state::<AppState>(), "main");
+    session::note_close(app.handle(), "w1");
+    session::window_closed(app.handle(), "w1");
+    session::window_closed(app.handle(), "main");
     assert_eq!(saved_paths(), vec![vec!["m.md"], vec!["w.md"]]);
 }
 

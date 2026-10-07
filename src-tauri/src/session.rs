@@ -17,6 +17,7 @@
 use crate::{config, AppState};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -311,10 +312,10 @@ pub fn remember<R: Runtime>(app: &AppHandle<R>) {
         .any(|open| !open.tabs.is_empty());
     {
         let mut closed = state.closed.lock().unwrap();
-        if chain_expired(closed.last().map(|(t, _)| *t), Instant::now(), any_open_tab) {
+        if chain_expired(closed.last_close(), Instant::now(), any_open_tab) {
             closed.clear();
         }
-        if !any_open_tab && closed.is_empty() {
+        if !any_open_tab && closed.entries.is_empty() {
             return;
         }
     }
@@ -333,6 +334,30 @@ pub fn note_frame<R: Runtime>(app: &AppHandle<R>, label: &str) {
     }
 }
 
+/// Note where a window stands in the focus order while that order still says
+/// something. Closing the window in front hands focus to the next, which would
+/// then look the most recent of all, so the order is copied at the first
+/// request of a chain and every close is ranked against that copy. Taken at
+/// the request rather than at `Destroyed`: by then the OS may already have
+/// handed the focus on, and with *Close all windows* every request comes
+/// before any window goes.
+///
+/// Called on every request, whatever the reopen setting; `window_closed`
+/// takes the rank out again.
+pub fn note_close<R: Runtime>(app: &AppHandle<R>, label: &str) {
+    let state = app.state::<AppState>();
+    // Copied and let go before `closed` is taken: no lock held across another.
+    let focus = state.focus_order.lock().unwrap().clone();
+    let mut closed = state.closed.lock().unwrap();
+    // Judged as if this window had tabs — an empty one's request too, which is
+    // harmless — so an old chain is not the one this request ranks against.
+    if chain_expired(closed.last_close(), Instant::now(), true) {
+        closed.clear();
+    }
+    let rank = closed.rank(label, &focus);
+    closed.pending_rank.insert(label.to_string(), rank);
+}
+
 /// A window has gone. Whether the reader closed it on purpose or is on the way
 /// out of the app cannot be told from here — a quit is every window closing
 /// one after another — so it is not forgotten yet: it joins the chain, the
@@ -342,6 +367,9 @@ pub fn note_frame<R: Runtime>(app: &AppHandle<R>, label: &str) {
 /// Runs on the main thread (a window event), as every ordinary save must.
 pub fn window_closed<R: Runtime>(app: &AppHandle<R>, label: &str) {
     let state = app.state::<AppState>();
+    // Out first, whatever happens below: a rank left behind would keep the
+    // chain looking begun, and the next quit would rank against this one's copy.
+    let pending = state.closed.lock().unwrap().pending_rank.remove(label);
     restored(app, label);
     let open = state.sessions.lock().unwrap().remove(label);
     let frame = state.frames.lock().unwrap().remove(label);
@@ -357,12 +385,22 @@ pub fn window_closed<R: Runtime>(app: &AppHandle<R>, label: &str) {
     // Judged with this window still counted as open: closing the one window
     // that has documents, long after some other close, must drop that old
     // chain rather than carry it along.
+    let focus = state.focus_order.lock().unwrap().clone();
     {
         let mut closed = state.closed.lock().unwrap();
-        if chain_expired(closed.last().map(|(t, _)| *t), Instant::now(), true) {
+        let expired = chain_expired(closed.last_close(), Instant::now(), true);
+        if expired {
             closed.clear();
         }
-        closed.push((Instant::now(), WindowSession { open, frame }));
+        // A window that went without a request — or whose rank was taken
+        // against the chain just dropped — is ranked now, the same way.
+        let rank = match pending {
+            Some(rank) if !expired => rank,
+            _ => closed.rank(label, &focus),
+        };
+        closed
+            .entries
+            .push((Instant::now(), rank, WindowSession { open, frame }));
     }
     remember(app);
 
@@ -391,12 +429,63 @@ fn chain_expired(last_close: Option<Instant>, now: Instant, any_open_tab: bool) 
     any_open_tab && last_close.is_some_and(|t| now.duration_since(t) >= CLOSE_GRACE)
 }
 
-/// What a save writes: the open windows, then the chain with its newest close
-/// last. Quitting by hand closes the window in front first, so reversing the
-/// chain puts the windows back in the order they stood in.
-fn restorable(open: Vec<WindowSession>, chain: &[(Instant, WindowSession)]) -> Vec<WindowSession> {
+/// Windows that closed within the grace of one another, and where each stood
+/// among the windows when the chain began — see `note_close`.
+#[derive(Default)]
+pub struct Chain {
+    /// The focus order, least-recently-focused first, copied at the chain's
+    /// first close request. Only ever added to, so a rank taken from it holds.
+    order: Vec<String>,
+    /// Oldest first, each with its window's place in `order` — none for a
+    /// window never focused — and the window as it stood when it went.
+    entries: Vec<(Instant, Option<usize>, WindowSession)>,
+    /// Ranks taken at a close request, waiting for the window to go.
+    pending_rank: HashMap<String, Option<usize>>,
+}
+
+impl Chain {
+    /// All three go together: a copy of the order outliving its entries would
+    /// be what the next quit ranks against.
+    pub fn clear(&mut self) {
+        self.order.clear();
+        self.entries.clear();
+        self.pending_rank.clear();
+    }
+
+    fn last_close(&self) -> Option<Instant> {
+        self.entries.last().map(|(t, _, _)| *t)
+    }
+
+    /// Where `label` stands, given the focus order as it is now. A chain with
+    /// nothing in it yet begins here, with a copy of that order. A window
+    /// opened and focused since is added after the rest, as the most recent:
+    /// missing, it would rank as never focused.
+    fn rank(&mut self, label: &str, focus: &[String]) -> Option<usize> {
+        if self.entries.is_empty() && self.pending_rank.is_empty() {
+            self.order = focus.to_vec();
+        }
+        for l in focus {
+            if !self.order.contains(l) {
+                self.order.push(l.clone());
+            }
+        }
+        self.order.iter().position(|l| l == label)
+    }
+}
+
+/// What a save writes: the open windows, then the chain least-recently-focused
+/// first, as the open ones are. Close order says nothing about that — a close
+/// that does not raise its window can take the one behind first — so the
+/// chain is sorted by rank: never focused first, and equal ranks in the order
+/// they closed.
+fn restorable(
+    open: Vec<WindowSession>,
+    chain: &[(Instant, Option<usize>, WindowSession)],
+) -> Vec<WindowSession> {
+    let mut closed: Vec<_> = chain.iter().collect();
+    closed.sort_by_key(|(_, rank, _)| *rank);
     open.into_iter()
-        .chain(chain.iter().rev().map(|(_, w)| w.clone()))
+        .chain(closed.into_iter().map(|(_, _, w)| w.clone()))
         .collect()
 }
 
@@ -438,7 +527,7 @@ fn save<R: Runtime>(app: &AppHandle<R>, version: String, argv: Vec<String>, rest
     let windows = if restart {
         open
     } else {
-        restorable(open, &state.closed.lock().unwrap())
+        restorable(open, &state.closed.lock().unwrap().entries)
     };
 
     // A snapshot is a record of its own, and its restart must come back as one.
@@ -667,28 +756,68 @@ mod tests {
         assert!(!chain_expired(None, after, true));
     }
 
-    /// Open windows first, then the chain newest-close-last. Quitting by hand
-    /// closes the window in front first, so the chain runs front-to-back and
-    /// is written back-to-front — the order the windows stood in.
+    /// Open windows first, then the chain by where each window stood in the
+    /// focus order when the chain began — whichever of them closed first.
     #[test]
     fn the_chain_is_written_behind_first() {
-        let window = |path: &str| WindowSession {
+        let window = |label: &str| WindowSession {
             open: OpenTabs {
-                tabs: vec![json!({ "path": path })],
+                tabs: vec![json!({ "path": format!("{label}.md") })],
                 active: 0,
                 sidebar: false,
             },
             frame: None,
         };
-        let now = Instant::now();
+        // Each close as `window_closed` ranks it, with the focus order as it
+        // stands then: a window that has gone is out of it.
+        let close = |chain: &mut Chain, label: &str, focus: &[&str]| {
+            let focus: Vec<String> = focus.iter().map(|l| l.to_string()).collect();
+            let rank = chain.rank(label, &focus);
+            chain.entries.push((Instant::now(), rank, window(label)));
+        };
+        let written = |chain: &Chain| restorable(vec![], &chain.entries);
+
         // B was in front and closed first, then A.
-        let chain = vec![(now, window("b.md")), (now, window("a.md"))];
+        let mut front_first = Chain::default();
+        close(&mut front_first, "b", &["a", "b"]);
+        close(&mut front_first, "a", &["a"]);
+        assert_eq!(written(&front_first), vec![window("a"), window("b")]);
 
-        let quit = restorable(vec![], &chain);
-        assert_eq!(quit, vec![window("a.md"), window("b.md")]);
+        // A, behind, closed first, then B: still B in front.
+        let mut back_first = Chain::default();
+        close(&mut back_first, "a", &["a", "b"]);
+        close(&mut back_first, "b", &["b"]);
+        assert_eq!(written(&back_first), vec![window("a"), window("b")]);
 
-        let mid = restorable(vec![window("c.md")], &chain[..1]);
-        assert_eq!(mid, vec![window("c.md"), window("b.md")]);
+        // C never had focus: behind every window that did.
+        let mut never = Chain::default();
+        close(&mut never, "b", &["a", "b"]);
+        close(&mut never, "a", &["a"]);
+        close(&mut never, "c", &[]);
+        assert_eq!(written(&never), vec![window("c"), window("a"), window("b")]);
+
+        // D opened and took focus after the chain began: the most recent.
+        let mut late = Chain::default();
+        close(&mut late, "a", &["a", "b"]);
+        close(&mut late, "d", &["b", "d"]);
+        close(&mut late, "b", &["b"]);
+        assert_eq!(written(&late), vec![window("a"), window("b"), window("d")]);
+
+        let mid = restorable(vec![window("c")], &front_first.entries[..1]);
+        assert_eq!(mid, vec![window("c"), window("b")]);
+    }
+
+    /// A request made while another window is still on its way out ranks
+    /// against the same copy, though focus has moved since: the chain has
+    /// begun as soon as anything is pending.
+    #[test]
+    fn a_pending_close_keeps_the_chain_begun() {
+        let focus = |labels: &[&str]| labels.iter().map(|l| l.to_string()).collect::<Vec<_>>();
+        let mut chain = Chain::default();
+        let a = chain.rank("a", &focus(&["a", "b"]));
+        chain.pending_rank.insert("a".into(), a);
+        // B was clicked, and so raised, before A went.
+        assert_eq!(chain.rank("b", &focus(&["b", "a"])), Some(1));
     }
 
     /// What `remember` writes as the reader works: the same file, with no

@@ -17,7 +17,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, Runtime, State, Url, Webview, WebviewUrl,
     WebviewWindowBuilder, Window, WindowEvent,
@@ -89,9 +89,10 @@ struct AppState {
     /// is slow enough for a debounced report to land in the middle of it.
     installing: AtomicBool,
     /// Windows that closed within the grace of one another, oldest first, as
-    /// they stood when they went. Written out with the open ones until the
-    /// grace is over — see `session::window_closed`.
-    closed: Mutex<Vec<(Instant, session::WindowSession)>>,
+    /// they stood when they went, with the focus order the chain began with.
+    /// Written out with the open ones until the grace is over — see
+    /// `session::window_closed` and `session::note_close`.
+    closed: Mutex<session::Chain>,
     /// Windows put back from a saved session that have not yet shown their
     /// document. While any is left, every save marks the file as a restore
     /// under way — see `session::begin_restore`.
@@ -1806,9 +1807,11 @@ fn main() {
             match event {
                 WindowEvent::Focused(true) => touch_focus(&state, window.label()),
                 // The last moment the window can say where it stands; by
-                // `Destroyed` it is gone, and the chain needs its frame.
+                // `Destroyed` it is gone, and the chain needs its frame — and
+                // its place in the focus order, before focus moves on.
                 WindowEvent::CloseRequested { .. } => {
                     session::note_frame(window.app_handle(), window.label());
+                    session::note_close(window.app_handle(), window.label());
                     // Out of the running for a warm open from now: one sent
                     // here in the moment before it goes would go with it.
                     state
