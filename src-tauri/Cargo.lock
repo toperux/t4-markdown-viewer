@@ -4219,6 +4219,7 @@ version = "1.7.3"
 dependencies = [
  "comrak",
  "dirs",
+ "gtk",
  "notify",
  "serde",
  "serde_json",

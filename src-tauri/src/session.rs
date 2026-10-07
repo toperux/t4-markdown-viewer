@@ -100,6 +100,9 @@ impl Frame {
             return None;
         }
         let pos = window.outer_position().ok()?;
+        #[cfg(all(target_os = "linux", not(test)))]
+        let size = gtk_read(window).or_else(|| window.inner_size().ok())?;
+        #[cfg(not(all(target_os = "linux", not(test))))]
         let size = window.inner_size().ok()?;
         Some(Self {
             x: pos.x,
@@ -140,6 +143,36 @@ impl Frame {
             && self.y < pos.y + size.height as i32
             && self.y + self.height as i32 > pos.y
     }
+}
+
+/// The window's size as GTK has it, in physical pixels. tao's `inner_size` is
+/// the size from the last configure event, which on Wayland includes the
+/// client-side title bar and shadow, while `set_size` is `gtk_window_resize`,
+/// which does not — so a restored window grew by the difference every launch
+/// (+52×89 on GNOME Wayland; nothing on X11, where the two agree). This reads
+/// the counterpart of that resize instead.
+///
+/// GTK is main-thread only. `run_on_main_thread` runs the closure inline when
+/// already there, so the reply is in the channel before `recv`; from any other
+/// thread (the update snapshot's) it waits on the event loop, which is why no
+/// lock may be held across this. A closure dropped unrun drops the sender and
+/// ends the wait. Not in tests: the mock runtime has no GTK window.
+#[cfg(all(target_os = "linux", not(test)))]
+fn gtk_read<R: Runtime>(window: &WebviewWindow<R>) -> Option<PhysicalSize<u32>> {
+    use gtk::prelude::*;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let w = window.clone();
+    window
+        .run_on_main_thread(move || {
+            let _ = tx.send(w.gtk_window().ok().map(|g| g.size()));
+        })
+        .ok()?;
+    let (width, height) = rx.recv().ok()??;
+    let scale = window.scale_factor().ok()?;
+    Some(PhysicalSize::new(
+        (width as f64 * scale).round() as u32,
+        (height as f64 * scale).round() as u32,
+    ))
 }
 
 /// Paths as the frontend compares them: by case only where the filesystem does.

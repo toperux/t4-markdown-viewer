@@ -41,6 +41,11 @@ windows-sys = { version = "0.61", features = [
   "Win32_UI_WindowsAndMessaging",
 ] }
 
+# A window's size as GTK has it — see `session::gtk_read`. Already in the tree
+# through tauri; this only makes it direct.
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+
 [profile.release]
 opt-level = "s"
 lto = true
