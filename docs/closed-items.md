@@ -307,6 +307,34 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   brackets in a selector (`.a\(`, `[title="("]`), fixed in the same commit's fixup round: 7
   direct-call cases and 105 section-checks across three full passes (before the check, after it,
   after the bracket fix) all held clean, with no diagram newly refused.*
+- [x] **The AppImage can't start on Ubuntu 26.04** (added 2026-10-07, the Tauri 2.12 plan's W12
+  on the Linux VM: GNOME 50 Wayland, Mesa 26.0.8, libegl1 1.7.0). The web process aborts with
+  "Could not create default EGL display: EGL_BAD_PARAMETER" and no window opens — on the dry
+  run's AppImage and the released 1.7.2 alike, with or without `GDK_BACKEND=x11`,
+  `WEBKIT_DISABLE_DMABUF_RENDERER=1` or `WEBKIT_DISABLE_COMPOSITING_MODE=1`. The AppImage
+  bundles the `ubuntu-22.04` build host's `libwayland-client`, `-cursor`, `-egl` and `-server`
+  (`release.yml:105` builds there); an extracted copy with those four moved out rendered and
+  passed the smoke rows (measured). t4-git-ui hit the same (its `ee39631`: the host's Mesa
+  `libEGL_mesa` needs symbols 22.04's libwayland-client 1.20 lacks) and ended with tauri-cli
+  2.12.1, whose linuxdeploy `07333c6` leaves `libwayland-client` out itself (its `308c378`). An
+  AppImage that can't start can't update itself, so a fix reaches new downloads only; the `.deb`
+  and `.rpm` use the system's libraries (reasoned). Not measured: other distributions, and when
+  it began. The 2026-09-28 Linux proof in `closed-items.md` was the debug build, not the
+  AppImage. *Ruled by the owner 2026-10-07: fix next, through the deferred tauri-cli 2.12.1
+  bump (`archive/plans/tauri-2.12.md`, Decision 2), ahead of the session-restore plan.*
+  *Fixed 2026-10-07, 852a186 (`archive/plans/tauri-cli-2.12.md`): the release's tauri-cli goes
+  2.11.4 → 2.12.1, whose bundler (2.10.1) fetches linuxdeploy `07333c6`, which leaves
+  `libwayland-client` out; the step "Check the AppImage has no libwayland-client" fails a
+  release that bundles it again; and inside an AppImage the app sets `GDK_BACKEND=x11` itself,
+  as the old gtk hook did. Dry run 37587995352, walked on the same VM (live GNOME Wayland): the
+  shipped AppImage opens its window, renders `kitchen-sink.md` (image and diagram), answers
+  "Check now", runs its WebKit processes under `x11` as X11 clients, restores two windows at
+  their exact positions, opens links and reveals files through the host, and a second instance
+  on `$'caf\xe9.md'` exits 0; no GIO or undefined-symbol warnings (1.7.2 printed them). Its
+  pickers start at home or the document's folder in both `startup-mode`s: `config::start_dir`
+  always passes one (`config.rs:98-107`). Windows (the installer over a running two-window app,
+  `/P /UPDATE /R`: closed, installed, restarted, both windows back) and the Mac (`.dmg`, same
+  cert, no Gatekeeper prompt) passed their smoke walks.*
 
 ## Deferred from the 2026-09-20 review
 
@@ -1136,4 +1164,11 @@ tooling; listed so nobody rediscovers them.
   the Tauri 2.12 walk, W6). The app stayed on its page and handed `https://example.com` to the
   system, but the Mac's https handler is Choosy, a browser chooser, so where it went wasn't seen.
   Windows (Edge) and Linux (Firefox) opened it; the opener plugin's 2.7 changes are refactors.
+  *Kept 2026-10-07, owner's call, no trigger.*
+- [x] **The AppImage's pickers likely list a `usr` shortcut into the mount** (2026-10-07,
+  `archive/plans/tauri-cli-2.12.md` W3). AppRun starts the app in the AppImage's mount
+  (`/tmp/.mount_*/usr`), and GTK3 lists the working folder among a picker's sidebar shortcuts;
+  seen, not clicked (XTEST can't reach those dialogs under GNOME 50). The working folder must
+  stay: the gtk hook points WebKit's helper paths at `././`. The pickers themselves start at home
+  or the document's folder. t4-git-ui keeps the same.
   *Kept 2026-10-07, owner's call, no trigger.*

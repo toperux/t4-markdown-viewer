@@ -146,7 +146,7 @@ run passes, with the run id; when all are ticked, move the item to `closed-items
   app's own in the bundle — unknown whether `tauri.conf.json`'s file associations can express
   one. Reopen when someone asks, or with the next file-association work.
 
-The next nine came out of the Tauri 2.12 walks (`archive/plans/tauri-2.12.md`, 2026-10-07).
+The next eight came out of the Tauri 2.12 walks (`archive/plans/tauri-2.12.md`, 2026-10-07).
 Each also shows on 1.7.2 or 1.7.1, so none comes from that change; each was deferred by the
 owner at its triage.
 
@@ -158,8 +158,9 @@ owner at its triage.
   Linux, Back to README landed at 14079 for 15819. The Mac showed no drift (the image likely
   loaded first; reasoned). Likely fix:
   re-apply the saved scroll once images above it have loaded, or wait for them first; walk on
-  all three, since timing differs per webview. Reopen with the session-restore plan, the plan
-  after the CLI 2.12.1 one (with the next two items and *On GNOME, a restored window grows*).
+  all three, since timing differs per webview. Reopen with the session-restore plan, the next
+  one now that the CLI 2.12.1 plan is done (with the next two items and *On GNOME, a restored
+  window grows*).
 - [ ] **On Windows, the last-used window doesn't come back in front** (added 2026-10-07). Two
   windows, the normal one used last, the other (`main`) maximized: after a restore `main` was
   in front, on the installed 1.7.1 and on 2.12.1. The Mac and Linux put the last-used one in
@@ -199,21 +200,6 @@ owner at its triage.
   and the closed-tab record keeps no position, where browsers put it back in its place. Likely
   fix: save the index on close and insert there. Reopen with the next tab-strip work, or on a
   report.
-- [ ] **The AppImage can't start on Ubuntu 26.04** (added 2026-10-07, the Tauri 2.12 plan's W12
-  on the Linux VM: GNOME 50 Wayland, Mesa 26.0.8, libegl1 1.7.0). The web process aborts with
-  "Could not create default EGL display: EGL_BAD_PARAMETER" and no window opens — on the dry
-  run's AppImage and the released 1.7.2 alike, with or without `GDK_BACKEND=x11`,
-  `WEBKIT_DISABLE_DMABUF_RENDERER=1` or `WEBKIT_DISABLE_COMPOSITING_MODE=1`. The AppImage
-  bundles the `ubuntu-22.04` build host's `libwayland-client`, `-cursor`, `-egl` and `-server`
-  (`release.yml:105` builds there); an extracted copy with those four moved out rendered and
-  passed the smoke rows (measured). t4-git-ui hit the same (its `ee39631`: the host's Mesa
-  `libEGL_mesa` needs symbols 22.04's libwayland-client 1.20 lacks) and ended with tauri-cli
-  2.12.1, whose linuxdeploy `07333c6` leaves `libwayland-client` out itself (its `308c378`). An
-  AppImage that can't start can't update itself, so a fix reaches new downloads only; the `.deb`
-  and `.rpm` use the system's libraries (reasoned). Not measured: other distributions, and when
-  it began. The 2026-09-28 Linux proof in `closed-items.md` was the debug build, not the
-  AppImage. *Ruled by the owner 2026-10-07: fix next, through the deferred tauri-cli 2.12.1
-  bump (`archive/plans/tauri-2.12.md`, Decision 2), ahead of the session-restore plan.*
 - [ ] **On macOS and Linux, some app text speaks Windows** (added 2026-10-07, the Mac's W12).
   The Open-mode hint says "double-click a `.md` file in Explorer" (`index.html:179`), and the
   Open button's tooltip says Ctrl+O on every platform (`index.html:30`, `app.js:2883`); macOS
@@ -268,3 +254,11 @@ as it is found.
   played. An ordinary single-range request is not touched (reasoned from the release note).
   *Accepted 2026-10-07. Reopen on a report of video or audio in a document not playing or
   seeking.*
+- [ ] **The AppImage fix is walked on Ubuntu 26.04 only** (added 2026-10-07,
+  `archive/plans/tauri-cli-2.12.md`). The AppImage no longer bundles the build host's
+  `libwayland-client` (linuxdeploy `07333c6`, and CI checks it stays out), which is what a recent
+  Mesa failed on; other distributions with a recent Mesa (Fedora, Arch, …) are reasoned to be
+  fixed the same way, not walked. The AppImage still bundles 22.04's `libwayland-cursor`, `-egl`
+  and `-server`, harmless on 26.04 (measured) and shipped by t4-git-ui too.
+  *Accepted 2026-10-07. Reopen on a report of the AppImage opening no window on any
+  distribution.*

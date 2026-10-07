@@ -1,7 +1,19 @@
 # Tauri CLI 2.12.1 Implementation Plan
 
-> **Status (2026-10-07):** in the plan review loop; Decisions 1–4 ruled by the owner as
-> recommended. Nothing executed.
+> **Status (2026-10-07):** executed in full. Task 1: 852a186 (the fix) and 833056d (docs);
+> Windows gates 195, Linux 199 (Task 2, from the patch); the change review found nothing.
+> Pushed; CI green (37586184826). Dry run 37587995352: every leg green with tauri-cli 2.12.1, no
+> bundler download on Linux, *Check the AppImage has no libwayland-client* passed. Task 4: all
+> six walks passed — W1 the shipped AppImage opens its window on Ubuntu 26.04 (the fix); W2 the
+> Windows installer over a running two-window app; W3 no picker in the mount; W4 link, reveal,
+> non-UTF-8 second instance, no GIO warnings; W5 `x11` and exact restored positions; W6 the Mac.
+> Triage (owner): the pickers' likely `usr` shortcut a closed accepted limit; the fix walked on
+> 26.04 only an open one; 1.7.3's release page gets a line telling AppImage users who saw no
+> window to download it by hand. Deviations: Decision 2's premise was wrong — no pick is
+> exposed, since `config::start_dir` always passes a folder (`config.rs:98-107`), so it was
+> settled by W3 with no change; the new CI step runs in `src-tauri` (`bundle_dir` is relative
+> to it here); Task 2 got the fix commit's patch only (the docs commit doesn't touch the
+> gates). Paths and line numbers below are as they stood when it was written.
 
 > **For agentic workers:** Execute per the **Execution** section below. Steps use checkbox
 > (`- [ ]`) syntax for tracking.
