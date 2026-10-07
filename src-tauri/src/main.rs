@@ -361,14 +361,22 @@ enum Placement {
     Frame(session::Frame),
 }
 
-/// Create a window.
+/// A label no window has had this run. Apart from `spawn_window` so a restore
+/// can reserve the label of the window it builds last before it builds any of
+/// the others, which name it as the one to hand the front to.
+fn next_label(state: &AppState) -> String {
+    let n = state.next_window.fetch_add(1, Ordering::Relaxed) + 1;
+    format!("w{n}")
+}
+
+/// Create a window under `label`, which the caller has from `next_label`.
 ///
 /// The build runs on a worker thread on purpose. `build()` waits on the event
 /// loop to construct the webview, and a synchronous command calling this runs
 /// *on* that loop, so building inline would deadlock the app. The
 /// single-instance hook no longer does: it hands off to a thread of its own
-/// (and on macOS the plugin never called it on the loop). Reserving the label
-/// and stashing `pending` happens first and synchronously, so the new window's
+/// (and on macOS the plugin never called it on the loop). Stashing `pending`
+/// under the label happens first and synchronously, so the new window's
 /// `take_pending` cannot race it.
 ///
 /// `source` is the window a torn-off tab came from, if any. That window has
@@ -376,13 +384,12 @@ enum Placement {
 /// reported back to it or the tab is simply lost.
 fn spawn_window<R: Runtime>(
     app: &AppHandle<R>,
+    label: String,
     pending: Option<Value>,
     place: Placement,
     source: Option<String>,
 ) -> String {
     let state = app.state::<AppState>();
-    let n = state.next_window.fetch_add(1, Ordering::Relaxed) + 1;
-    let label = format!("w{n}");
 
     if let Some(p) = pending {
         claim_pending(&state, &label, p);
@@ -1009,7 +1016,8 @@ fn watch_files(app: AppHandle, state: State<AppState>, window: Window, paths: Ve
 #[tauri::command]
 fn open_window(app: AppHandle, path: Option<String>) -> String {
     let pending = path.map(|p| json!({ "kind": "path", "path": p }));
-    spawn_window(&app, pending, Placement::Default, None)
+    let label = next_label(&app.state::<AppState>());
+    spawn_window(&app, label, pending, Placement::Default, None)
 }
 
 /// A window saying what it has open: while it works, and once more when
@@ -1145,6 +1153,7 @@ fn drop_tab<R: Runtime>(
             let scale = window.scale_factor().unwrap_or(1.0);
             spawn_window(
                 &app,
+                next_label(&state),
                 Some(json!({ "kind": "tab", "tab": tab })),
                 Placement::Cursor(x - 140.0 * scale, y - 24.0 * scale),
                 Some(window.label().to_string()),
@@ -1230,13 +1239,16 @@ fn set_reopen(app: AppHandle, state: State<AppState>, mode: String) {
 /// The waiting session, put back because the reader asked for it. The window
 /// that asked takes the first saved window's place — it is the empty one the
 /// button was on — and the rest get windows of their own, exactly as
-/// `restore_session` gives them.
+/// `restore_session` gives them, the last saved one under a label reserved
+/// first so the others, this one included, can hand it the front.
 #[tauri::command]
 fn restore_offered_session<R: Runtime>(app: AppHandle<R>, window: Window<R>) -> Option<Value> {
     let state = app.state::<AppState>();
     let session = state.offered.lock().unwrap().take()?;
+    let count = session.windows.len();
     let mut windows = session.windows.into_iter();
     let first = windows.next()?;
+    let front = (count > 1).then(|| next_label(&state));
     // This window is restoring too, though it gets its tabs as the answer
     // rather than as a pending payload.
     state
@@ -1255,15 +1267,23 @@ fn restore_offered_session<R: Runtime>(app: AppHandle<R>, window: Window<R>) -> 
     if let (Some(frame), Some(w)) = (&first.frame, app.get_webview_window(window.label())) {
         frame.apply(&w);
     }
-    for w in windows {
+    for (i, w) in windows.enumerate() {
+        let index = i + 1;
+        let behind = behind_of(count, index, false, front.as_deref());
+        let label = front
+            .clone()
+            .filter(|_| index + 1 == count)
+            .unwrap_or_else(|| next_label(&state));
         spawn_window(
             &app,
-            Some(session_payload(&w, false)),
+            label,
+            Some(session_payload(&w, behind.as_deref())),
             w.frame.map_or(Placement::Default, Placement::Frame),
             None,
         );
     }
-    Some(session_payload(&first, false))
+    let behind = behind_of(count, 0, false, front.as_deref());
+    Some(session_payload(&first, behind.as_deref()))
 }
 
 /// Where a picker should open, given what the window has on screen.
@@ -1368,7 +1388,13 @@ fn open_path<R: Runtime>(app: &AppHandle<R>, path: &Path) {
         }
     }
 
-    spawn_window(app, Some(payload), Placement::Default, None);
+    spawn_window(
+        app,
+        next_label(&state),
+        Some(payload),
+        Placement::Default,
+        None,
+    );
 }
 
 /// Put back what an update restart took down: one window per saved window,
@@ -1380,29 +1406,41 @@ fn open_path<R: Runtime>(app: &AppHandle<R>, path: &Path) {
 ///
 /// When `main` is showing a file the reader opened — its own window, or the
 /// saved one that already had it — every other window stands behind it.
+/// Otherwise every window stands behind the last saved one, the one used last:
+/// its label is reserved before anything is built, so the others can name it
+/// even if they finish booting before it exists.
 fn restore_session<R: Runtime>(
     app: &AppHandle<R>,
     windows: Vec<session::WindowSession>,
     held: bool,
 ) {
     let state = app.state::<AppState>();
+    let count = windows.len();
+    let front = (count > 1).then(|| next_label(&state));
     let mut windows = windows.into_iter();
     let first = windows.next();
 
     // `main` is the file the reader opened in two cases: a saved window that
     // already had it was surfaced into first place (`held`), or the file got
     // there before this did and the claim below fails. Either way the rest
-    // stand behind it.
-    let claimed = first
-        .as_ref()
-        .is_some_and(|w| claim_pending(&state, "main", session_payload(w, false)));
+    // stand behind it. A held `main` keeps the front for itself, so only one
+    // showing a saved window hands it on.
+    let claimed = first.as_ref().is_some_and(|w| {
+        let behind = front.as_deref().filter(|_| !held);
+        claim_pending(&state, "main", session_payload(w, behind))
+    });
     let behind_main = held || (first.is_some() && !claimed);
 
-    let spawn = |w: session::WindowSession| {
-        let pending = session_payload(&w, behind_main);
+    let spawn = |index: usize, w: session::WindowSession| {
+        let behind = behind_of(count, index, behind_main, front.as_deref());
+        let label = front
+            .clone()
+            .filter(|_| index + 1 == count)
+            .unwrap_or_else(|| next_label(&state));
         spawn_window(
             app,
-            Some(pending),
+            label,
+            Some(session_payload(&w, behind.as_deref())),
             w.frame.map_or(Placement::Default, Placement::Frame),
             None,
         );
@@ -1414,18 +1452,42 @@ fn restore_session<R: Runtime>(
                 frame.apply(&main);
             }
         } else {
-            spawn(w);
+            spawn(0, w);
         }
     }
-    windows.for_each(spawn);
+    windows.enumerate().for_each(|(i, w)| spawn(i + 1, w));
+}
+
+/// Who the restored window at `index` of `count` hands the front to once it
+/// is up, if anyone. Each window raises itself as it finishes booting, so
+/// without this whichever happened to finish last would end on top.
+///
+/// Beside a file the reader opened (`held_or_lost`: `main` holds it) every
+/// window stands behind `main`. Otherwise every window stands behind `front`,
+/// the last saved one, which was used last and keeps the front for itself; a
+/// window restored alone has no `front` to name.
+fn behind_of(
+    count: usize,
+    index: usize,
+    held_or_lost: bool,
+    front: Option<&str>,
+) -> Option<String> {
+    if held_or_lost {
+        Some("main".into())
+    } else if index + 1 == count {
+        None
+    } else {
+        front.map(String::from)
+    }
 }
 
 /// What a restored window opens with. `maximized` is left to the frontend to
 /// act on once it has shown the window — see `session::Frame::apply`. `behind`
-/// names the window to hand the front back to once this one is up: each
-/// window raises itself as it finishes booting, and one restored beside a file
-/// the reader just opened would otherwise bury it.
-fn session_payload(w: &session::WindowSession, behind_main: bool) -> Value {
+/// names the window to hand the front to once this one is up: `main` when it
+/// holds a file the reader just opened, otherwise the window used last. Each
+/// window raises itself as it finishes booting, and would otherwise bury
+/// whichever of those finished first. See `behind_of`.
+fn session_payload(w: &session::WindowSession, behind: Option<&str>) -> Value {
     let mut payload = json!({
         "kind": "session",
         "tabs": w.open.tabs,
@@ -1433,8 +1495,8 @@ fn session_payload(w: &session::WindowSession, behind_main: bool) -> Value {
         "sidebar": w.open.sidebar,
         "maximized": w.frame.as_ref().is_some_and(|f| f.maximized),
     });
-    if behind_main {
-        payload["behind"] = json!("main");
+    if let Some(label) = behind {
+        payload["behind"] = json!(label);
     }
     payload
 }
@@ -1956,6 +2018,25 @@ mod tests {
     #[test]
     fn lossy_args_of_nothing() {
         assert_eq!(lossy_args(Vec::new()), None);
+    }
+
+    /// Every restored window but the last saved one, the one used last, hands
+    /// it the front; beside a file the reader opened, every one hands it to
+    /// `main`.
+    #[test]
+    fn restored_windows_hand_the_front_to_the_one_used_last() {
+        // Alone: nothing to hand the front to.
+        assert_eq!(behind_of(1, 0, false, None), None);
+        // Three: the first two stand behind the third, which keeps it.
+        let front = Some("w1");
+        assert_eq!(behind_of(3, 0, false, front).as_deref(), Some("w1"));
+        assert_eq!(behind_of(3, 1, false, front).as_deref(), Some("w1"));
+        assert_eq!(behind_of(3, 2, false, front), None);
+        // Beside a file in `main`, every one stands behind it, the last too.
+        for index in 0..3 {
+            assert_eq!(behind_of(3, index, true, front).as_deref(), Some("main"));
+        }
+        assert_eq!(behind_of(1, 0, true, None).as_deref(), Some("main"));
     }
 
     #[test]

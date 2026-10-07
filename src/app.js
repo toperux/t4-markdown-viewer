@@ -3080,6 +3080,12 @@ async function reopenSession() {
   // one takes the first, the same three steps the boot arm for a restart runs.
   await restoreTabs(session.tabs, session.active, session.sidebar);
   if (session.maximized) await appWindow.maximize().catch(() => {});
+  // Shown already, but the windows being built beside it raise themselves as
+  // they finish, so the front goes to the one used last, as the boot hands it.
+  const front = session.behind
+    ? await window.__TAURI__.window.Window.getByLabel(session.behind)
+    : null;
+  await (front ?? appWindow).setFocus().catch(() => {});
 }
 
 /* ---------------- updates ---------------- */
@@ -4729,7 +4735,8 @@ async function main() {
   // window created for a file the user just opened has to land in front. One
   // restored *beside* such a file says so in `behind`, and raises that window
   // instead of itself — whichever of the two finishes booting last, the file
-  // the reader asked for ends up on top.
+  // the reader asked for ends up on top. Restored windows with no such file
+  // name the one used last the same way, so it ends up on top instead.
   const front = pending?.behind
     ? await window.__TAURI__.window.Window.getByLabel(pending.behind)
     : null;

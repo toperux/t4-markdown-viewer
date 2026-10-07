@@ -216,8 +216,8 @@ pub struct Session {
     /// written before this field was ever mid-restore.
     #[serde(default)]
     pub restoring: bool,
-    /// Least-recently-focused first. Restoring in that order is the intent;
-    /// each window still comes forward as its own document finishes loading.
+    /// Least-recently-focused first. Each restored window hands the front to
+    /// the last one, or to `main` beside a held file — see `behind_of`.
     pub windows: Vec<WindowSession>,
 }
 

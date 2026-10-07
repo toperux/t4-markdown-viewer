@@ -374,8 +374,9 @@ fn a_dev_port_and_a_fragment_follow_the_build_and_the_platform() {
 /* ---------------- restoring a session ---------------- */
 
 /// The first saved window goes to `main`, which would otherwise stand empty;
-/// the next gets a window of its own. Nothing stands behind `main`, which is
-/// showing a saved window rather than a file the reader opened.
+/// the next gets a window of its own. `main` is showing a saved window rather
+/// than a file the reader opened, so it hands the front to `w1`, the last
+/// saved window and the one used last, which keeps it.
 #[test]
 fn a_restore_puts_the_first_saved_window_in_main() {
     let app = app();
@@ -393,6 +394,7 @@ fn a_restore_puts_the_first_saved_window_in_main() {
             "active": 0,
             "sidebar": true,
             "maximized": false,
+            "behind": "w1",
         }))
     );
     let sessions = app.state::<AppState>().sessions.lock().unwrap().clone();
@@ -427,6 +429,29 @@ fn a_restore_behind_a_file_gets_windows_of_its_own() {
     assert!(restoring(&app, "w1"));
 }
 
+/// A saved window that already had the file the reader opened is held in
+/// `main`, which keeps the front: it names nobody, and the rest stand behind it.
+#[test]
+fn a_held_restore_keeps_main_in_front() {
+    let app = app();
+    let _main = main_window(&app);
+
+    restore_session(
+        app.handle(),
+        vec![
+            saved_window(&["a.md"], false),
+            saved_window(&["b.md"], false),
+        ],
+        true,
+    );
+
+    let main = pending(&app, "main").unwrap();
+    assert_eq!(main["tabs"], json!([{ "path": "a.md" }]));
+    assert_eq!(main.get("behind"), None);
+    wait_for(&app, "w1");
+    assert_eq!(pending(&app, "w1").unwrap()["behind"], "main");
+}
+
 /// The window the button was on takes the first saved window as its answer,
 /// and is in the record from then on — restoring, with those tabs — so a save
 /// before it reports keeps them. The rest get windows of their own, and the
@@ -446,7 +471,7 @@ fn an_offered_session_answers_the_first_window_and_spawns_the_rest() {
 
     let answer = restore_offered_session(app.handle().clone(), main.as_ref().window());
 
-    assert_eq!(answer, Some(session_payload(&first, false)));
+    assert_eq!(answer, Some(session_payload(&first, Some("w1"))));
     assert!(restoring(&app, "main"));
     let sessions = app.state::<AppState>().sessions.lock().unwrap().clone();
     assert_eq!(sessions["main"], first.open);
