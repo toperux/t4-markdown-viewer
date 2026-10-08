@@ -904,6 +904,22 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
     instance of the AppImage on `$'caf\xe9.md'` exits 0 with the first window untouched.
     *The released 1.6.9 AppImage, 2026-09-26, mounted through FUSE in WSL Ubuntu: exit 0, no
     panic, the first window still on `first.md`.*
+- [x] **Tauri 2.12.1's crates have each run once for real** (added 2026-10-07,
+  `archive/plans/tauri-2.12.md`; moved from `open-items.md`'s *First runs after Tauri 2.12*,
+  2026-10-08).
+  - [x] *Updater 2.13.1's install path*: the first in-app update **from** a build carrying it —
+    the release after the first one with tauri 2.12.1, since an update is installed by the
+    outgoing version's updater. The installed copy is offered the new version, installs it and
+    restarts into it, on Windows (NSIS) and macOS (the `.app.tar.gz`); the AppImage if walked.
+    A failure strands that version's installs, with the manual download as the way out
+    (t4-git-ui runs the same updater and accepted the same).
+    *The 1.7.3 → 1.7.4 update, 2026-10-08 (release run 37730971929). Windows VM: a fresh 1.7.3
+    (Certum-signed installer) was offered 1.7.4 by its startup check, installed it through the
+    NSIS `/UPDATE` path with no installer UI seen, and was back as 1.7.4 in 6.5 s with both
+    windows, README still maximized, the last-used one in front. Mac: 1.7.3 offered 1.7.4,
+    installed the `.app.tar.gz` (the same self-signed cert, `53effb03…`) and restarted on its own
+    into 1.7.4 with both windows, the zoomed one still zoomed; no Gatekeeper or folder prompt.
+    The AppImage was not walked.*
 
 ## Housekeeping
 

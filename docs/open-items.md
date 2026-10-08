@@ -30,20 +30,6 @@ section, so this file lists only what is still to do. Finished plans and reviews
   *Snoozed by the owner 2026-09-24 until 2026-12-23, three months before the first brownout:
   not to be raised or offered before then.*
 
-## First runs after Tauri 2.12
-
-Each condition proves itself on an event that has not happened yet. Tick a sub-item when its
-run passes, with the run id; when all are ticked, move the item to `closed-items.md`.
-
-- [ ] **Tauri 2.12.1's crates have each run once for real** (added 2026-10-07,
-  `archive/plans/tauri-2.12.md`).
-  - [ ] *Updater 2.13.1's install path*: the first in-app update **from** a build carrying it —
-    the release after the first one with tauri 2.12.1, since an update is installed by the
-    outgoing version's updater. The installed copy is offered the new version, installs it and
-    restarts into it, on Windows (NSIS) and macOS (the `.app.tar.gz`); the AppImage if walked.
-    A failure strands that version's installs, with the manual download as the way out
-    (t4-git-ui runs the same updater and accepted the same).
-
 ## Deferred
 
 - [ ] **A diagram's links and actor menus lack full keyboard access** (added 2026-09-26,
@@ -210,6 +196,14 @@ The next three came out of the session-restore walks (`archive/plans/session-res
   gave the default size there. Guess (unmeasured): the position set on the hidden window doesn't
   survive its being mapped already maximized under Mutter. Reopen with the tear-off placement work,
   or on a report.
+- [ ] **Settings' *Check now* may sit out of reach below the dialog** (added 2026-10-08, the 1.7.3 →
+  1.7.4 update walk on the Windows VM, 1920×1200). With the update dialog showing, the VM opened
+  Settings › *Check now*, but the button sat below the bottom edge of the Settings dialog and a
+  click there registered nothing (an empty status line); the offer came from the startup check
+  instead. Seen once, with 1.7.3. Not known: whether the Settings content scrolls there, whether the
+  update dialog on top hid it, or whether a default-size window shows it fine. The Mac's *Check now*
+  worked. First step: reproduce on the Windows VM with and without the update dialog open, at the
+  window's default size. Reopen with the next UI work, or on a report.
 
 ## Accepted limits
 
