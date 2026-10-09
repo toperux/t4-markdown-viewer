@@ -1280,3 +1280,28 @@ tooling; listed so nobody rediscovers them.
   Mac and Windows keep them. WebKit reloads a face as text uses it, and no run showed a frame in
   another font (first sampled frame onward; diagrams draw from their own copy).
   *Kept 2026-10-09, owner's call, no trigger.*
+- [x] **Find searches text the app writes into the document** (2026-10-09,
+  `plans/find-in-document.md`, ruling R5). A diagram's error line, a footnote's "↩" and a
+  footnote number next to its word ("word1"; "word" still matches) are part of what find reads.
+  *Kept 2026-10-09, owner's call, no trigger.*
+- [x] **On macOS, Control+F opens find too** (2026-10-09, `plans/find-in-document.md`, ruling
+  R6), in text fields included, where it would move the caret one character. Control+N,
+  Control+W and Control+O already do the same.
+  *Kept 2026-10-09, owner's call, no trigger.*
+- [x] **No find highlights on a Mac without Safari 17.2 or later** (2026-10-09,
+  `plans/find-in-document.md`, ruling F). The highlights use the CSS Custom Highlight API, which
+  every engine measured has; a macOS 13 or 14 Mac that never took Safari 17.2+ lacks it (from
+  knowledge, not measured). There the bar still counts, steps and scrolls to each match, with
+  nothing painted.
+  *Kept 2026-10-09, owner's call, no trigger.*
+- [x] **Enter within ~50 ms of Ctrl+Tab steps the old tab's matches** (2026-10-10, the find
+  change review, Linux walk). Find learns of a new page when its DOM changes; an Enter that lands
+  before the new tab's content does (6 ms after Ctrl+Tab to a tab with 25 diagrams, whose content
+  arrived 50-158 ms later) steps the old page, and the new page then shows "N matches" with none
+  current. From 18 ms on, Enter lands on the new page (Linux and Windows).
+  *Kept 2026-10-10, owner's call, no trigger.*
+- [x] **Past find's 1,000-match cap, Enter goes back to the first match** (2026-10-10, the find
+  change review). Deep in a document with more than 1,000 matches, none of the first 1,000 is on
+  screen, so the first Enter jumps to match 1 at the top (Shift+Enter to match 1,000). The cost of
+  the cap, set for paint time (`plans/find-in-document.md`, ruling H).
+  *Kept 2026-10-10, owner's call, no trigger.*

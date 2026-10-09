@@ -212,6 +212,10 @@ The next three came out of the session-restore walks (`archive/plans/session-res
   readable; kept by the owner. A fix to start from: `font-size-adjust` on `#content` set to the
   theme font's own x-height ratio (support on WebKitGTK unverified). Reopen if Libron or another
   chosen font reads too small or large at the themes' sizes, or on a report about Tufte.
+- [ ] **On macOS, Option+Left/Right in the tree filter and the find bar goes Back/Forward, not a
+  word** (added 2026-10-09, `plans/find-in-document.md`, ruling G). The app's Back/Forward
+  shortcut takes the keys in both text fields, where macOS would move the caret by a word. Fix
+  both fields together. Reopen on a Mac user's report, or with the next keyboard work.
 
 ## Accepted limits
 
@@ -294,3 +298,15 @@ as it is found.
   judged by the monitor it overlaps most; always on Wayland), and a monitor unplugged since the last
   run, are covered by unit tests only: every VM and the Mac had one display.
   *Accepted 2026-10-08. Reopen when a second display is at hand, or on a report.*
+- [ ] **Find re-indexes a fully loaded big JSON slowly** (added 2026-10-09,
+  `plans/find-in-document.md`, ruling R8). With every chunk of a 9.75 MB JSON loaded (2.3 M text
+  nodes), the find index takes 0.8-1.9 s on WebKitGTK (probe P3b), so each fold or "more"
+  freezes the window about 1 s while the find bar is open.
+  *Accepted 2026-10-09. Reopen on a report of find freezing on a large JSON.*
+- [ ] **Find with a real IME or a Cyrillic layout is unwalked** (added 2026-10-10, the find
+  change review). No walk machine has an IME. Windows checked with synthetic key events that an
+  Enter confirming IME input (`isComposing`, keyCode 229) doesn't step, and with raw key codes
+  that a Cyrillic Ctrl+F opens find while Ctrl+Shift+F (А) opens nothing; WebKit (Linux, the Mac)
+  ran neither.
+  *Accepted 2026-10-10. Reopen on a report from an IME or Cyrillic user, or when a machine with an
+  IME is at hand.*
