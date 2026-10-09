@@ -59,6 +59,12 @@ scale or spacing it wants different; leave the rest out and base.css supplies
 it. Every selector is scoped under `.markdown-body`, which wraps the rendered
 document.
 
+The document's font is the exception. **Settings → Document font** (Libron,
+bundled with the app, by default) replaces a theme's `.markdown-body`
+`font-family` with an inline style that only `!important` beats. Code keeps
+the theme's code font. A reader who clears that setting gets the theme's own
+font again, so a theme should still set one.
+
 Four variables control the app's own chrome — top bar, tab strip and the
 Settings dialog — all of which sit outside the document:
 

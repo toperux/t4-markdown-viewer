@@ -49,6 +49,27 @@ pub fn diagram_colours(raw: &str) -> &'static str {
     }
 }
 
+/// The document font everyone starts on: Libron, bundled with the app
+/// (src/fonts/libron).
+pub const DEFAULT_DOC_FONT: &str = "Libron";
+
+/// The document font as a family name the page can quote safely: no character
+/// that would end a CSS string or a declaration, or close a tag, survives (they
+/// would also stop every diagram drawing; see `stylesStayInside` in app.js).
+/// Trimmed and capped. Empty means the theme's own font.
+pub fn doc_font(raw: &str) -> String {
+    let kept: String = raw
+        .chars()
+        .filter(|c| !c.is_control() && !"\"\\<>{};,".contains(*c))
+        .collect();
+    kept.trim()
+        .chars()
+        .take(100)
+        .collect::<String>()
+        .trim_end()
+        .to_string()
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct Config {
@@ -70,6 +91,9 @@ pub struct Config {
     pub folder_sort: String,
     /// Whose colours diagrams are drawn in — see `DEFAULT_DIAGRAM_COLOURS`.
     pub diagram_colours: String,
+    /// The font for the document's text, over every theme's; empty for the
+    /// theme's own. See `DEFAULT_DOC_FONT` and `doc_font`.
+    pub doc_font: String,
 }
 
 impl Default for Config {
@@ -82,6 +106,7 @@ impl Default for Config {
             reopen: DEFAULT_REOPEN.to_string(),
             folder_sort: "name".to_string(),
             diagram_colours: DEFAULT_DIAGRAM_COLOURS.to_string(),
+            doc_font: DEFAULT_DOC_FONT.to_string(),
         }
     }
 }
@@ -148,6 +173,7 @@ pub fn load() -> Config {
     cfg.reopen = reopen_mode(&cfg.reopen).to_string();
     cfg.folder_sort = folder_sort(&cfg.folder_sort).to_string();
     cfg.diagram_colours = diagram_colours(&cfg.diagram_colours).to_string();
+    cfg.doc_font = doc_font(&cfg.doc_font);
     cfg
 }
 
@@ -312,6 +338,26 @@ mod tests {
         assert_eq!(diagram_colours("theme"), "theme");
         assert_eq!(diagram_colours("Mermaid"), "theme");
         assert_eq!(diagram_colours(""), "theme");
+    }
+
+    #[test]
+    fn doc_font_keeps_names_and_drops_what_could_break_out() {
+        assert_eq!(doc_font("Libron"), "Libron");
+        assert_eq!(doc_font("  Libre Baskerville  "), "Libre Baskerville");
+        assert_eq!(doc_font("a\"b\\c;d{e}f<g>h,i"), "abcdefghi");
+        assert_eq!(doc_font("x\ny\tz"), "xyz");
+        assert_eq!(doc_font(""), "");
+        assert_eq!(doc_font(&"é".repeat(150)).chars().count(), 100); // chars, not bytes
+    }
+
+    /// Every config written before the setting existed starts on Libron; one
+    /// that cleared it keeps the theme's font.
+    #[test]
+    fn doc_font_defaults_to_libron_and_keeps_a_cleared_one() {
+        let old: Config = serde_json::from_str(r#"{"theme":"dracula"}"#).unwrap();
+        assert_eq!(old.doc_font, "Libron");
+        let cleared: Config = serde_json::from_str(r#"{"doc_font":""}"#).unwrap();
+        assert_eq!(cleared.doc_font, "");
     }
 
     /// A hand-edited `"Ask"` used to fall through every comparison and restore,

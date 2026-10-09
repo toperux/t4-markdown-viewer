@@ -1224,6 +1224,18 @@ fn set_diagram_colours(app: AppHandle, colours: String) {
     let _ = app.emit("diagram-colours-changed", colours);
 }
 
+/// Broadcast, like the diagram colours: one reader, one reading font in every
+/// window. The saving window takes the cleaned name from the event too, so
+/// windows saving at once all end on the last save.
+#[tauri::command]
+fn set_doc_font(app: AppHandle, font: String) {
+    let font = config::doc_font(&font);
+    let mut cfg = config::load();
+    cfg.doc_font = font.clone();
+    config::save(&cfg);
+    let _ = app.emit("doc-font-changed", font);
+}
+
 /// Not broadcast, unlike the open mode: this one is only ever read at boot, so
 /// two open Settings dialogs disagreeing about it until one of them is
 /// reopened costs nothing.
@@ -1815,6 +1827,7 @@ fn main() {
             set_theme,
             set_open_mode,
             set_diagram_colours,
+            set_doc_font,
             set_reopen,
             restore_offered_session,
             picker_dir,

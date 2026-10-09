@@ -174,6 +174,18 @@
         </fieldset>
 
         <fieldset>
+          <legend>Document font</legend>
+          <p class="hint">
+            The font for the document's text in every theme; code keeps its own. <b>Libron</b> is
+            built in. Type another font's family name as installed on this computer, or clear the field
+            for the theme's own font. Restart the app after installing a font.
+          </p>
+          <input id="doc-font" type="text" aria-label="Document font" placeholder="The theme's own font"
+                 spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" />
+          <p id="doc-font-note" class="hint" role="status"></p>
+        </fieldset>
+
+        <fieldset>
           <legend>Opening a file</legend>
           <p class="hint">
             Where a document goes when you double-click a <code>.md</code> file in Explorer, press

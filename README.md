@@ -43,6 +43,10 @@ Electron build starts around 150 MB.
   Settings offers restoring outright or keeping nothing at all.
 - **Themes are CSS files.** Fifteen bundled, and you can drop your own into a
   folder. The default is Azure DevOps Dark.
+- **Reads in Libron.** Documents are set in
+  [Libron](https://github.com/nicoverbruggen/libron), a book font built into the
+  app, in every theme. **Settings → Document font** takes another font installed
+  on your computer, or clears to each theme's own.
 - **Live reload.** Edit in another editor; the view updates on save and keeps
   your scroll position.
 - **Tick task lists.** Click a checkbox and the `[ ]` in the file flips with it.
@@ -419,6 +423,19 @@ moment you select one — the document behind the dialog is the preview, which i
 why that dialog's backdrop is barely tinted. `F8` cycles without opening
 Settings, and keeps working while it is open.
 
+### Document font
+
+Documents are set in Libron, a font made for reading and built into the app, in
+every theme; code keeps the theme's monospace font, and diagrams follow the
+document. **Settings → Document font** changes it for every window:
+
+- Type the family name of a font installed on your computer. The note under the
+  field says whether it is there. A font installed while the app is running
+  shows only after a restart.
+- Clear the field for each theme's own font.
+- On Windows, a font the app has used can be uninstalled only once the app is
+  closed: the webview keeps its files open.
+
 ## Building
 
 Requires only a Rust toolchain — there is no Node.js build step. The frontend
@@ -562,8 +579,9 @@ the theme styles a document: the page background, the prose text colour, the
 code-block background and the link colour, with category colours (pie slices,
 git branches, and the rest) rotated from the link colour by hue. Its own
 `theme`, `themeVariables`, `darkMode`, `fontFamily` and `themeCSS` are locked
-out; with **Diagrams in Mermaid's own colours** they work, as on GitHub. Either
-way, a diagram's `classDef`/`style` lines and a type's own colour options
+out; with **Diagrams in Mermaid's own colours** they work, as on GitHub, so there
+a diagram's own `fontFamily` overrides the document font it otherwise follows.
+Either way, a diagram's `classDef`/`style` lines and a type's own colour options
 (`c4.*_bg_color`, `journey.actorColours`, `sankey.linkColor`/`nodeColors`,
 `railroad.*`) still colour it — the author chose those for that diagram, and
 they are the one route left for a file to put its own CSS on a diagram's shapes
@@ -673,6 +691,7 @@ Every Rust crate is permissively licensed and compatible with that; none is
 GPL, LGPL, AGPL or SSPL. Five transitive crates are MPL-2.0, whose file-level
 copyleft expressly allows combining them into an MIT-licensed larger work. The
 Linux AppImage also carries unmodified Ubuntu system libraries under their own
-licences, some LGPL and one GPL. Per-license breakdown, attribution and the
-AppImage's source offer in
+licences, some LGPL and one GPL. The bundled Libron font is under the SIL Open
+Font License, which allows shipping it with any software. Per-license
+breakdown, attribution and the AppImage's source offer in
 [`src-tauri/THIRD-PARTY-LICENSES.md`](src-tauri/THIRD-PARTY-LICENSES.md).

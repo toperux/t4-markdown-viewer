@@ -34,6 +34,8 @@ const els = {
   modeRadios: document.querySelectorAll('#settings-dialog input[name="open-mode"]'),
   reopenRadios: document.querySelectorAll('#settings-dialog input[name="reopen"]'),
   diagramColourRadios: document.querySelectorAll('#settings-dialog input[name="diagram-colours"]'),
+  docFont: document.getElementById("doc-font"),
+  docFontNote: document.getElementById("doc-font-note"),
   autoUpdate: document.getElementById("auto-update"),
   checkNow: document.getElementById("check-now"),
   updateStatus: document.getElementById("update-status"),
@@ -112,6 +114,11 @@ const state = {
   folderSort: "name",
   /** Whose colours diagrams wear: `"theme"` or `"mermaid"`, from `get_settings` at boot. */
   diagramColours: "theme",
+  /**
+   * The reader's document font, cleaned by Rust; empty for the theme's own.
+   * Starts empty, so the boot call always applies the saved one.
+   */
+  docFont: "",
 };
 
 // What opens as a document, by kind. The Open dialog's filters are built
@@ -431,6 +438,7 @@ function loadRenderer() {
     // load).
     const RENDER_TIMEOUT = 30000;
     let settled = false;
+    let fontsReady = null;
     const waiting = new Map();
     const fail = () => {
       if (settled) return;
@@ -473,7 +481,18 @@ function loadRenderer() {
     function onMessage(e) {
       if (e.source !== frame.contentWindow || typeof e.data !== "object" || !e.data) return;
       if (e.data.failed) return fail();
-      if (e.data.ready) return settled || ((settled = true), resolve(render));
+      if (e.data.ready) {
+        if (settled) return;
+        settled = true;
+        const go = () => resolve(render);
+        const timer = setTimeout(go, 2000);
+        fontsReady = () => (clearTimeout(timer), go());
+        // Copied, not transferred: the same buffers go to every new frame, and
+        // a transferred one would be detached for the next.
+        builtInFaces().then((faces) => frame.contentWindow?.postMessage({ fonts: faces }, "*"));
+        return;
+      }
+      if (e.data.fontsReady) return fontsReady?.();
       const settle = waiting.get(e.data.n);
       if (!settle) return;
       waiting.delete(e.data.n);
@@ -498,6 +517,29 @@ function loadRenderer() {
   });
   rendererLoad = load;
   return load;
+}
+
+/** The bundled faces, as bytes for the diagram frame, which can't load the app's CSS. */
+const BUILT_IN_FACES = [
+  ["Libron-Regular", "400", "normal"],
+  ["Libron-Bold", "700", "normal"],
+  ["Libron-Italic", "400", "italic"],
+  ["Libron-BoldItalic", "700", "italic"],
+];
+let builtInFaceBytes = null;
+function builtInFaces() {
+  builtInFaceBytes ??= Promise.all(
+    BUILT_IN_FACES.map(async ([file, weight, style]) => {
+      const r = await fetch(`fonts/libron/${file}.woff2`);
+      if (!r.ok) throw new Error(`${file}: ${r.status}`);
+      return { weight, style, data: await r.arrayBuffer() };
+    }),
+  ).catch((err) => {
+    // No faces: diagrams draw in the fallback, as before this change.
+    console.error("The bundled font did not load for diagrams:", err);
+    return [];
+  });
+  return builtInFaceBytes;
 }
 
 const MERMAID_BLOCK = "pre > code.language-mermaid";
@@ -3048,6 +3090,109 @@ function showDiagramColours(colours) {
   redrawDiagrams().catch(console.error);
 }
 
+/* ---------------- document font ---------------- */
+
+/** The font that ships with the app (src/fonts/libron); see config::DEFAULT_DOC_FONT. */
+const BUILT_IN_FONT = "Libron";
+
+// Font-name characters Rust would drop (config::doc_font), for the note before
+// saving. `char::is_control` covers U+0080-U+009F too.
+const FONT_NAME_DROPS = /[\u0000-\u001f\u007f-\u009f"\\<>{};,]/g;
+
+/**
+ * Put the reader's font over the theme's. Inline on #content: it beats
+ * every theme rule short of !important, and the browser drops an invalid value
+ * whole. The theme's own list follows, read with the override off, so a font
+ * this computer lacks falls back to the theme's rather than the browser's
+ * default. `state.docFont` came from Rust, cleaned.
+ */
+function applyDocFont() {
+  els.content.style.fontFamily = "";
+  if (!state.docFont) return;
+  const theme = getComputedStyle(els.content).fontFamily;
+  els.content.style.fontFamily = `"${state.docFont}", ${theme}`;
+}
+
+/**
+ * Load a font's four faces before it is applied, so nothing (a diagram above
+ * all, which measures its labels as it draws) is laid out in the fallback
+ * first. A name with no @font-face, such as an installed font, resolves at
+ * once.
+ */
+function loadFontFaces(font) {
+  const faces = ["", "bold ", "italic ", "italic bold "];
+  return Promise.all(faces.map((f) => document.fonts.load(`${f}16px "${font}"`))).catch(() => {});
+}
+
+let docFontToken = 0;
+
+/**
+ * Reflect the font in Settings and on the page. Also called when another window
+ * changes it, so it must not re-broadcast. Diagrams wear the document's font,
+ * so they redraw when their look changes, as for the diagram colours. A later
+ * call wins over one still loading.
+ */
+async function showDocFont(font) {
+  // Counted before the early return: a call that changes nothing still
+  // outranks an older one still loading, so every window ends on the last save.
+  const token = ++docFontToken;
+  els.docFont.value = font;
+  showDocFontNote(font);
+  if (font === state.docFont) return;
+  if (font) await loadFontFaces(font);
+  if (token !== docFontToken) return;
+  const drawn = !els.content.hidden && diagramFigures().length > 0;
+  const before = drawn && diagramLook().key;
+  state.docFont = font;
+  applyDocFont();
+  if (drawn && diagramLook().key !== before) {
+    els.diagramDialog.close(); // the overlay's copy is of the old drawing
+    redrawDiagrams().catch(console.error);
+  }
+}
+
+/**
+ * Whether `name` is a font this computer has. `document.fonts.check` says yes
+ * to every name, and on the Mac a canvas can't see fonts installed per user
+ * (both measured), so a hidden span is measured instead: a missing font falls
+ * back to the generic, whose width it then has exactly; an installed one
+ * differs from at least one of the three.
+ */
+function fontInstalled(name) {
+  const probe = document.createElement("span");
+  probe.textContent = "mmmmmmmmmmlliWWQ@#0123456789";
+  // A size in px: a bare `monospace` would otherwise drop to the browsers' 13px
+  // default.
+  probe.style.cssText =
+    "position:absolute;left:-10000px;top:0;visibility:hidden;white-space:nowrap;font-size:32px";
+  document.body.append(probe);
+  try {
+    const width = (family) => {
+      probe.style.fontFamily = family;
+      return probe.getBoundingClientRect().width;
+    };
+    return ["monospace", "serif", "sans-serif"].some((g) => width(`"${name}", ${g}`) !== width(g));
+  } finally {
+    probe.remove();
+  }
+}
+
+function showDocFontNote(raw) {
+  const name = raw.replace(FONT_NAME_DROPS, "").trim();
+  // CSS matches family names without regard to case, so "libron" is the
+  // built-in one too.
+  const note = !name
+    ? "The theme's own font."
+    : name.toLowerCase() === BUILT_IN_FONT.toLowerCase()
+      ? `${BUILT_IN_FONT} is built in.`
+      : fontInstalled(name)
+        ? `${name} is on this computer.`
+        : `${name} isn't on this computer, so the theme's font is used.`;
+  // A live region announces even an unchanged text (measured on WebView2): a
+  // save and the typing's pending note would say it twice.
+  if (els.docFontNote.textContent !== note) els.docFontNote.textContent = note;
+}
+
 /* ---------------- reopening ---------------- */
 
 /**
@@ -3577,6 +3722,7 @@ async function applyTheme(name) {
     const drawn = !els.content.hidden && diagramFigures().length > 0;
     const before = drawn && diagramLook().key;
     els.themeStyle.textContent = css;
+    applyDocFont();
     // Themes colour the page on body, not in a --ui-* variable; the active tab wears it.
     document.documentElement.style.setProperty("--page-bg", getComputedStyle(document.body).backgroundColor);
     state.theme = name;
@@ -4288,6 +4434,7 @@ async function onKeydown(event) {
     // the other two platforms. Same door as the gear.
     event.preventDefault();
     showOpenMenu(false);
+    showDocFontNote(els.docFont.value);
     els.settings.showModal();
   }
 }
@@ -4421,6 +4568,7 @@ async function main() {
 
   els.settingsBtn.addEventListener("click", () => {
     showOpenMenu(false);
+    showDocFontNote(els.docFont.value);
     els.settings.showModal();
   });
   for (const radio of els.modeRadios) {
@@ -4436,6 +4584,30 @@ async function main() {
       }
     });
   }
+  // Saved on Enter, when the field is left, or when Settings closes;
+  // the note follows the typing. The page changes when the broadcast
+  // comes back, in this window as in every other. Leaving the window isn't
+  // leaving the field: WebView2 blurs it then, and would save a half-typed
+  // name. On `blur`, not `change`: `change` fires once per edit, so a skipped
+  // one would leave a later Tab saving nothing.
+  const saveDocFont = async () => {
+    if (els.docFont.value === state.docFont) return; // already saved, or Enter then blur
+    await invoke("set_doc_font", { font: els.docFont.value });
+  };
+  // Once typing pauses: the note is a live region, and a screen reader would
+  // otherwise announce it for every letter.
+  let docFontNoteTimer;
+  els.docFont.addEventListener("input", () => {
+    clearTimeout(docFontNoteTimer);
+    docFontNoteTimer = setTimeout(() => showDocFontNote(els.docFont.value), 500);
+  });
+  els.docFont.addEventListener("blur", () => document.hasFocus() && saveDocFont().catch(toast));
+  els.settings.addEventListener("close", () => saveDocFont().catch(toast));
+  els.docFont.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || e.isComposing || e.keyCode === 229) return;
+    e.preventDefault(); // the form would submit and close Settings
+    saveDocFont().catch(toast);
+  });
   for (const radio of els.reopenRadios) {
     radio.addEventListener("change", () => {
       if (!radio.checked) return;
@@ -4620,6 +4792,10 @@ async function main() {
   await applyTheme(settings.theme);
   // The saved theme is the side the reader last chose, so start from it.
   state.themeMode = currentTheme()?.mode ?? state.themeMode;
+  // Rust has cleaned it. After the theme: WebKit unloads the faces whenever a
+  // stylesheet changes (measured), so they load once the theme's is in, still
+  // before the first document renders.
+  await showDocFont(settings.doc_font ?? "");
 
   /*
    * Addressed to this window only. `listen()` defaults to the `Any` target,
@@ -4662,6 +4838,7 @@ async function main() {
   });
   await listen("open-mode-changed", (e) => showOpenMode(e.payload));
   await listen("diagram-colours-changed", (e) => showDiagramColours(e.payload));
+  await listen("doc-font-changed", (e) => showDocFont(e.payload).catch(console.error));
   // Broadcast on purpose: one install is happening to the whole app, so every
   // window's dialog should count along with it.
   await listen("update-progress", (e) => {

@@ -39,6 +39,12 @@ v1.3.0 shipping an installer named 1.2.0, which the updater then refuses.
      checked against the macOS 13 WebView. And a mermaid bump re-measures
      which diagram types put foreignObjects in their drawings (see
      `warmSources`).
+   - **Libron.** `src/fonts/libron/` holds the WOFF2 build (`Libron_Web.zip`)
+     of [nicoverbruggen/libron](https://github.com/nicoverbruggen/libron),
+     vendored too. Check for a newer release; a bump swaps the four `.woff2`
+     files and `OFL.txt` together, unmodified (the OFL reserves the name
+     Libron), and the version in `src-tauri/THIRD-PARTY-LICENSES.md` and in
+     the `@font-face` comment in `src/base.css`.
    - **Actions on the publish path.** If an action in the `publish` job
      (`softprops/action-gh-release`, `download-artifact`) was bumped since the
      last tag (`git diff <last tag> -- .github/workflows/release.yml`), run a

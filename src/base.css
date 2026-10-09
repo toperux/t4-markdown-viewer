@@ -11,6 +11,36 @@
  * theme sets the four core ones, and the values below are only fallbacks.
  */
 
+/*
+ * Libron, the default document font (Settings › Document font), bundled from
+ * github.com/nicoverbruggen/libron v0.30 under the SIL Open Font License,
+ * src/fonts/libron/OFL.txt. Declared here, not in a theme, so every theme has it.
+ */
+@font-face {
+  font-family: "Libron";
+  src: url("fonts/libron/Libron-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+}
+@font-face {
+  font-family: "Libron";
+  src: url("fonts/libron/Libron-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+}
+@font-face {
+  font-family: "Libron";
+  src: url("fonts/libron/Libron-Italic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+}
+@font-face {
+  font-family: "Libron";
+  src: url("fonts/libron/Libron-BoldItalic.woff2") format("woff2");
+  font-weight: 700;
+  font-style: italic;
+}
+
 :root {
   --ui-bg: #f5f5f5;
   --ui-fg: #1f1f1f;
@@ -653,6 +683,33 @@ li[aria-expanded="true"] > .tree-row .tree-twist {
 }
 
 #settings-dialog select:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 1px;
+}
+
+/* The tree filter's field, sized like the select above. */
+#settings-dialog input[type="text"] {
+  appearance: none;
+  box-sizing: border-box;
+  min-width: 14rem;
+  padding: 0.125rem 0.25rem;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--ui-border);
+  border-radius: 3px;
+}
+
+/* The browser's own placeholder grey is one color for every theme. */
+#settings-dialog input[type="text"]::placeholder {
+  color: var(--ui-fg-muted);
+}
+
+#settings-dialog input[type="text"]:hover {
+  border-color: var(--ui-accent);
+}
+
+#settings-dialog input[type="text"]:focus-visible {
   outline: 2px solid var(--ui-accent);
   outline-offset: 1px;
 }

@@ -8,6 +8,19 @@ if (typeof mermaid === "undefined") parent.postMessage({ failed: true }, "*");
 else {
   addEventListener("message", async (e) => {
     if (e.source !== parent || !e.data) return;
+    // The app's own fonts, as bytes: this frame has no origin and can't load
+    // its CSS. How many loaded goes back, for the checks.
+    if (Array.isArray(e.data.fonts)) {
+      const faces = e.data.fonts.flatMap(({ weight, style, data }) => {
+        if (!(data instanceof ArrayBuffer)) return [];
+        const face = new FontFace("Libron", data, { weight: String(weight), style: String(style) });
+        document.fonts.add(face);
+        return [face.load().then(() => 1, () => 0)];
+      });
+      const loaded = (await Promise.all(faces)).reduce((a, b) => a + b, 0);
+      parent.postMessage({ fontsReady: true, loaded }, "*");
+      return;
+    }
     const { n, config, id, source, width } = e.data;
     // The width mermaid lays out in — gantt fills it — as the page's was.
     document.body.style.width = `${width}px`;

@@ -45,6 +45,14 @@ Regenerate with `npm install mermaid@<version> --omit=dev` in an empty folder,
 then group `npm ls --all --omit=dev --parseable` by each `package.json`'s
 `license`.
 
+### Libron
+
+`src/fonts/libron/*.woff2` — v0.30 (the release's `Libron_Web.zip`), redistributed
+verbatim. SIL Open Font License 1.1, in full in `src/fonts/libron/OFL.txt`. Copyright (c)
+2026 Nico Verbruggen, with Reserved Font Name Libron; based on Readerly (c) 2026 Nico
+Verbruggen and Newsreader (c) 2020 The Newsreader Project Authors.
+<https://github.com/nicoverbruggen/libron>
+
 ## Theme colors
 
 The bundled themes in `themes/` are original CSS written for this app. Their
