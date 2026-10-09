@@ -30,8 +30,30 @@ v1.3.0 shipping an installer named 1.2.0, which the updater then refuses.
 ## Steps
 
 1. **Land the work first.** Feature commits are separate from the release
-   commit. Check `git status` is otherwise clean. Two checks nothing else
+   commit. Check `git status` is otherwise clean. Checks nothing else
    makes:
+   - **Dependabot pull requests** (`gh pr list --author app/dependabot`).
+     Before merging one, read its diff (`gh pr diff <n>`). Every changed line
+     should be a version, pin or checksum, and nothing should change outside
+     those. Then check where each new version comes from:
+     - **An action's new pin** is a commit on the action's upstream default
+       branch. `identical` or `behind` passes; `diverged` or a 404 does not:
+
+       ```sh
+       gh api repos/<owner>/<action>/compare/<default-branch>...<new-sha> --jq .status
+       gh api repos/<owner>/<action>/compare/<old-sha>...<new-sha> --jq '.files[].filename, .commits[].commit.message'
+       ```
+
+     - **A Cargo.lock entry** names
+       `registry+https://github.com/rust-lang/crates.io-index` as its
+       `source`.
+
+     Merge with `gh pr merge <n> --rebase`, which keeps Dependabot's `ci:` or
+     `chore:` subject (`.github/dependabot.yml`), so the bump stays off the
+     release page; PR #10 went in that way. A bump that needs changes of its
+     own is redone locally instead, as a `chore:` or `ci:` commit naming the
+     PR (#3, #4, #5). A PR that changes the shipped runtime (any Cargo crate)
+     also gets the owner's ruling on whether it needs a walk before it ships.
    - **highlight.js and mermaid.** `src/vendor/highlight.min.js` and
      `src/vendor/mermaid.min.js` are vendored, so Dependabot never offers a
      new release. Check for one; a bump swaps the file and its version line in
