@@ -62,6 +62,10 @@ Node 20 or later (`toReversed`, global `fetch`).
 
   A consequence: the user's own themes (in their config folder) aren't there.
   Copy one into `$S/config/t4-markdown-viewer/themes/` if it's under test.
+  Nor are the user's fonts: WebKit looks for them in `$XDG_DATA_HOME/fonts`, so
+  a font in `~/.local/share/fonts` is invisible to the app until linked in
+  (`ln -s ~/.local/share/fonts $S/data/fonts`). A check of whether a font is
+  installed covers that link too (`fc-list` alone misses it).
 - **Ports and display.** `ss -ltn | grep -E ':444[45]'` should be empty
   (tauri-driver on 4444, WebKitWebDriver on 4445; `--port` / `--native-port`
   move them). `ls /tmp/.X11-unix/` shows the displays taken; use `:99` unless
