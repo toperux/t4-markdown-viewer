@@ -233,6 +233,8 @@ On macOS, read `Cmd` for every `Ctrl` below.
 | `Alt+←` / `Alt+→`, or `Ctrl+[` / `Ctrl+]` | Back / forward through visited documents |
 | `Ctrl+O` | Open a file, wherever Settings says |
 | `Ctrl+Shift+O` | Show or hide the sidebar with the tab's folder — the one you picked, or the one it last showed while the document is inside it, otherwise the current file's (a picker when nothing is open) |
+| `Ctrl+F` | Find in the document |
+| `Enter` / `F3` / `Ctrl+G` (`Shift` for previous) | Next / previous match |
 | `Ctrl+Shift+F` | Filter the sidebar tree (opens it first when it is closed) |
 | `Ctrl+T` | Open a file in a new **tab** |
 | `Ctrl+N` | Open a file in a new **window** |

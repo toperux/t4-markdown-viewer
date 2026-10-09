@@ -88,9 +88,10 @@ background so it reads as the front of the document, and a theme that leaves
 the strip. Don't animate it (`transition`): the app reads the page colour the
 moment a theme is applied, and would read the colour it starts from.
 
-Four more are optional. base.css supplies defaults — `--ui-on-accent` is
+Six more are optional. base.css supplies defaults — `--ui-on-accent` is
 white, `--ui-accent-text` follows `--ui-accent`, `--ui-fg-muted` is `--ui-fg`
-at 75%, `--ui-error` is red mixed 60/40 with `--ui-fg` — so set one only where
+at 75%, `--ui-error` is red mixed 60/40 with `--ui-fg`, `--find-match` is
+`--ui-accent` at 35%, `--find-current` is `--ui-accent` — so set one only where
 its default falls short on contrast in your theme:
 
 ```css
@@ -99,6 +100,8 @@ its default falls short on contrast in your theme:
   --ui-accent-text: var(--ui-accent); /* accent-colored text: selected file, Update */
   --ui-fg-muted: color-mix(in srgb, var(--ui-fg) 75%, transparent); /* hints, file name */
   --ui-error: color-mix(in srgb, #d13438 60%, var(--ui-fg)); /* error text: a failed update */
+  --find-match: color-mix(in srgb, var(--ui-accent) 35%, transparent); /* every find match */
+  --find-current: var(--ui-accent); /* the current find match; its text is --ui-on-accent */
 }
 ```
 

@@ -6,9 +6,10 @@
  * shared document type scale — so that a half-finished theme still lays out
  * correctly. A theme restates only the scale or spacing it wants different.
  *
- * The app chrome (top bar) is the one exception: it needs *some* color to be
+ * The app chrome (top bar) is one exception: it needs *some* color to be
  * usable before a theme loads. It reads the `--ui-*` custom properties; every
  * theme sets the four core ones, and the values below are only fallbacks.
+ * Find's highlights are the other; see `::highlight(find)` below.
  */
 
 /*
@@ -56,6 +57,23 @@
 
   /* Themes override this. Must be on :root — see the note in _template.css. */
   color-scheme: light;
+}
+
+/*
+ * Find's highlights: the other exception to the rule at the top. They paint
+ * inside .markdown-body, so they take the theme's accent, which every theme
+ * sets. A theme may set --find-match and --find-current itself.
+ */
+:root {
+  --find-match: color-mix(in srgb, var(--ui-accent) 35%, transparent);
+  --find-current: var(--ui-accent);
+}
+::highlight(find) {
+  background-color: var(--find-match);
+}
+::highlight(find-current) {
+  background-color: var(--find-current);
+  color: var(--ui-on-accent);
 }
 
 * {
@@ -192,6 +210,63 @@ body {
 #bar button:disabled:hover,
 #bar button[aria-disabled="true"]:hover {
   border-color: var(--ui-border);
+}
+
+/* ---------- find in document ---------- */
+
+/* Hangs under the bar at the right, taking no room in it. #bar is sticky, so
+   it is the containing block. Over the sidebar's header on a narrow window. */
+#find {
+  position: absolute;
+  top: 100%;
+  right: 1rem;
+  max-width: calc(100vw - 2rem);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.375rem;
+  background: var(--ui-bg);
+  color: var(--ui-fg);
+  border: 1px solid var(--ui-border);
+  border-top: 0;
+  border-radius: 0 0 6px 6px;
+}
+
+#find[hidden] {
+  display: none;
+}
+
+/* The tree filter's look, not its layout: its block width and margin would
+   break the row. `font: inherit` because inputs don't inherit the font. */
+#find-input {
+  flex: 1 1 12rem;
+  min-width: 0;
+  appearance: none;
+  padding: 0.125rem 0.25rem;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--ui-border);
+  border-radius: 3px;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+#find-input::placeholder {
+  color: var(--ui-fg-muted);
+}
+
+#find-input:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 1px;
+}
+
+#find-count {
+  flex: none;
+  min-width: 7ch;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--ui-fg-muted);
 }
 
 /* ---------- open split button ---------- */

@@ -12,6 +12,12 @@ const els = {
   forward: document.getElementById("fwd-btn"),
   docName: document.getElementById("doc-name"),
   tabs: document.getElementById("tabs"),
+  find: document.getElementById("find"),
+  findInput: document.getElementById("find-input"),
+  findCount: document.getElementById("find-count"),
+  findPrev: document.getElementById("find-prev"),
+  findNext: document.getElementById("find-next"),
+  findClose: document.getElementById("find-close"),
   picker: document.getElementById("theme-picker"),
   themeToggle: document.getElementById("theme-mode-btn"),
   themeSun: document.getElementById("theme-mode-sun"),
@@ -633,6 +639,44 @@ function stylesStayInside(root) {
  */
 let pixel = null;
 
+// A colour as sRGB bytes, painted over `under` — any CSS form, see-through or
+// not.
+function bytes(css, under) {
+  pixel ??= document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+  pixel.fillStyle = under;
+  pixel.fillRect(0, 0, 1, 1);
+  pixel.fillStyle = css;
+  pixel.fillRect(0, 0, 1, 1);
+  return [...pixel.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+}
+
+const lum = (c) =>
+  c.map((v) => ((v /= 255) <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)).reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0);
+const contrast = (a, b) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
+
+/*
+ * Find's match tint: the theme's accent, as strong as it can be up to 35%
+ * while the theme's text keeps 3:1 on it. A theme that sets --find-match
+ * keeps its own.
+ */
+function findTint() {
+  const root = document.documentElement;
+  root.style.removeProperty("--find-match");
+  if (els.themeStyle.textContent.includes("--find-match")) return;
+  const page = getComputedStyle(document.body).backgroundColor;
+  const bg = bytes(page, "#fff");
+  const text = bytes(getComputedStyle(els.content).color, page);
+  const accent = bytes(getComputedStyle(root).getPropertyValue("--ui-accent"), page);
+  for (let p = 35; p >= 10; p -= 5) {
+    const tint = accent.map((v, i) => Math.round((v * p + bg[i] * (100 - p)) / 100));
+    if (contrast(text, tint) >= 3) {
+      if (p < 35) root.style.setProperty("--find-match", `color-mix(in srgb, var(--ui-accent) ${p}%, transparent)`);
+      return;
+    }
+  }
+  root.style.setProperty("--find-match", "color-mix(in srgb, var(--ui-accent) 10%, transparent)");
+}
+
 /**
  * Hidden stand-ins for prose, code and a link — a `<p>`, a `<pre>` and a `<p>`
  * holding an `<a>` — put straight into the document for each read, so the
@@ -648,15 +692,6 @@ let themeProbe = null;
  * link colour, as the theme styles a document.
  */
 function diagramLook() {
-  pixel ??= document.createElement("canvas").getContext("2d", { willReadFrequently: true });
-  // A colour as sRGB bytes, painted over `under` — any CSS form, see-through or not.
-  const bytes = (css, under) => {
-    pixel.fillStyle = under;
-    pixel.fillRect(0, 0, 1, 1);
-    pixel.fillStyle = css;
-    pixel.fillRect(0, 0, 1, 1);
-    return [...pixel.getImageData(0, 0, 1, 1).data.slice(0, 3)];
-  };
   // On the page's own canvas colour first: that is what the webview paints
   // behind a page with no background — dark under a dark `color-scheme` — and
   // a see-through colour read on its own comes back black. The overlay's
@@ -691,9 +726,6 @@ function diagramLook() {
     for (const el of themeProbe) el.remove();
   }
   const mix = (a, b, t) => hexOf(a.map((v, i) => Math.round(v * t + b[i] * (1 - t))));
-  const lum = (c) =>
-    c.map((v) => ((v /= 255) <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)).reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0);
-  const contrast = (a, b) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
   const hue = ([r, g, b]) => {
     const max = Math.max(r, g, b), d = max - Math.min(r, g, b);
     if (!d) return 210;
@@ -1492,6 +1524,12 @@ const SCROLL_KEYS = new Set([
  */
 function holdScroll(target, token, entry) {
   const hold = new AbortController();
+  // So a jump to a find match can let go of it.
+  scrollHold = hold;
+  hold.signal.addEventListener("abort", () => {
+    // A newer hold may have taken its place.
+    if (scrollHold === hold) scrollHold = null;
+  });
   const { signal } = hold;
   const settled = () => [...els.content.querySelectorAll("img")].every((img) => img.complete);
   let height = els.content.offsetHeight;
@@ -3054,6 +3092,352 @@ async function openDocument(path) {
   }
 }
 
+/* ---------------- find in document ---------------- */
+
+const FIND_CAP = 1000; // 10 000 took up to 1.3 s to paint, measured
+// { text, starts, nodes } of #content, or null while the bar is closed
+let findIndex = null;
+let findStale = false; // #content changed since findIndex was built
+// Above this many text nodes a change inside the page isn't re-indexed on its
+// own: the fully loaded 9.75 MB JSON (2.3 M) took 0.8 s to 26 s, measured.
+const FIND_DEFER_NODES = 250000;
+let findDeferred = false; // stale, and waiting for Enter or typing
+let findHits = []; // StaticRange[], in document order
+let findHitStarts = []; // each hit's start offset in findIndex.text
+let findMore = false; // the search stopped at FIND_CAP
+let findCurrent = -1; // index into findHits, or -1 for none
+let findTimer = 0; // the typing debounce
+let findRefreshTimer = 0; // the mutation debounce
+let findObserver = null; // watches #content while the bar is open
+let findReturn = null; // what had focus before the bar opened
+let scrollHold = null; // the running holdScroll's AbortController
+
+// The two highlights, registered once and then only cleared and refilled:
+// WebKit leaves a highlight painted after it is deleted or replaced in
+// `CSS.highlights` (measured on the Mac). Null where the API is missing.
+const findPaint = CSS.highlights ? { all: new Highlight(), current: new Highlight() } : null;
+if (findPaint) {
+  findPaint.current.priority = 1;
+  CSS.highlights.set("find", findPaint.all);
+  CSS.highlights.set("find-current", findPaint.current);
+}
+
+// Block boundaries: no match crosses one.
+const FIND_BLOCKS = new Set(["P", "LI", "TD", "TH", "DT", "DD", "H1", "H2", "H3", "H4", "H5",
+  "H6", "PRE", "BLOCKQUOTE", "DIV", "TABLE", "TR", "UL", "OL", "DL", "FIGURE", "FIGCAPTION", "HR",
+  "BR", "SECTION"]);
+
+/*
+ * The searchable text of `root`: its text nodes joined, with "\0" where a block
+ * starts so no match crosses one. "\0" is safe: the HTML parser drops it from
+ * text, and `\s` doesn't match it. Buttons (the JSON "… more", copy section),
+ * SVG (diagrams, icons) and anything `hidden` (a folded JSON body) are left
+ * out. Tags and attributes only: computed style is too slow on a JSON page,
+ * and `checkVisibility` needs Safari 17.4.
+ */
+function buildFindIndex(root) {
+  const parts = [], starts = [], nodes = [];
+  let length = 0;
+  if (!root.hidden) {
+    const skip = (n) =>
+      n.nodeType === 1 && (n.tagName === "BUTTON" || n.tagName === "svg" || n.hasAttribute("hidden"))
+        ? NodeFilter.FILTER_REJECT
+        : NodeFilter.FILTER_ACCEPT;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, skip);
+    for (let n; (n = walker.nextNode()); ) {
+      if (n.nodeType === 1) {
+        if (FIND_BLOCKS.has(n.tagName)) parts.push("\0"), length++;
+      } else if (n.data) {
+        starts.push(length);
+        nodes.push(n);
+        parts.push(n.data);
+        length += n.data.length;
+      }
+    }
+  }
+  return { text: parts.join(""), starts, nodes };
+}
+
+/**
+ * The query as a pattern: case-insensitive, any whitespace run matching any
+ * other.
+ */
+function findPattern(query) {
+  // Not just whitespace or NULs, which would leave an empty pattern that
+  // matches nothing forever.
+  if (!/[^\s\0]/.test(query)) return null;
+  const literal = (s) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+  return new RegExp(query.replaceAll("\0", "").split(/\s+/).map(literal).join("\\s+"), "giu");
+}
+
+/** Up to `cap` matches of `query` in `index`, as ranges in document order. */
+function findMatches(index, query, cap) {
+  const ranges = [], hitStarts = [];
+  const re = findPattern(query);
+  if (!re) return { ranges, hitStarts, more: false };
+  // The node holding offset `i` of the text: the last whose start is at or
+  // before it.
+  const nodeAt = (i) => {
+    let lo = 0, hi = index.starts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (index.starts[mid] <= i) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
+  };
+  for (let m; (m = re.exec(index.text)); ) {
+    if (ranges.length === cap) return { ranges, hitStarts, more: true };
+    const a = nodeAt(m.index), b = nodeAt(m.index + m[0].length - 1);
+    ranges.push(new StaticRange({
+      startContainer: index.nodes[a], startOffset: m.index - index.starts[a],
+      endContainer: index.nodes[b], endOffset: m.index + m[0].length - index.starts[b],
+    }));
+    hitStarts.push(m.index);
+  }
+  return { ranges, hitStarts, more: false };
+}
+
+/**
+ * Rebuilds the index if it is missing or stale; true when the searchable text
+ * changed.
+ */
+function freshFindIndex() {
+  if (findIndex && !findStale) return false;
+  const old = findIndex?.text;
+  findIndex = buildFindIndex(els.content);
+  findStale = false;
+  return findIndex.text !== old;
+}
+
+/*
+ * Search the page for the query. "type": the query changed, so keep the
+ * current match if it still starts in the same place, else take the first one
+ * on screen (the last, for `step` −1), and bring it into view. "mutate": the
+ * page changed under the query, so only recount and repaint, never scroll; the
+ * app's own scroll restore stands. Either way the current match is kept only
+ * while the text is the same: after a change its offset means something else.
+ * Returns whether the current match was kept.
+ */
+function runFind(mode, step = 1) {
+  const changed = freshFindIndex();
+  findDeferred = false;
+  const keep = findCurrent >= 0 && !changed ? findHitStarts[findCurrent] : -1;
+  ({ ranges: findHits, hitStarts: findHitStarts, more: findMore } =
+    findMatches(findIndex, els.findInput.value, FIND_CAP));
+  findCurrent = keep < 0 ? -1 : findHitStarts.indexOf(keep);
+  const kept = findCurrent >= 0;
+  if (mode === "type" && !kept && findHits.length) findCurrent = firstShownHit(step);
+  paintFind();
+  showFindCount();
+  if (mode === "type" && findCurrent >= 0) scrollToHit(findHits[findCurrent]);
+  return kept;
+}
+
+function findStep(step) {
+  // Enter straight after typing: the pending search is the move, unless it
+  // kept the current match; then step on from it, as Enter would after a pause.
+  if (findTimer) {
+    clearTimeout(findTimer);
+    findTimer = 0;
+    if (!runFind("type", step)) return;
+  }
+  // The page changed inside the last 150 ms, or a huge page's change waited.
+  if (findStale) runFind("mutate");
+  if (!findHits.length) return;
+  findCurrent =
+    findCurrent < 0 ? firstShownHit(step) : (findCurrent + step + findHits.length) % findHits.length;
+  paintCurrent();
+  showFindCount();
+  scrollToHit(findHits[findCurrent]);
+}
+
+/*
+ * A hit's box on screen. A `StaticRange` has none, so through a live `Range`
+ * each time. Safe: every path here rebuilds a stale index first, so a hit
+ * never points at a removed node.
+ */
+function hitRect(hit) {
+  const range = document.createRange();
+  range.setStart(hit.startContainer, hit.startOffset);
+  range.setEnd(hit.endContainer, hit.endOffset);
+  return range.getBoundingClientRect();
+}
+
+/*
+ * The first hit on screen below the find bar, else the first; for `step` −1,
+ * the last above the window's bottom, else the last. The hits are in document
+ * order, so a binary search reads only a few rects.
+ */
+function firstShownHit(step) {
+  const n = findHits.length;
+  if (step > 0) {
+    const top = els.find.getBoundingClientRect().bottom;
+    let lo = 0, hi = n;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (hitRect(findHits[mid]).top >= top) hi = mid;
+      else lo = mid + 1;
+    }
+    return lo < n ? lo : 0;
+  }
+  let lo = -1, hi = n - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (hitRect(findHits[mid]).top < innerHeight) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo >= 0 ? lo : n - 1;
+}
+
+/**
+ * Brings a hit into view: across its code block or table first, then the page
+ * if it's off screen.
+ */
+function scrollToHit(hit) {
+  // A plain code block's text sits directly in a wide <code>, so
+  // `scrollIntoView` on the parent wouldn't move it; the box that scrolls
+  // sideways is moved instead.
+  const box = hit.startContainer.parentElement?.closest("pre, .table-scroll");
+  if (box) {
+    const r = hitRect(hit), b = box.getBoundingClientRect();
+    if (r.left < b.left || r.right > b.right) box.scrollLeft += (r.left + r.right - b.left - b.right) / 2;
+  }
+  const rect = hitRect(hit);
+  const findBottom = els.find.getBoundingClientRect().bottom;
+  if (rect.top < findBottom || rect.bottom > innerHeight) {
+    // A restore's hold would pull the page back to its saved position.
+    scrollHold?.abort();
+    window.scrollBy(0, rect.top - (findBottom + innerHeight) / 2);
+  }
+}
+
+/**
+ * Paints every hit, then the current one. Nothing where the API is missing:
+ * the search and count still work, unpainted.
+ */
+function paintFind() {
+  if (!findPaint) return;
+  findPaint.all.clear();
+  // `.add` in a loop: JavaScriptCore caps spread arguments near 65 000.
+  for (const hit of findHits) findPaint.all.add(hit);
+  paintCurrent();
+}
+
+/**
+ * The current hit, over the others (`priority`, measured on all three
+ * engines).
+ */
+function paintCurrent() {
+  // As in paintFind; findStep calls this directly.
+  if (!findPaint) return;
+  findPaint.current.clear();
+  if (findCurrent >= 0) findPaint.current.add(findHits[findCurrent]);
+}
+
+/** "3 of 12", "12 matches", "No matches", or nothing without a query. */
+function showFindCount() {
+  let text = "";
+  if (/[^\s\0]/.test(els.findInput.value)) {
+    const total = findHits.length.toLocaleString() + (findMore ? "+" : "");
+    if (!findHits.length) text = "No matches";
+    else if (findCurrent >= 0) text = `${(findCurrent + 1).toLocaleString()} of ${total}`;
+    else text = findHits.length === 1 ? "1 match" : `${total} matches`;
+  }
+  // A JSON loads in chunks; only what's on the page is searched.
+  const partial = text && !els.content.hidden && els.content.querySelector("button.more");
+  // "(changed)" last: it comes and goes, "(loaded part)" stays put.
+  const titles = [];
+  if (partial) {
+    text += " (loaded part)";
+    titles.push("Only the loaded part of this file is searched. Load the rest with '… more' at its end.");
+  }
+  if (text && findDeferred) {
+    text += " (changed)";
+    titles.push("The page changed. Press Enter or type to count again.");
+  }
+  els.findCount.textContent = text;
+  els.findCount.title = titles.join(" ");
+}
+
+/*
+ * #content changed while the bar is open: a new document, a reload, a JSON
+ * fold or "more", a diagram redrawn, a picture or error screen hiding it. Mark
+ * the index stale at once (this runs as a microtask, before the next key), and
+ * recount once things settle. On a huge page a change inside it waits for
+ * Enter or typing instead; a new document, or #content shown or hidden, never
+ * does.
+ */
+function findMutated(records) {
+  findStale = true;
+  const own = records.some(
+    (r) => r.target === els.content && (r.type === "childList" || r.attributeName === "hidden"));
+  if (!own && findIndex?.nodes.length > FIND_DEFER_NODES) {
+    findDeferred = true;
+    showFindCount();
+    return;
+  }
+  clearTimeout(findRefreshTimer);
+  findRefreshTimer = setTimeout(() => {
+    findRefreshTimer = 0;
+    runFind("mutate");
+  }, 150);
+}
+
+function openFind() {
+  if (els.find.hidden) {
+    // An item of the open-menu is about to be hidden with it; go back to its
+    // button instead.
+    findReturn = els.openMenu.contains(document.activeElement) ? els.openMore : document.activeElement;
+    els.find.hidden = false;
+    // `hidden` on #content itself too: show() hides it for a picture or error
+    // screen.
+    (findObserver ??= new MutationObserver(findMutated)).observe(els.content, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["hidden"],
+    });
+    runFind("mutate"); // a kept query recounts on this page, without moving
+  }
+  showOpenMenu(false);
+  els.findInput.focus();
+  els.findInput.select();
+}
+
+function closeFind() {
+  // Esc works from anywhere; only focus that was in the bar is moved.
+  const inBar = els.find.contains(document.activeElement);
+  els.find.hidden = true;
+  clearTimeout(findTimer);
+  clearTimeout(findRefreshTimer);
+  findTimer = findRefreshTimer = 0;
+  findObserver?.disconnect();
+  findPaint?.all.clear();
+  findPaint?.current.clear();
+  findIndex = null;
+  findDeferred = false;
+  findHits = [];
+  findHitStarts = [];
+  findCurrent = -1;
+  // The query stays in the input, for F3 and Ctrl+G.
+  if (inBar) {
+    els.findInput.blur();
+    // Without scrolling: the reader stays at the match they walked to.
+    if (findReturn?.isConnected && findReturn.getClientRects().length)
+      findReturn.focus({ preventScroll: true });
+  }
+  findReturn = null;
+}
+
+/**
+ * F3 and Ctrl+G: open the bar if it's closed, then move if there is a query.
+ */
+function findAgain(step) {
+  if (els.find.hidden) openFind();
+  if (/[^\s\0]/.test(els.findInput.value)) findStep(step);
+}
+
 /* ---------------- open mode ---------------- */
 
 /**
@@ -3723,6 +4107,7 @@ async function applyTheme(name) {
     const before = drawn && diagramLook().key;
     els.themeStyle.textContent = css;
     applyDocFont();
+    findTint();
     // Themes colour the page on body, not in a --ui-* variable; the active tab wears it.
     document.documentElement.style.setProperty("--page-bg", getComputedStyle(document.body).backgroundColor);
     state.theme = name;
@@ -4310,6 +4695,18 @@ async function onKeydown(event) {
     return;
   }
 
+  // WebView2 opens its own find bar on each of these (measured). The modifier
+  // is checked as the reload's is: AltGr arrives as Ctrl+Alt, and AltGr+F
+  // types "[" on a Hungarian layout. `keyCode` for non-Latin layouts, as
+  // above. `key` can be missing (an autofill keydown), hence the `?.`.
+  const k = event.key?.toLowerCase();
+  if (
+    event.key === "F3" ||
+    event.keyCode === 114 ||
+    (ctrl && !event.altKey && (k === "f" || k === "g" || event.keyCode === 70 || event.keyCode === 71))
+  )
+    event.preventDefault();
+
   // Otherwise a dialog is modal: let it own the keyboard, Escape included —
   // but not WebView2's Back and Forward, which would walk the `#id` history
   // under it.
@@ -4325,6 +4722,12 @@ async function onKeydown(event) {
     if (event.key === "Escape") return;
   }
   if (event.key === "Escape" && closeActorMenus()) return;
+  // From anywhere while the find bar is open, not only from its input. Not the
+  // Esc that cancels IME input.
+  if (event.key === "Escape" && !els.find.hidden && !event.isComposing && event.keyCode !== 229) {
+    closeFind();
+    return;
+  }
 
   // A diagram or picture with focus opens as a click on it would. Space
   // too, which would otherwise scroll the page. Not on a held key's repeat,
@@ -4358,6 +4761,11 @@ async function onKeydown(event) {
       go(1);
       return;
     }
+  }
+
+  if (event.key === "F3" || event.keyCode === 114) {
+    findAgain(event.shiftKey ? -1 : 1);
+    return;
   }
 
   // Windows reports AltGr as Ctrl+Alt, and on a German or Nordic keyboard
@@ -4415,6 +4823,11 @@ async function onKeydown(event) {
     if (state.folder === null) return; // the picker was cancelled
     els.treeFilter.focus();
     els.treeFilter.select();
+  } else if ((key === "f" || event.keyCode === 70) && !event.shiftKey) {
+    // Not with Shift: Ctrl+Shift+А on a Cyrillic layout has keyCode 70 too.
+    openFind();
+  } else if (key === "g" || event.keyCode === 71) {
+    findAgain(event.shiftKey ? -1 : 1);
   } else if (key === "t" && event.shiftKey) {
     event.preventDefault();
     await reopenClosed();
@@ -4513,6 +4926,27 @@ async function main() {
       if (row) await loadPath(row.dataset.path);
     }
   });
+  els.findInput.addEventListener("keydown", (event) => {
+    // The Enter that confirms IME input; WebKit may send it with isComposing
+    // false.
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      findStep(event.shiftKey ? -1 : 1);
+    }
+  });
+  // A search 150 ms after the last keystroke, never one per key.
+  els.findInput.addEventListener("input", () => {
+    clearTimeout(findTimer);
+    findTimer = setTimeout(() => {
+      findTimer = 0;
+      runFind("type");
+    }, 150);
+  });
+  els.findPrev.addEventListener("click", () => findStep(-1));
+  els.findNext.addEventListener("click", () => findStep(1));
+  els.findClose.addEventListener("click", closeFind);
   // Toast, not the console: Shift+click asks Rust for a window, and a failure
   // there has nothing of its own to show — the other two branches render their
   // own error page.
