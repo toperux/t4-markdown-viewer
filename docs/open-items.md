@@ -204,6 +204,14 @@ The next three came out of the session-restore walks (`archive/plans/session-res
   update dialog on top hid it, or whether a default-size window shows it fine. The Mac's *Check now*
   worked. First step: reproduce on the Windows VM with and without the update dialog open, at the
   window's default size. Reopen with the next UI work, or on a report.
+- [ ] **A size for the document font** (added 2026-10-09, `plans/document-font.md`, ruling F3).
+  Settings › *Document font* picks the family only; the size stays the theme's. The walks
+  (2026-10-09) measured Libron's x-height at 0.53 of the font size: about Azure DevOps' own
+  (0.50 Segoe UI on Windows), but 15% above Tufte's Palatino (0.46), so Tufte reads visibly
+  larger in Libron and its intro wraps a line sooner on the Mac. All three walkers found it
+  readable; kept by the owner. A fix to start from: `font-size-adjust` on `#content` set to the
+  theme font's own x-height ratio (support on WebKitGTK unverified). Reopen if Libron or another
+  chosen font reads too small or large at the themes' sizes, or on a report about Tufte.
 
 ## Accepted limits
 

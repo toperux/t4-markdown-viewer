@@ -1258,3 +1258,25 @@ tooling; listed so nobody rediscovers them.
   before the plan. Closes that don't activate it (a taskbar thumbnail's ×, *Close all windows*, the
   macOS red button on a background window) keep the stacking (walked).
   *Kept 2026-10-08, owner's call, no trigger.*
+- [x] **Closing the window with an unsaved document font edit loses it** (2026-10-09,
+  `plans/document-font.md`, ruling D5). The name typed in Settings › *Document font* saves on
+  Enter, on leaving the field and on closing the dialog; closing the whole window instead drops it.
+  *Kept 2026-10-09, owner's call: closing the window fires no dialog `close`, and a save on the
+  way out might not finish.*
+- [x] **A window still starting can miss a font change made in another window at that moment**
+  (2026-10-09, `plans/document-font.md`, ruling R4). A change saved between the new window's
+  `get_settings` and its `doc-font-changed` listener leaves it on the old font until the next
+  change. *Kept 2026-10-09, owner's call: as the diagram colours and open mode already can; it
+  needs two windows and a save in the same moment.*
+- [x] **Diagrams drawn while the diagram frame's fonts are late keep fallback-sized labels**
+  (2026-10-09, `plans/document-font.md`, ruling R5). A new diagram frame waits up to 2 s for
+  Libron's faces; past that it draws in the fallback, and those drawings are cached, so their
+  labels sit slightly off until a theme or font change or a restart. *Kept 2026-10-09, owner's
+  call: the handover took 37 ms and 21 ms on WebView2 and 9 ms on the Mac (Task 4 checks).*
+- [x] **On Linux, an app started with no document drops the preloaded Libron faces** (2026-10-09,
+  the document font's change review). WebKit unloads a page's `@font-face` faces when a
+  stylesheet changes, so boot loads them after the theme; but WebKitGTK unloads them again when
+  the hidden window is shown, for a reason of its own. Started on a document, they survive; the
+  Mac and Windows keep them. WebKit reloads a face as text uses it, and no run showed a frame in
+  another font (first sampled frame onward; diagrams draw from their own copy).
+  *Kept 2026-10-09, owner's call, no trigger.*
