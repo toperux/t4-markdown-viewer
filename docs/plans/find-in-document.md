@@ -879,3 +879,129 @@ committed on main after `node --check` and `cargo test`. Task 5 is the main sess
 doc edits). Walks run on the Windows VM, the Linux VM and the Mac, then the change review loop
 (CLAUDE.md step 5). At packaging the commits are squashed into one feature commit, "Find text
 in the document (Ctrl/Cmd+F)", plus `docs:` records.
+
+## Change review fixes (triage 2026-10-10)
+
+From the walks of e3cde03 on all three platforms and the owner's
+triage. Already done and walked: the WebKit stale-paint fix (`b9989c9`; Linux and the Mac
+passed). Recorded: the Ctrl+Tab-then-Enter race and the past-the-cap jump (closed accepted
+limits), real IME and Cyrillic unwalked (open accepted limit). The diagram frame failure the
+Windows walk found has its own plan, `plans/diagram-frame-isolation.md`.
+
+### Rulings
+
+- **T1. Solarized's matches** (text on a match 2.77 light / 2.89 dark, measured on all three;
+  every other theme 5.09 or better). The owner's standing rule keeps upstream palettes faithful
+  (`closed-items.md`, the 2026-09-11 contrast audit), and an app-invented colour is set per theme
+  only where its default fails. Ruled: **the app picks the tint per theme**: the strongest
+  accent tint up to today's 35% that keeps the theme's text at 3:1 or better on a match (the
+  3:1 bar the owner set for diagram category labels on themes whose own text is under 5:1). No
+  theme file changes; a theme that sets its own `--find-match` is left alone.
+- **T2. Huge documents** (a fully loaded 9.75 MB JSON: re-indexing took 0.8-1.9 s per fold or
+  "more" in probe P3b, 8-21 s on a memory-starved Linux VM). Ruled: **change find's design for
+  huge documents**: above a size, a change inside the document no longer re-indexes on its own.
+- **T3. The count touches ▲ at 420 px** (all three). Ruled: fix.
+- **T4. Enter right after typing centres a match half under the bar** (Linux: a 390 px jump).
+  Ruled: fix: a match counts as on screen only when it sits wholly below the bar.
+
+### Decisions (ruled by the owner 2026-10-10: the proposed option in each)
+
+- **Q1 (T2). The size:** an index of more than 250 000 text nodes. Measured sizes:
+  README ×30 is 35 000 (index 8-39 ms), the big JSON's first chunk 116 000-137 000 (59-63 ms),
+  the whole JSON 2.3-2.5 M (0.8 s to 26 s).
+- **Q2 (T2). What the reader sees** once a change isn't followed: the count keeps
+  its numbers and adds " (changed)", with the title "The page changed. Press Enter or type to
+  count again."; Enter or typing re-indexes (one wait the reader asked for).
+- **Q3 (T2). A new document** (a tab switch, a reload) always re-indexes, whatever the size of
+  the old one; only changes deeper inside the page (a fold, "more", a diagram redrawn) wait.
+- **Q4. The first-letter freeze** (the Mac: typing the first letter into the empty field, or
+  clearing it, blocks ~0.6 s on the fully loaded JSON before find's code runs; cause
+  unmeasured, `:has()` rules suspected): a probe on the Mac first (does the tree
+  filter do the same; does it stop with the `:has()` rules removed in the page), plus a quick
+  check whether Windows and Linux freeze at all, then a ruling on what it shows.
+- **Q5. The JSON viewer's memory** (Windows: 400-500 MB per 512 KB chunk with find open or
+  closed; 17 chunks reached 9.7 GB). Not find's: a deferred open item with a trigger, recorded
+  with these fixes.
+
+### Task 7: the per-theme match tint (T1)
+
+**Files:** `src/app.js`.
+
+- Lift `bytes`, `lum` and `contrast` out of `diagramLook` to module level, so both use them.
+  `pixel` (the 1x1 canvas) is declared at module level but created inside `diagramLook`
+  (`pixel ??= …`); that line moves into `bytes`, so either caller can be first.
+- A new `findTint()` called from `applyTheme` right after `applyDocFont()`:
+
+  ```js
+  /*
+   * Find's match tint: the theme's accent, as strong as it can be up to 35%
+   * while the theme's text keeps 3:1 on it. A theme that sets --find-match
+   * keeps its own.
+   */
+  function findTint() {
+    const root = document.documentElement;
+    root.style.removeProperty("--find-match");
+    if (els.themeStyle.textContent.includes("--find-match")) return;
+    const page = getComputedStyle(document.body).backgroundColor;
+    const bg = bytes(page, "#fff");
+    const text = bytes(getComputedStyle(els.content).color, page);
+    const accent = bytes(getComputedStyle(root).getPropertyValue("--ui-accent"), page);
+    for (let p = 35; p >= 10; p -= 5) {
+      const tint = accent.map((v, i) => Math.round((v * p + bg[i] * (100 - p)) / 100));
+      if (contrast(text, tint) >= 3) {
+        if (p < 35) root.style.setProperty("--find-match", `color-mix(in srgb, var(--ui-accent) ${p}%, transparent)`);
+        return;
+      }
+    }
+    root.style.setProperty("--find-match", "color-mix(in srgb, var(--ui-accent) 10%, transparent)");
+  }
+  ```
+
+  A theme's own value is found in its CSS text (`els.themeStyle` holds the loaded theme,
+  bundled or the user's), not by comparing computed values: engines serialise a custom
+  property's value differently. A theme that only mentions the name in a comment loses the
+  adjustment, which is harmless (it keeps 35%).
+- Expected (computed from the theme colours with findTint's rounding, not measured):
+  Solarized light 25% (3.10), Solarized dark 30% (3.12; the first step to clear 3:1); every
+  other theme stays 35%.
+- Walk: Solarized light reads `--find-match` at 25% and dark at 30%, text on a match ≥ 3:1; every other
+  theme unchanged; a user theme with its own `--find-match` keeps it; switching away from
+  Solarized puts 35% back.
+
+### Task 8: huge documents (T2)
+
+**Files:** `src/app.js`.
+
+- `findMutated(records)`: the observer passes its records. If any record is a `childList`
+  change whose target is `els.content` itself (a new document) or the `hidden` attribute of
+  `els.content`, or the last index has no more than `FIND_DEFER_NODES` (250 000, Q1) text
+  nodes, keep
+  today's behaviour. Otherwise set `findStale = true` and `findDeferred = true`, and don't
+  start the timer.
+- `showFindCount`: with `findDeferred`, append " (changed)" and the Q2 title.
+- `runFind` clears `findDeferred` (it rebuilds through `freshFindIndex`). `findStep` already
+  runs `runFind("mutate")` when stale, so Enter re-indexes; typing does too.
+- `closeFind` clears `findDeferred`.
+- Walk (Windows and Linux): the fully loaded JSON; fold and "more" with the bar open: no
+  freeze, " (changed)" shows, Enter re-indexes once and counts right; a tab switch away from
+  it re-indexes the new page at once; README ×30 behaves as before.
+
+### Task 9: the 420 px count and the half-hidden match (T3, T4)
+
+**Files:** `src/base.css`, `src/app.js`.
+
+- `#find-count`: `flex: none;` so it never shrinks under its text (its `min-width: 7ch` let it
+  shrink below a longer count, which then ran into the gap).
+- `firstShownHit`, the forward branch: `hitRect(findHits[mid]).top >= top` in place of
+  `.bottom > top`, so a match half under the bar isn't "on screen".
+- Walk: a 420 px screenshot with "No matches" and "1 of 1,000+"; on README ×30 with a match
+  half under the bar, Enter right after typing takes the next one, with no jump.
+
+### Task 10: records and the probe
+
+- Q4's Mac probe before Task 8 is walked.
+- `docs/open-items.md` › Deferred (Q5): the JSON viewer's memory per chunk, with the Windows
+  numbers. First step: measure which part of a chunk's rendered HTML dominates. Reopen on a
+  report of a JSON file exhausting memory, or with the next JSON viewer work.
+- R8's entry in `open-items.md` gets the new measurements, or closes if Task 8 lifts it.
+- [ ] **Commit:** `docs:`.
