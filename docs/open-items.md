@@ -310,3 +310,11 @@ as it is found.
   ran neither.
   *Accepted 2026-10-10. Reopen on a report from an IME or Cyrillic user, or when a machine with an
   IME is at hand.*
+- [ ] **Diagrams on Windows depend on turning `IsolateSandboxedIframes` off** (added 2026-10-10,
+  `archive/plans/diagram-frame-isolation.md`, ruling D3). An isolated sandboxed frame's requests
+  to the app's files go unanswered (WebView2 154), though wry asks for every request source
+  (`COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL`). The fix keeps the frame un-isolated
+  with a browser argument; a WebView2 that drops the feature name, or turns isolation on some
+  other way, breaks diagrams again. Not reported upstream.
+  *Accepted 2026-10-10. Reopen if diagrams break on Windows again, if a WebView2 release drops
+  the feature name, or when wry or WebView2 serves such frames.*

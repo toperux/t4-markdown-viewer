@@ -335,6 +335,20 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   always passes one (`config.rs:98-107`). Windows (the installer over a running two-window app,
   `/P /UPDATE /R`: closed, installed, restarted, both windows back) and the Mac (`.dmg`, same
   cert, no Gatekeeper prompt) passed their smoke walks.*
+- [x] **Diagrams stop drawing on Windows after several unclean exits** (added 2026-10-10, the
+  find walk on the Windows VM; `archive/plans/diagram-frame-isolation.md`). Every diagram stayed
+  a code block with "The diagram renderer did not load." WebView2 counts unclean exits in a row
+  (`variations_crash_streak` in the profile's `EBWebView\Variations` and `Local State`); from 4
+  it drops Edge's server config, Chromium's `IsolateSandboxedIframes` comes on, and the
+  sandboxed diagram frame, now in its own process, gets `ERR_CONNECTION_REFUSED` for
+  `vendor/mermaid.min.js` and `diagram-frame.js`. Measured on one profile: streak 0-3 drew,
+  4-7 failed; the shipped 1.7.4 failed 4/4 at streak 9. A fully clean run brought a streak of 6
+  back to 0 once; in the probes, clean closes left it where it was.
+  *Fixed 2026-10-10 (cb66dcd): `--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,IsolateSandboxedIframes`
+  in `tauri.conf.json`'s window, passed by `spawn_window` to every other window (WebView2
+  refuses a second window with other options: `HRESULT(0x8007139F)`). Walked on the Windows VM
+  at streak 6: the main window, a Ctrl+N window, a torn-off tab and a restored three-window
+  session all draw; at streak 0 the app behaves as 1.7.4; 1.7.4 at streak 6 still fails.*
 
 ## Deferred from the 2026-09-20 review
 
