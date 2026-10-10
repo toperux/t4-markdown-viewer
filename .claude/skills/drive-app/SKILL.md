@@ -161,9 +161,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/drive-app/scr
 
 ## 5. Clean up
 
-1. `taskkill //PID <pid>`. The double slash matters: MSYS mangles `/PID` into a
-   path. A debug app once ignored the plain kill (three later tries didn't
-   reproduce it); `//F` works.
+1. Close it gracefully where you can: `appWindow.close()` through `cdp.mjs
+   eval` in each window, or the window's ×. Otherwise `taskkill //PID <pid>`.
+   The double slash matters: MSYS mangles `/PID` into a path. A debug app once
+   ignored the plain kill (three later tries didn't reproduce it); `//F` works,
+   but every forced kill counts as a crash in WebView2's crash streak (see
+   *Other gotchas*).
 2. Only after the process is gone, since it may write on exit: diff the live
    `config.json` against the backup, and if the debug app changed it, copy
    back only that change, not the whole backup. Re-read the file to confirm.
@@ -177,6 +180,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/drive-app/scr
    had open, add `-ArgumentList '\"<file path>\"'`.
 
 ## Other gotchas
+
+- **WebView2's crash streak.** Each unclean exit (a crash, `taskkill //F`)
+  adds one to `variations_crash_streak` in the profile's
+  `EBWebView\Variations` file, mirrored in `Local State`; a clean close
+  doesn't reliably lower it (once a fully clean run reset 6 to 0; in other
+  runs it stayed). From 4 in a row WebView2 drops Edge's server config and
+  Chromium's own defaults apply. Before `archive/plans/diagram-frame-isolation.md`
+  that broke every diagram ("The diagram renderer did not load."); other
+  surprises are possible, so a walk that fails oddly after many forced kills
+  should read the streak first. Reset it with the app closed: set it to 0 in
+  both files (the `Variations` file wins over `Local State` once).
 
 - **Spaces in paths.** The repo sits under `_ pet projects`. Wrap repeated
   script calls in a shell function that passes `"$@"`, not in a command stored
