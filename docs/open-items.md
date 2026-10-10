@@ -216,6 +216,14 @@ The next three came out of the session-restore walks (`archive/plans/session-res
   word** (added 2026-10-09, `plans/find-in-document.md`, ruling G). The app's Back/Forward
   shortcut takes the keys in both text fields, where macOS would move the caret by a word. Fix
   both fields together. Reopen on a Mac user's report, or with the next keyboard work.
+- [ ] **The JSON viewer's memory and layout cost per chunk** (added 2026-10-10, the find walks,
+  `plans/find-in-document.md` Q5). Each 512 KB chunk costs 400-500 MB of webview memory on
+  Windows, with find open or closed; 17 chunks of a 9.75 MB file reached 9.7 GB on an 8 GB VM,
+  which then thrashed. One fold takes 2.1-2.4 s to the next frame at 409 000 text nodes (Linux)
+  and 6-7 s on the fully loaded file (2.28 M nodes, the Mac), and leaving that tab ~6 s; find
+  closed or open alike. First step: measure which part of a chunk's rendered HTML dominates
+  (fold buttons, spans per value). Reopen on a report of a JSON file exhausting memory or
+  freezing, or with the next JSON viewer work.
 
 ## Accepted limits
 
@@ -298,11 +306,6 @@ as it is found.
   judged by the monitor it overlaps most; always on Wayland), and a monitor unplugged since the last
   run, are covered by unit tests only: every VM and the Mac had one display.
   *Accepted 2026-10-08. Reopen when a second display is at hand, or on a report.*
-- [ ] **Find re-indexes a fully loaded big JSON slowly** (added 2026-10-09,
-  `plans/find-in-document.md`, ruling R8). With every chunk of a 9.75 MB JSON loaded (2.3 M text
-  nodes), the find index takes 0.8-1.9 s on WebKitGTK (probe P3b), so each fold or "more"
-  freezes the window about 1 s while the find bar is open.
-  *Accepted 2026-10-09. Reopen on a report of find freezing on a large JSON.*
 - [ ] **Find with a real IME or a Cyrillic layout is unwalked** (added 2026-10-10, the find
   change review). No walk machine has an IME. Windows checked with synthetic key events that an
   Enter confirming IME input (`isComposing`, keyCode 229) doesn't step, and with raw key codes
@@ -318,3 +321,12 @@ as it is found.
   other way, breaks diagrams again. Not reported upstream.
   *Accepted 2026-10-10. Reopen if diagrams break on Windows again, if a WebView2 release drops
   the feature name, or when wry or WebView2 serves such frames.*
+- [ ] **Typing lags in text fields on a huge page** (added 2026-10-10, the find walks,
+  `plans/find-in-document.md` Q4). On a fully loaded 9.3 MB JSON (2.28 M text nodes), the Mac
+  freezes ~0.4-0.6 s when a typed edit empties a text field or types into an empty one: the find
+  field and the sidebar filter alike, not when code empties it, and not on a normal page. Not
+  find's code, `:has()` rules, the placeholder, or style and layout visible to JavaScript (each
+  removed and measured); likely WebKit's or AppKit's own work (unverified). On Windows every
+  keystroke costs ~0.2 s on a 519 000-element page: ~70 ms for any text field, ~100 ms more in
+  the find field (cause unmeasured). Linux: none at 409 000 nodes.
+  *Accepted 2026-10-10. Reopen on a report of typing lag on large documents.*

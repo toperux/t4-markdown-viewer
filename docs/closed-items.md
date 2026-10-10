@@ -1319,3 +1319,9 @@ tooling; listed so nobody rediscovers them.
   screen, so the first Enter jumps to match 1 at the top (Shift+Enter to match 1,000). The cost of
   the cap, set for paint time (`plans/find-in-document.md`, ruling H).
   *Kept 2026-10-10, owner's call, no trigger.*
+- [x] **Find re-indexed a fully loaded big JSON on every fold or "more"** (added 2026-10-09,
+  `plans/find-in-document.md` R8). With every chunk of a 9.75 MB JSON loaded, each fold or "more"
+  froze the window 0.8-1.9 s while the find bar was open (8-21 s on a memory-starved VM).
+  *Lifted 2026-10-10 (the change-review fix, ruling T2): above 250 000 text nodes a change
+  inside the page waits, and the count says " (changed)"; Enter or typing re-indexes once
+  (0.6-0.8 s on the fully loaded file, the Mac). Walked on all three.*
