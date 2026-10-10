@@ -47,7 +47,7 @@ then group `npm ls --all --omit=dev --parseable` by each `package.json`'s
 
 ### Libron
 
-`src/fonts/libron/*.woff2` — v0.30 (the release's `Libron_Web.zip`), redistributed
+`src/fonts/libron/*.woff2` — v0.31 (the release's `Libron_Web.zip`), redistributed
 verbatim. SIL Open Font License 1.1, in full in `src/fonts/libron/OFL.txt`. Copyright (c)
 2026 Nico Verbruggen, with Reserved Font Name Libron; based on Readerly (c) 2026 Nico
 Verbruggen and Newsreader (c) 2020 The Newsreader Project Authors.
