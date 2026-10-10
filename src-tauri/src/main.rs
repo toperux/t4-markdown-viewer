@@ -406,18 +406,29 @@ fn spawn_window<R: Runtime>(
             .insert(label.clone(), frame.clone());
     }
 
+    // The same WebView2 arguments as `main`: WebView2 refuses a second set of
+    // options on one data folder, and the window would fail to open.
+    let args = app
+        .config()
+        .app
+        .windows
+        .first()
+        .and_then(|w| w.additional_browser_args.clone());
     let app = app.clone();
     let target = label.clone();
     std::thread::spawn(move || {
-        match WebviewWindowBuilder::new(&app, &target, WebviewUrl::App("index.html".into()))
-            .title("Markdown Viewer")
-            .inner_size(1100.0, 860.0)
-            // The same minimum `main` has from the config; a saved smaller
-            // frame is clamped to it.
-            .min_inner_size(420.0, 320.0)
-            .visible(false)
-            .build()
-        {
+        let mut builder =
+            WebviewWindowBuilder::new(&app, &target, WebviewUrl::App("index.html".into()))
+                .title("Markdown Viewer")
+                .inner_size(1100.0, 860.0)
+                // The same minimum `main` has from the config; a saved smaller
+                // frame is clamped to it.
+                .min_inner_size(420.0, 320.0)
+                .visible(false);
+        if let Some(a) = &args {
+            builder = builder.additional_browser_args(a);
+        }
+        match builder.build() {
             Ok(win) => match place {
                 Placement::Default => {}
                 Placement::Cursor(x, y) => {
@@ -2441,5 +2452,29 @@ mod tests {
         assert_eq!(plain, None);
         assert_eq!(worktree, Some(base.join("wt")));
         assert_eq!(at_home, None);
+    }
+
+    /// The config's WebView2 arguments, which JSON can't explain. The first
+    /// three names are wry's defaults, which any argument replaces, so they are
+    /// kept. The fourth keeps the diagram frame in the page's process: an
+    /// isolated sandboxed frame can't load the app's files, and WebView2 turns
+    /// the isolation on after 4 or more unclean exits in a row.
+    #[test]
+    fn browser_args_keep_wry_defaults_and_disable_frame_isolation() {
+        let conf: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let args = conf["app"]["windows"][0]["additionalBrowserArgs"]
+            .as_str()
+            .unwrap();
+        let names = args.strip_prefix("--disable-features=").unwrap();
+        assert!(!names.contains(' '), "one --disable-features list: {args}");
+        let names: Vec<&str> = names.split(',').collect();
+        for name in [
+            "msWebOOUI",
+            "msPdfOOUI",
+            "msSmartScreenProtection",
+            "IsolateSandboxedIframes",
+        ] {
+            assert!(names.contains(&name), "{name} missing from {args}");
+        }
     }
 }

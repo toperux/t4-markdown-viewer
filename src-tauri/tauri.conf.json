@@ -15,7 +15,8 @@
         "minWidth": 420,
         "minHeight": 320,
         "resizable": true,
-        "visible": false
+        "visible": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,IsolateSandboxedIframes"
       }
     ],
     "security": {
