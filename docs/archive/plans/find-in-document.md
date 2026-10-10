@@ -1,5 +1,9 @@
 # Find in Document Implementation Plan
 
+> **Status (2026-10-10):** executed in full, with the change-review fixes (Tasks 7-10), and
+> shipped in 1.8.0 as eb10f3a. Paths and unticked boxes below are as they stood when it was
+> written.
+
 > **Status (2026-10-09):** draft, review passes 1-7 applied; every probe measured. Owner
 > rulings recorded: D1-D6, A-E and G after pass 1, R1-R6 after pass 2, R7-R8, F and H after
 > pass 3, R9 after pass 4 (each the recommended option; D5 refined, R7 noted). Not to be

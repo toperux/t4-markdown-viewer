@@ -1,5 +1,9 @@
 # Document Font Implementation Plan
 
+> **Status (2026-10-10):** executed in full and shipped in 1.8.0 as c197547, with Libron
+> bumped to v0.31 in 7bccb0f. Paths and unticked boxes below are as they stood when it was
+> written.
+
 > **Status (2026-10-09):** draft, reworked for the owner's change of the same day: Libron is
 > bundled and is the default document font. Owner rulings recorded: F1-F4, D1-D5, B1-B4 and
 > R1-R5 (each the recommended option). Probes P1-P4 measured for installed fonts; P5 (the font

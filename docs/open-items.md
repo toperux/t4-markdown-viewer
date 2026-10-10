@@ -204,7 +204,7 @@ The next three came out of the session-restore walks (`archive/plans/session-res
   update dialog on top hid it, or whether a default-size window shows it fine. The Mac's *Check now*
   worked. First step: reproduce on the Windows VM with and without the update dialog open, at the
   window's default size. Reopen with the next UI work, or on a report.
-- [ ] **A size for the document font** (added 2026-10-09, `plans/document-font.md`, ruling F3).
+- [ ] **A size for the document font** (added 2026-10-09, `archive/plans/document-font.md`, ruling F3).
   Settings › *Document font* picks the family only; the size stays the theme's. The walks
   (2026-10-09) measured Libron's x-height at 0.53 of the font size: about Azure DevOps' own
   (0.50 Segoe UI on Windows), but 15% above Tufte's Palatino (0.46), so Tufte reads visibly
@@ -213,11 +213,11 @@ The next three came out of the session-restore walks (`archive/plans/session-res
   theme font's own x-height ratio (support on WebKitGTK unverified). Reopen if Libron or another
   chosen font reads too small or large at the themes' sizes, or on a report about Tufte.
 - [ ] **On macOS, Option+Left/Right in the tree filter and the find bar goes Back/Forward, not a
-  word** (added 2026-10-09, `plans/find-in-document.md`, ruling G). The app's Back/Forward
+  word** (added 2026-10-09, `archive/plans/find-in-document.md`, ruling G). The app's Back/Forward
   shortcut takes the keys in both text fields, where macOS would move the caret by a word. Fix
   both fields together. Reopen on a Mac user's report, or with the next keyboard work.
 - [ ] **The JSON viewer's memory and layout cost per chunk** (added 2026-10-10, the find walks,
-  `plans/find-in-document.md` Q5). Each 512 KB chunk costs 400-500 MB of webview memory on
+  `archive/plans/find-in-document.md` Q5). Each 512 KB chunk costs 400-500 MB of webview memory on
   Windows, with find open or closed; 17 chunks of a 9.75 MB file reached 9.7 GB on an 8 GB VM,
   which then thrashed. One fold takes 2.1-2.4 s to the next frame at 409 000 text nodes (Linux)
   and 6-7 s on the fully loaded file (2.28 M nodes, the Mac), and leaving that tab ~6 s; find
@@ -322,7 +322,7 @@ as it is found.
   *Accepted 2026-10-10. Reopen if diagrams break on Windows again, if a WebView2 release drops
   the feature name, or when wry or WebView2 serves such frames.*
 - [ ] **Typing lags in text fields on a huge page** (added 2026-10-10, the find walks,
-  `plans/find-in-document.md` Q4). On a fully loaded 9.3 MB JSON (2.28 M text nodes), the Mac
+  `archive/plans/find-in-document.md` Q4). On a fully loaded 9.3 MB JSON (2.28 M text nodes), the Mac
   freezes ~0.4-0.6 s when a typed edit empties a text field or types into an empty one: the find
   field and the sidebar filter alike, not when code empties it, and not on a normal page. Not
   find's code, `:has()` rules, the placeholder, or style and layout visible to JavaScript (each

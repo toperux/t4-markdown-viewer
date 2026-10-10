@@ -1,5 +1,8 @@
 # Diagrams after unclean exits on Windows
 
+> **Status (2026-10-10):** executed in full and shipped in 1.8.0 as 1af0fb9. Paths and
+> unticked boxes below are as they stood when it was written.
+
 > 2026-10-10, from the find change review's Windows walk (triage item 1: the owner ruled
 > "investigate first"; find's packaging waits on this). D1-D3 ruled by the owner 2026-10-10
 > (the recommended option in each); D4 is asked at packaging.

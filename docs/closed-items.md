@@ -1273,17 +1273,17 @@ tooling; listed so nobody rediscovers them.
   macOS red button on a background window) keep the stacking (walked).
   *Kept 2026-10-08, owner's call, no trigger.*
 - [x] **Closing the window with an unsaved document font edit loses it** (2026-10-09,
-  `plans/document-font.md`, ruling D5). The name typed in Settings › *Document font* saves on
+  `archive/plans/document-font.md`, ruling D5). The name typed in Settings › *Document font* saves on
   Enter, on leaving the field and on closing the dialog; closing the whole window instead drops it.
   *Kept 2026-10-09, owner's call: closing the window fires no dialog `close`, and a save on the
   way out might not finish.*
 - [x] **A window still starting can miss a font change made in another window at that moment**
-  (2026-10-09, `plans/document-font.md`, ruling R4). A change saved between the new window's
+  (2026-10-09, `archive/plans/document-font.md`, ruling R4). A change saved between the new window's
   `get_settings` and its `doc-font-changed` listener leaves it on the old font until the next
   change. *Kept 2026-10-09, owner's call: as the diagram colours and open mode already can; it
   needs two windows and a save in the same moment.*
 - [x] **Diagrams drawn while the diagram frame's fonts are late keep fallback-sized labels**
-  (2026-10-09, `plans/document-font.md`, ruling R5). A new diagram frame waits up to 2 s for
+  (2026-10-09, `archive/plans/document-font.md`, ruling R5). A new diagram frame waits up to 2 s for
   Libron's faces; past that it draws in the fallback, and those drawings are cached, so their
   labels sit slightly off until a theme or font change or a restart. *Kept 2026-10-09, owner's
   call: the handover took 37 ms and 21 ms on WebView2 and 9 ms on the Mac (Task 4 checks).*
@@ -1295,15 +1295,15 @@ tooling; listed so nobody rediscovers them.
   another font (first sampled frame onward; diagrams draw from their own copy).
   *Kept 2026-10-09, owner's call, no trigger.*
 - [x] **Find searches text the app writes into the document** (2026-10-09,
-  `plans/find-in-document.md`, ruling R5). A diagram's error line, a footnote's "↩" and a
+  `archive/plans/find-in-document.md`, ruling R5). A diagram's error line, a footnote's "↩" and a
   footnote number next to its word ("word1"; "word" still matches) are part of what find reads.
   *Kept 2026-10-09, owner's call, no trigger.*
-- [x] **On macOS, Control+F opens find too** (2026-10-09, `plans/find-in-document.md`, ruling
+- [x] **On macOS, Control+F opens find too** (2026-10-09, `archive/plans/find-in-document.md`, ruling
   R6), in text fields included, where it would move the caret one character. Control+N,
   Control+W and Control+O already do the same.
   *Kept 2026-10-09, owner's call, no trigger.*
 - [x] **No find highlights on a Mac without Safari 17.2 or later** (2026-10-09,
-  `plans/find-in-document.md`, ruling F). The highlights use the CSS Custom Highlight API, which
+  `archive/plans/find-in-document.md`, ruling F). The highlights use the CSS Custom Highlight API, which
   every engine measured has; a macOS 13 or 14 Mac that never took Safari 17.2+ lacks it (from
   knowledge, not measured). There the bar still counts, steps and scrolls to each match, with
   nothing painted.
@@ -1317,10 +1317,10 @@ tooling; listed so nobody rediscovers them.
 - [x] **Past find's 1,000-match cap, Enter goes back to the first match** (2026-10-10, the find
   change review). Deep in a document with more than 1,000 matches, none of the first 1,000 is on
   screen, so the first Enter jumps to match 1 at the top (Shift+Enter to match 1,000). The cost of
-  the cap, set for paint time (`plans/find-in-document.md`, ruling H).
+  the cap, set for paint time (`archive/plans/find-in-document.md`, ruling H).
   *Kept 2026-10-10, owner's call, no trigger.*
 - [x] **Find re-indexed a fully loaded big JSON on every fold or "more"** (added 2026-10-09,
-  `plans/find-in-document.md` R8). With every chunk of a 9.75 MB JSON loaded, each fold or "more"
+  `archive/plans/find-in-document.md` R8). With every chunk of a 9.75 MB JSON loaded, each fold or "more"
   froze the window 0.8-1.9 s while the find bar was open (8-21 s on a memory-starved VM).
   *Lifted 2026-10-10 (the change-review fix, ruling T2): above 250 000 text nodes a change
   inside the page waits, and the count says " (changed)"; Enter or typing re-indexes once
