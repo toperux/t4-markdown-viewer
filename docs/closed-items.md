@@ -1353,3 +1353,37 @@ tooling; listed so nobody rediscovers them.
   pressed.
   *Kept 2026-10-11 (owner): the scroll is one short move; the rings are the engine's own
   focus-visible rules, and the selected pill shows where you are.*
+- [x] **The tab switcher doesn't know a tab's heading until the tab has been shown** (2026-10-17,
+  `plans/tab-switcher.md`, ruling G). A tab restored from the session or dragged in from another
+  window is found by name and folder only until it is first shown; saving headings would change
+  what each window reports and what Rust stores.
+  *Kept 2026-10-17, owner's call, no trigger.*
+- [x] **A background tab's heading goes stale in the tab switcher** (2026-10-17, the tab switcher
+  walks). A heading is read when its tab is shown, so one changed on disk in a tab you aren't
+  looking at is searched and shown as it was until you visit it. Name and folder are always
+  current.
+  *Kept 2026-10-17, owner's call, no trigger.*
+- [x] **The tab switcher's folder line can end up to one letter short of its box** (2026-10-17,
+  the tab switcher walks). The line is cut at whole characters and fitted 1 px inside its box:
+  measured gaps 1-9 px, each narrower than the next letter, except a few rows where a "w" would
+  have fitted by 0.2 px but for the 1 px. The margin keeps the end of the path, where matches
+  usually are, from being clipped where canvas and page round a width differently.
+  *Kept 2026-10-17, owner's call, no trigger.*
+- [x] **A match in a cut part of a switcher row shows no bold** (2026-10-17, the tab switcher
+  walks). Names and headings are cut at the end and folders at the start, so a match in the cut
+  part finds the row without showing why: `C:` at 420 px, or the end of a long heading. The
+  row's tooltip has the full path.
+  *Kept 2026-10-17, owner's call, no trigger.*
+- [x] **A one-letter word in the tab switcher matches nearly every row** (2026-10-17, the tab
+  switcher walks). Words match the folder path too (ruling A), and long paths hold almost every
+  letter and digit: "doc 1" lists every tab. Name and heading matches still rank first.
+  *Kept 2026-10-17, owner's call, no trigger.*
+- [x] **Resizing the window with the tab switcher open re-cuts every folder line per resize
+  event** (2026-10-17, the tab switcher's change review). Estimated, not measured: 3-6 ms a
+  redraw on WebView2, 5-15 ms on WebKitGTK, up to ~35 ms on WebKit with a query matching every
+  folder. No walk saw a stutter, though none timed it.
+  *Kept 2026-10-17, owner's call, no trigger.*
+- [x] **Holding Enter can reopen the tab switcher** (2026-10-17, the tab switcher's change
+  review; reasoned, not tested). Opened from the magnifier by keyboard, a pick puts focus back
+  on the button, and an Enter held past the key repeat presses it again. Esc closes it.
+  *Kept 2026-10-17, owner's call, no trigger.*

@@ -256,6 +256,34 @@ The next three came out of the session-restore walks (`archive/plans/session-res
   New commits are covered by `CLAUDE.md` → "Commit messages" and by `attribution` turned off in
   the user settings. Reopen if the old messages must leave GitHub: start with the Support
   request, then the plan.
+- [ ] **On Linux, a tab in an overflowing strip takes clicks only in its top 7 px** (added
+  2026-10-17, the tab switcher walks; also on 8f69bc9, before it). A tab spans y 42-70, but
+  `elementFromPoint` finds it only at 42-48; below, it hits `#tabs`. A click on a tab's label
+  doesn't switch, and a drag there scrolls the strip instead of moving the tab. Wayland and
+  X11; Windows and the Mac are fine. Likely cause, not measured: WebKitGTK's overlay scrollbar
+  for `#tabs` (`overflow-x: auto; scrollbar-width: thin`) takes the hits. The tab switcher
+  (Ctrl+P) gets around it. Reopen next, right after the switcher ships, in one plan with the
+  two strip items below; probe the cause on the Linux VM first.
+- [ ] **The tab strip doesn't scroll to the active tab, and a plain wheel doesn't scroll it**
+  (added 2026-10-17, the tab switcher walks; also before it). With many tabs the active one can
+  sit off-screen (left edge at x 2796 with the strip at scroll 0), so a tab picked in the
+  switcher may show no highlighted tab in the strip. And a vertical wheel over the strip does
+  nothing (Windows, measured); only Shift+wheel, the scrollbar or a trackpad move it. Reopen
+  with the Linux strip item above.
+- [ ] **On macOS, the app's Ctrl shortcuts also fire on the Control key** (added 2026-10-17,
+  the tab switcher walks). `onKeydown`'s `ctrl` is `ctrlKey || metaKey`, so Control+N opens the
+  Open panel even inside a text box, where macOS moves the caret down (measured); Control+F,
+  T, O, W and R likely do the same (reasoned). Ctrl+P is already Cmd-only on the Mac (owner's
+  ruling, `plans/tab-switcher.md`). Fix: make every shortcut Cmd-only there, in the shared
+  check, which reopens the Control+F limit in `closed-items.md` (2026-10-09, ruling R6). Reopen
+  next, right after the switcher ships, with a Mac keyboard walk of every shortcut.
+- [ ] **On Wayland, the tab switcher's list rendered heavier in a light theme** (added
+  2026-10-17, the tab switcher walks, Linux VM). In `sakura`, with the list overflowing, its
+  text looked visibly heavier and the bold matches were hard to tell apart; computed weights
+  were normal (400 and 600), with no shadow or stroke. X11 looked normal in the same themes.
+  Seen once, before matches were also underlined. Cause unknown. Reopen on a report of heavy or
+  blurry text in the switcher on Linux, or with the next Wayland walk: reproduce at the current
+  tip first.
 
 ## Accepted limits
 
