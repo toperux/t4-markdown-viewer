@@ -49,6 +49,7 @@ const els = {
   diagramColourRadios: document.querySelectorAll('#settings-dialog input[name="diagram-colours"]'),
   docFont: document.getElementById("doc-font"),
   docFontNote: document.getElementById("doc-font-note"),
+  fileManager: document.getElementById("file-manager"),
   autoUpdate: document.getElementById("auto-update"),
   checkNow: document.getElementById("check-now"),
   updateStatus: document.getElementById("update-status"),
@@ -279,6 +280,25 @@ const CLOSED_LIMIT = 20;
 
 /** Where Ctrl+click is a right-click and Cmd is the modifier that opens tabs. */
 const isMac = navigator.userAgent.includes("Macintosh");
+
+/** WebKitGTK's user agent names Linux, X11 and Wayland alike; WebView2's doesn't. */
+const isLinux = navigator.userAgent.includes("Linux");
+document.documentElement.classList.toggle("linux", isLinux);
+
+/** The shortcut modifier: Cmd on the Mac, where Control+letter belongs to text boxes. */
+function cmdKey(event) {
+  return isMac ? event.metaKey : event.ctrlKey || event.metaKey;
+}
+
+/** On the Mac, Option+Left/Right in a text box move by a word, not Back/Forward. */
+function macWordKeys(event) {
+  return (
+    isMac &&
+    event.altKey &&
+    (event.key === "ArrowLeft" || event.key === "ArrowRight") &&
+    document.activeElement?.matches("input[type=text], input[type=search]")
+  );
+}
 
 /** Guards against a slow load painting over a newer tab switch. */
 let renderToken = 0;
@@ -1476,7 +1496,7 @@ function onDiagramToolsClick(event) {
 
 /** The same Ctrl spellings the picture tab takes. Escape is the dialog's own. */
 function onDiagramKeydown(event) {
-  if (!zoomed || !(event.ctrlKey || event.metaKey) || event.altKey) return;
+  if (!zoomed || !cmdKey(event) || event.altKey) return;
   if (event.key === "+" || event.key === "=") zoomDiagram(zoomed.scale * ZOOM_STEP);
   else if (event.key === "-") zoomDiagram(zoomed.scale / ZOOM_STEP);
   else if (event.key === "0") zoomDiagram(1);
@@ -1644,6 +1664,11 @@ const SCROLL_KEYS = new Set([
   " ",
 ]);
 
+/** A wheel the tab strip takes for itself: over it while it overflows. */
+function stripTakes(event) {
+  return els.tabs.contains(event.target) && els.tabs.scrollWidth > els.tabs.clientWidth;
+}
+
 /*
  * Keep a restored position while the page is still growing under it. On
  * WebView2 the images reload after the `scrollTo`, and scroll anchoring then
@@ -1734,7 +1759,7 @@ function holdScroll(target, token, entry) {
   // touch; a press on the page's own scrollbar.
   const stop = () => hold.abort();
   // A sidebar at its end in the wheel's direction, or too short to scroll,
-  // hands the wheel on to the page.
+  // hands the wheel on to the page. An overflowing tab strip never does.
   const sidebarTakes = (event) => {
     const bar = els.sidebar;
     if (!bar.contains(event.target)) return false;
@@ -1745,7 +1770,7 @@ function holdScroll(target, token, entry) {
   window.addEventListener(
     "wheel",
     (event) => {
-      if (!sidebarTakes(event)) stop();
+      if (!sidebarTakes(event) && !stripTakes(event)) stop();
     },
     { passive: true, capture: true, signal },
   );
@@ -2122,6 +2147,9 @@ function measureBar() {
 /** Slot the drop caret sits in, or -1 when no drag is hovering this window. */
 let dropCaret = -1;
 
+/** The active tab's id and label when the strip last scrolled to it. */
+let revealed = "";
+
 function renderTabs() {
   // First: the one-tab path below returns early.
   if (!els.switcher.hidden) renderSwitcher(true);
@@ -2164,6 +2192,21 @@ function renderTabs() {
   els.tabs.replaceChildren(...nodes);
   paintDrag();
   measureBar();
+
+  // Scrolled to only when the active tab or its label changes, so a live
+  // reload or a caret move leaves a strip scrolled by hand where it is. By
+  // hand, not `scrollIntoView`, which would scroll the page too; instant, as
+  // a smooth scroll would race the next redraw.
+  const key = `${activeId}\n${activeTab()?.label}`;
+  const tab = els.tabs.querySelector(".tab.active");
+  if (key !== revealed && tab) {
+    revealed = key;
+    const s = els.tabs.getBoundingClientRect();
+    const r = tab.getBoundingClientRect();
+    const pad = parseFloat(getComputedStyle(els.tabs).paddingLeft);
+    if (r.left < s.left + pad) els.tabs.scrollLeft -= s.left + pad - r.left;
+    else if (r.right > s.right - pad) els.tabs.scrollLeft += r.right - (s.right - pad);
+  }
 }
 
 function caretElement() {
@@ -2295,6 +2338,7 @@ async function removeTab(id) {
   const wasActive = id === activeId;
   if (wasActive) rememberScroll();
   const [gone] = tabs.splice(i, 1);
+  gone.closedAt = i; // where Ctrl+Shift+T puts it back
   if (wasActive) activeId = (tabs[i] ?? tabs[i - 1])?.id ?? null;
   syncWatch();
   // Said now rather than left to `updateChrome`: for the active tab that waits
@@ -2323,7 +2367,8 @@ async function reopenClosed() {
   const tab = closedTabs.pop();
   if (!tab) return;
   tab.id = nextTabId++;
-  tabs.push(tab);
+  // Where it was, as browsers do: tabs closed or moved since shift it.
+  tabs.splice(Math.min(tab.closedAt ?? tabs.length, tabs.length), 0, tab);
   activeId = tab.id;
   syncWatch();
   await showActive();
@@ -3894,6 +3939,9 @@ function pickSwitcher(i) {
 
 /* ---------------- open mode ---------------- */
 
+/** The Open button's key, spelled as the boot pass in `main` spells the rest. */
+const KEY_OPEN = isMac ? "⌘O" : "Ctrl+O";
+
 /**
  * Reflect the mode in the UI without writing it back. Also called when another
  * window changes it, so it must not re-broadcast.
@@ -3902,7 +3950,7 @@ function showOpenMode(mode) {
   state.openMode = mode;
   for (const radio of els.modeRadios) radio.checked = radio.value === mode;
   els.openBtn.title =
-    mode === "window" ? "Open a file in a new window (Ctrl+O)" : "Open a file in a new tab (Ctrl+O)";
+    mode === "window" ? `Open a file in a new window (${KEY_OPEN})` : `Open a file in a new tab (${KEY_OPEN})`;
 }
 
 function setOpenMode(mode) {
@@ -5135,7 +5183,7 @@ async function onKeydown(event) {
    * Handled before the modal guard, and with any modifier, so no spelling of
    * a reload key can get past it — Ctrl+F5 and Shift+F5 included.
    */
-  const ctrl = event.ctrlKey || event.metaKey;
+  const ctrl = cmdKey(event);
   // `keyCode` too: WebView2's accelerator reads the virtual key, so Ctrl+К on
   // a Cyrillic layout reloads although `key` is "к". Not `code`: on Dvorak
   // `KeyR` is where P is.
@@ -5156,9 +5204,9 @@ async function onKeydown(event) {
   // missing (an autofill keydown), hence the `?.`. Before the modal guard, so
   // no print preview opens under a dialog either.
   const k = event.key?.toLowerCase();
-  // The tab switcher's key. Cmd only on the Mac, where Control+P in a text
-  // box moves the caret up a line.
-  const switcherKey = (k === "p" || event.keyCode === 80) && (!isMac || event.metaKey);
+  // The tab switcher's key. `ctrl` leaves out the Mac's Control, which
+  // moves the caret up a line in a text box.
+  const switcherKey = k === "p" || event.keyCode === 80;
   if (
     event.key === "F3" ||
     event.keyCode === 114 ||
@@ -5180,7 +5228,9 @@ async function onKeydown(event) {
   // but not WebView2's Back and Forward, which would walk the `#id` history
   // under it.
   if (els.settings.open || els.updateDialog.open || els.diagramDialog.open) {
-    if (event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) event.preventDefault();
+    // Not the Mac's Option+Arrow in the font box, which moves by a word.
+    if (event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight") && !macWordKeys(event))
+      event.preventDefault();
     return;
   }
 
@@ -5226,6 +5276,7 @@ async function onKeydown(event) {
   }
 
   if (event.altKey && !event.ctrlKey && !event.metaKey) {
+    if (macWordKeys(event)) return; // left to the field
     if (event.key === "ArrowLeft") {
       event.preventDefault();
       go(-1);
@@ -5243,12 +5294,20 @@ async function onKeydown(event) {
     return;
   }
 
+  // After the modal guard, so a dialog still owns it. On the Mac it is
+  // Control+Tab, as in Safari: Cmd+Tab belongs to macOS.
+  if (event.key === "Tab" && !event.altKey && (isMac ? event.ctrlKey : ctrl)) {
+    event.preventDefault();
+    cycleTab(event.shiftKey ? -1 : 1);
+    return;
+  }
+
   // Windows reports AltGr as Ctrl+Alt, and on a German or Nordic keyboard
   // AltGr is how `[` and `]` are typed. Nothing below is a Ctrl+Alt shortcut.
   if (!ctrl || event.altKey) return;
 
-  // Alt+Arrow above is the Windows idiom; Cmd+[ and Cmd+] are the Mac one.
-  // Both are accepted everywhere rather than branching on the platform.
+  // Alt+Arrow above is the Windows idiom, Cmd+[ and Cmd+] the Mac one; both
+  // are accepted off the Mac.
   if (event.key === "[") {
     event.preventDefault();
     go(-1);
@@ -5257,12 +5316,6 @@ async function onKeydown(event) {
   if (event.key === "]") {
     event.preventDefault();
     go(1);
-    return;
-  }
-
-  if (event.key === "Tab") {
-    event.preventDefault();
-    cycleTab(event.shiftKey ? -1 : 1);
     return;
   }
 
@@ -5319,6 +5372,7 @@ async function onKeydown(event) {
     const p = await pickFile();
     if (p) await invoke("open_window", { path: p });
   } else if (key === "w") {
+    if (isMac && event.shiftKey) return; // Close Window, the menu's (Shift+Cmd+W)
     event.preventDefault();
     if (activeId !== null) await closeTab(activeId);
   } else if (key === ",") {
@@ -5534,12 +5588,23 @@ async function main() {
   els.tree.addEventListener("focusin", setTreeStop);
   els.treeMenu.addEventListener("click", (e) => onTreeMenuClick(e).catch(toast));
   for (const menu of [els.openMenu, els.sortMenu, els.treeMenu]) menu.addEventListener("keydown", onMenuKeydown);
-  // The tree answers metaKey as well as ctrlKey; on the Mac only one of those
-  // is the one people reach for, and Ctrl+click is the right-click that opened
-  // this menu in the first place.
-  if (isMac)
+  // The page is written with Windows' key names; the Mac's are ⇧⌘O and, for
+  // a click, ⌘-Click (Ctrl+click is the right-click that opens the tree's
+  // menu there). Before any tab or tree row exists, so no path in a title is
+  // touched.
+  if (isMac) {
+    for (const el of document.querySelectorAll("[title]"))
+      el.title = el.title.replaceAll("Ctrl+Shift+", "⇧⌘").replaceAll("Ctrl+", "⌘");
     for (const key of els.treeMenu.querySelectorAll(".menu-key"))
-      key.textContent = key.textContent.replace("Ctrl", "⌘");
+      key.textContent = key.textContent.replace("Ctrl+", "⌘-");
+    // <kbd>Ctrl</kbd>+<kbd>O</kbd> becomes ⌘O, with no "+".
+    for (const kbd of document.querySelectorAll("kbd")) {
+      if (kbd.textContent !== "Ctrl") continue;
+      kbd.textContent = "⌘";
+      if (kbd.nextSibling?.nodeValue === "+") kbd.nextSibling.remove();
+    }
+  }
+  els.fileManager.textContent = isMac ? "Finder" : isLinux ? "your file manager" : "Explorer";
 
   els.openMore.addEventListener("click", () => showOpenMenu());
   els.openMenu.addEventListener("click", async (e) => {
@@ -5739,6 +5804,18 @@ async function main() {
   els.imageView.addEventListener("lostpointercapture", (e) => e.target === els.imageView && imagePan.up(e));
   els.tabs.addEventListener("click", onTabClick);
   els.tabs.addEventListener("keydown", onTabsKeydown);
+  // A plain wheel over an overflowing strip moves it sideways (owner's ruling).
+  // Shift+wheel and trackpad swipes already do, and modifiers mean other things.
+  els.tabs.addEventListener(
+    "wheel",
+    (event) => {
+      if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX) || !stripTakes(event)) return;
+      event.preventDefault();
+      els.tabs.scrollLeft += event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+    },
+    { passive: false },
+  );
 
   // onKeydown is async, so a failed open or close comes back as a rejected
   // promise no listener would ever look at: a shortcut would just do nothing.

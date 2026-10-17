@@ -233,11 +233,13 @@ Repeat per extension if you want `.markdown`, `.mdown`, `.mkd`, `.mdtext`,
 
 ## Keyboard
 
-On macOS, read `Cmd` for every `Ctrl` below.
+On macOS, read `Cmd` for every `Ctrl` below, except `Ctrl+Tab`, which is
+`Control+Tab` there as in Safari (`Cmd+Tab` belongs to macOS), and
+`Ctrl`+wheel, which is `Control`+wheel or a pinch.
 
 | Key | Action |
 | --- | --- |
-| `Alt+←` / `Alt+→`, or `Ctrl+[` / `Ctrl+]` | Back / forward through visited documents |
+| `Alt+←` / `Alt+→`, or `Ctrl+[` / `Ctrl+]` | Back / forward through visited documents (on macOS, `Option+←/→` in a text box moves by a word instead) |
 | `Ctrl+O` | Open a file, wherever Settings says |
 | `Ctrl+Shift+O` | Show or hide the sidebar with the tab's folder — the one you picked, or the one it last showed while the document is inside it, otherwise the current file's (a picker when nothing is open) |
 | `Ctrl+F` | Find in the document |
@@ -246,7 +248,7 @@ On macOS, read `Cmd` for every `Ctrl` below.
 | `Ctrl+T` | Open a file in a new **tab** |
 | `Ctrl+N` | Open a file in a new **window** |
 | `Ctrl+W` | Close the current tab |
-| `Ctrl+Shift+T` | Reopen the last closed tab |
+| `Ctrl+Shift+T` | Reopen the last closed tab, where it was |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab |
 | `Ctrl+P` | Search the open tabs and switch to one |
 | `F5` / `Ctrl+R` | Re-read the current file, keeping your scroll position |
@@ -268,10 +270,9 @@ switching away and back returns to the same place.
 macOS keeps `Cmd+W` for closing a **tab**, as browsers do, and moves closing the
 window to **Window › Close Window** (`Shift+Cmd+W`). The menu Tauri would build
 by default binds `Cmd+W` to the window, which would leave no way to close a tab
-from the keyboard. For now `Shift+Cmd+W` closes a tab instead, because the page
-sees the key before the menu does; use the menu item or the window's close
-button to close a window. Quit is replaced as well, so each window can send
-where it stands before the app exits.
+from the keyboard. `Shift+Cmd+W` closes the window, from **Window › Close
+Window**. Quit is replaced as well, so each window can send where it stands
+before the app exits.
 
 Theme cycling used to be `Ctrl+T`; it moved to `F8` so the tab shortcuts could
 follow the conventions every browser and editor already uses.

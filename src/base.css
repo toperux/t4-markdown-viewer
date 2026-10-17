@@ -1220,6 +1220,13 @@ select option {
   scrollbar-width: thin;
 }
 
+/* WebKitGTK's overlay scrollbar takes clicks in a 21px band over the tabs'
+   lower part, so on Linux the strip goes without one; the wheel, Shift+wheel
+   and the active tab's reveal move it. */
+html.linux #tabs {
+  scrollbar-width: none;
+}
+
 /* `display: flex` above would otherwise defeat the `hidden` attribute. */
 #tabs[hidden] {
   display: none;
