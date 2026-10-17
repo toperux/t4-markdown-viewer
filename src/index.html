@@ -62,8 +62,16 @@
         </div>
       </div>
 
-      <!-- Hidden until a second document is open; see renderTabs(). -->
-      <div id="tabs" role="tablist" hidden></div>
+      <!-- Hidden until a second document is open; see renderTabs(). The button
+           sits beside the strip, not in it, so it stays put while the strip
+           scrolls and the tablist holds only tabs. -->
+      <div id="tab-row">
+        <div id="tabs" role="tablist" hidden></div>
+        <button id="tab-search" class="nav" type="button" title="Search tabs (Ctrl+P)"
+                aria-label="Search tabs" aria-controls="switcher" aria-expanded="false">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.25" /><path d="M10.2 10.2 L13.5 13.5" /></svg>
+        </button>
+      </div>
 
       <!-- Find in document: Ctrl+F. Hangs under the bar; see #find in base.css. -->
       <div id="find" role="search" hidden>
@@ -76,6 +84,18 @@
                 title="Next match (Enter)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 6 L8 11 L13 6" /></svg></button>
         <button id="find-close" class="nav" type="button" aria-label="Close find"
                 title="Close (Esc)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4 L12 12 M12 4 L4 12" /></svg></button>
+      </div>
+
+      <!-- Tab switcher: Ctrl+P. Hangs under the bar, centred; see #switcher in base.css. -->
+      <div id="switcher" hidden>
+        <input id="switcher-input" type="text" role="combobox" aria-label="Search open tabs"
+               placeholder="Search open tabs" aria-controls="switcher-list" aria-expanded="true"
+               aria-autocomplete="list" spellcheck="false" autocomplete="off" />
+        <!-- tabindex -1: a scroll box with no focusable children is a Tab stop. -->
+        <ul id="switcher-list" role="listbox" aria-label="Open tabs" tabindex="-1"></ul>
+        <!-- Outside the listbox, which may hold only options; always present so
+             a change of its text is announced. -->
+        <p id="switcher-none" role="status"></p>
       </div>
     </header>
 

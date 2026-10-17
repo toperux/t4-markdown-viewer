@@ -37,7 +37,9 @@ Electron build starts around 150 MB.
 - **Tabs or windows.** Read several documents at once, and choose per taste
   whether an opened file lands in a new tab or its own window. Tabs drag to
   reorder, and out onto the desktop to become their own window. Dragging one
-  *into* another window is Windows-only — see [Platforms](#platforms).
+  *into* another window is Windows-only — see [Platforms](#platforms). With
+  many tabs open, `Ctrl+P` or the magnifier at the end of the strip searches
+  them by name, heading or folder.
 - **Pick up where you left off.** What you had open is written down as you work,
   so the next launch can bring the whole lot back — every window where it stood,
   every tab with its history and its reading position. It asks first by default;
@@ -246,6 +248,7 @@ On macOS, read `Cmd` for every `Ctrl` below.
 | `Ctrl+W` | Close the current tab |
 | `Ctrl+Shift+T` | Reopen the last closed tab |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab |
+| `Ctrl+P` | Search the open tabs and switch to one |
 | `F5` / `Ctrl+R` | Re-read the current file, keeping your scroll position |
 | `F8` | Next theme (`Shift+F8` for previous) |
 | `Ctrl+,` | Settings |

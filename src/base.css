@@ -241,8 +241,10 @@ body {
 }
 
 /* The tree filter's look, not its layout: its block width and margin would
-   break the row. `font: inherit` because inputs don't inherit the font. */
-#find-input {
+   break the row. `font: inherit` because inputs don't inherit the font. The
+   tab switcher's input shares the look. */
+#find-input,
+#switcher-input {
   flex: 1 1 12rem;
   min-width: 0;
   appearance: none;
@@ -256,11 +258,13 @@ body {
   user-select: text;
 }
 
-#find-input::placeholder {
+#find-input::placeholder,
+#switcher-input::placeholder {
   color: var(--ui-fg-muted);
 }
 
-#find-input:focus-visible {
+#find-input:focus-visible,
+#switcher-input:focus-visible {
   outline: 2px solid var(--ui-accent);
   outline-offset: 1px;
 }
@@ -271,6 +275,119 @@ body {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   color: var(--ui-fg-muted);
+}
+
+/* ---------- tab switcher ---------- */
+
+/* Hangs under the bar like #find, but centred, so both can be open; where they
+   overlap this one covers find until it closes. No `display`, so the browser's
+   own `[hidden]` rule hides it. */
+#switcher {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(36rem, calc(100vw - 2rem));
+  z-index: 1;
+  padding: 0.25rem 0.375rem;
+  background: var(--ui-bg);
+  color: var(--ui-fg);
+  border: 1px solid var(--ui-border);
+  border-top: 0;
+  border-radius: 0 0 6px 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+}
+
+#switcher-input {
+  display: block;
+  width: 100%;
+}
+
+/* `relative` so a row's `offsetTop` is measured from the list, not from
+   #switcher. A wheel at its end doesn't go on to scroll the document. */
+#switcher-list {
+  position: relative;
+  max-height: 60vh;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+#switcher-list li,
+#switcher-none {
+  padding: 0.3125rem 0.75rem;
+}
+
+#switcher-list li {
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+/* The name and heading on one line, the folder below; the row's title holds
+   the full path. */
+.switcher-top,
+.switcher-folder {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcher-heading,
+.switcher-folder,
+#switcher-list .current .switcher-name::after,
+#switcher-none {
+  color: var(--ui-fg-muted);
+}
+
+.switcher-heading,
+#switcher-list .current .switcher-name::after {
+  margin-left: 0.5rem;
+}
+
+#switcher-list .current .switcher-name::after {
+  content: "current";
+}
+
+/* Cut at its start by renderSwitcher; clipped, not ellipsised, should it
+   still run a hair over, so no second "…" lands on the end's match. */
+.switcher-folder {
+  font-size: 0.85em;
+  text-overflow: clip;
+}
+
+/* No colour: an accent-coloured letter on --ui-bg isn't contrast-checked in
+   every theme. Underlined too, as bold alone barely shows on near-white names
+   in a dark theme. */
+#switcher-list mark {
+  background: none;
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* The row Enter would pick: the menus' inset accent ring and an accent tint.
+   Hover only a neutral tint, so a row under a resting mouse doesn't read as a
+   second pick. */
+#switcher-list li:hover {
+  background: color-mix(in srgb, var(--ui-fg) 8%, transparent);
+}
+
+#switcher-list li[aria-selected="true"] {
+  box-shadow: inset 0 0 0 1px var(--ui-accent);
+  background: color-mix(in srgb, var(--ui-accent) 12%, transparent);
+}
+
+#switcher-none {
+  margin: 0;
+}
+
+/* Always in the page, so screen readers announce its text changing; empty, it
+   takes no room. */
+#switcher-none:empty {
+  display: none;
 }
 
 /* ---------- open split button ---------- */
@@ -1078,6 +1195,12 @@ select option {
 
 /* ---------- tab strip ---------- */
 
+/* The strip and the tab switcher's button: the button stays put while the
+   strip scrolls. */
+#tab-row {
+  display: flex;
+}
+
 /*
  * Themed entirely through the --ui-* variables, so adding a tab strip cost the
  * theme files nothing. The active tab takes the page's colour (--page-bg, set by
@@ -1085,6 +1208,8 @@ select option {
  * the bar in every theme, so the label keeps its contrast; a grey wash didn't.
  */
 #tabs {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: stretch;
   gap: 2px;
@@ -1098,6 +1223,20 @@ select option {
 /* `display: flex` above would otherwise defeat the `hidden` attribute. */
 #tabs[hidden] {
   display: none;
+}
+
+/* Gone with the strip, so a lone document's row is empty and takes no height. */
+#tabs[hidden] + #tab-search {
+  display: none;
+}
+
+/* Its own height, not the row's, which an overflowing strip's scrollbar makes
+   taller. Centred on the tabs: the strip's 6px top padding, plus half of the
+   4px by which a tab (28px) is taller than the button (24px). */
+#tab-search {
+  flex: none;
+  align-self: flex-start;
+  margin: 8px 0.5rem 0 0;
 }
 
 /* The active tab's glow, continued inward along the rest of the bar's bottom

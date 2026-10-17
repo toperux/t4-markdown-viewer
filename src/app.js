@@ -12,6 +12,11 @@ const els = {
   forward: document.getElementById("fwd-btn"),
   docName: document.getElementById("doc-name"),
   tabs: document.getElementById("tabs"),
+  tabSearch: document.getElementById("tab-search"),
+  switcher: document.getElementById("switcher"),
+  switcherInput: document.getElementById("switcher-input"),
+  switcherList: document.getElementById("switcher-list"),
+  switcherNone: document.getElementById("switcher-none"),
   find: document.getElementById("find"),
   findInput: document.getElementById("find-input"),
   findCount: document.getElementById("find-count"),
@@ -261,6 +266,13 @@ let tabs = [];
 let activeId = null;
 let nextTabId = 1;
 
+// Tab switcher (docs/plans/tab-switcher.md).
+let useClock = 0; // stamps tab.used, most recent highest
+let switcherShown = []; // the tabs the list shows, in its order
+let switcherPick = -1; // index into switcherShown
+let switcherReturn = null; // what had focus before it opened
+let switcherDrawn = ""; // what the list last showed, so a redraw that changes nothing is skipped
+
 /** Closed tabs for Ctrl+Shift+T, most recent last. */
 const closedTabs = [];
 const CLOSED_LIMIT = 20;
@@ -305,6 +317,8 @@ function makeTab(path) {
     dir: "",
     label: baseName(path),
     heading: "",
+    /** When it was last shown, from `useClock`: the switcher lists recent tabs first. */
+    used: 0,
     /** Pictures the rendered document shows, so the watcher covers them too. */
     media: [],
     /** The sidebar's root for this tab, or null for the document's own folder. */
@@ -1934,6 +1948,7 @@ function onResize() {
   measureBar();
   announceSidebarWidth(); // a narrower window can clamp the sidebar too
   if (zoomed) zoomDiagram(zoomed.scale);
+  if (!els.switcher.hidden) renderSwitcher(true); // its folder lines cut to fit
   if (!picture) return;
   const scale = picture.base ? picture.width / picture.base : 1;
   zoomTo(picture.fit ? defaultWidth() : scale * baseWidth());
@@ -2070,6 +2085,9 @@ async function showActive(scrollY) {
 
 function updateChrome() {
   const tab = activeTab();
+  // Every finished activation gets here, the error path included, so the
+  // stamps order the tabs by when each was last shown.
+  if (tab) tab.used = ++useClock;
   els.back.disabled = !tab || tab.index <= 0;
   els.forward.disabled = !tab || tab.index >= tab.entries.length - 1;
   els.docName.textContent = tab ? tab.path : "";
@@ -2105,6 +2123,8 @@ function measureBar() {
 let dropCaret = -1;
 
 function renderTabs() {
+  // First: the one-tab path below returns early.
+  if (!els.switcher.hidden) renderSwitcher(true);
   const visible = tabs.length > 1 || dropCaret >= 0;
   els.tabs.hidden = !visible;
   if (!visible) {
@@ -2261,7 +2281,9 @@ async function openTab(path) {
 }
 
 async function activateTab(id) {
-  if (id === activeId) return;
+  // Gone already: closing the active tab redraws the strip and the switcher
+  // only once the next tab has loaded, and a click can land in between.
+  if (id === activeId || !tabs.some((t) => t.id === id)) return;
   activeId = id;
   await showActive();
 }
@@ -3313,6 +3335,11 @@ function buildFindIndex(root) {
   return { text: parts.join(""), starts, nodes };
 }
 
+/** `s` matched as written, by find and the tab switcher alike. */
+function literal(s) {
+  return s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+}
+
 /**
  * The query as a pattern: case-insensitive, any whitespace run matching any
  * other.
@@ -3321,7 +3348,6 @@ function findPattern(query) {
   // Not just whitespace or NULs, which would leave an empty pattern that
   // matches nothing forever.
   if (!/[^\s\0]/.test(query)) return null;
-  const literal = (s) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
   return new RegExp(query.replaceAll("\0", "").split(/\s+/).map(literal).join("\\s+"), "giu");
 }
 
@@ -3591,6 +3617,279 @@ function closeFind() {
 function findAgain(step) {
   if (els.find.hidden) openFind();
   if (/[^\s\0]/.test(els.findInput.value)) findStep(step);
+}
+
+/* ---------------- tab switcher ---------------- */
+
+/**
+ * The query's words as patterns, case-insensitive, with `\` and `/` the same
+ * character so `docs/readme` finds a Windows path. Split on the separators
+ * before escaping: the escape turns `/` into `\/`, which a rewrite afterwards
+ * would read as two separators. A word is never empty, so no pattern is.
+ */
+function switcherWords(query) {
+  return query
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => new RegExp(word.split(/[\\/]/).map(literal).join("[\\\\/]"), "giu"));
+}
+
+/**
+ * The tabs of `list` the query finds, in the switcher's order; a copy, never
+ * `list` itself, which is the strip's order. Every word must be in the name,
+ * heading or path; tabs found by name and heading alone come first. With no
+ * words, the active tab, then the rest by when they were last shown.
+ */
+function switcherMatches(list, query, activeId) {
+  const words = switcherWords(query);
+  const recent = (a, b) => b.used - a.used;
+  if (!words.length) {
+    // The active tab explicitly: during a slow load it isn't stamped yet.
+    return [
+      ...list.filter((t) => t.id === activeId),
+      ...list.filter((t) => t.id !== activeId).sort(recent),
+    ];
+  }
+  // `search` ignores the `g` flag's `lastIndex`.
+  const found = (fields) => words.every((re) => fields.some((f) => f.search(re) !== -1));
+  const group = (t) => (found([t.label, t.heading]) ? 0 : 1);
+  return list
+    .filter((t) => found([t.label, t.heading, t.path]))
+    .sort((a, b) => group(a) - group(b) || recent(a, b));
+}
+
+/** Every match of `words` in `text`, as sorted [start, end) pairs, overlapping or touching ones merged. */
+function matchRanges(text, words) {
+  const ranges = words
+    .flatMap((re) => [...text.matchAll(re)].map((m) => [m.index, m.index + m[0].length]))
+    .sort((a, b) => a[0] - b[0]);
+  const merged = [];
+  for (const r of ranges) {
+    const last = merged.at(-1);
+    if (last && r[0] <= last[1]) last[1] = Math.max(last[1], r[1]);
+    else merged.push(r);
+  }
+  return merged;
+}
+
+/**
+ * A row's name and folder lines. Both are slices of `path`, so the matches in
+ * the whole path are cut to fit them: `docs/readme` is bold in each. `label`
+ * is always `path`'s base name, and the separator between the two lines isn't
+ * shown, so its part of a match is dropped.
+ */
+function switcherLines(path, label, words) {
+  const ranges = matchRanges(path, words);
+  const cut = path.length - label.length;
+  let folder = path.slice(0, cut);
+  // Less its trailing separator, unless that leaves a root: `/`, `C:\` or
+  // `\\?\C:\`. Not just "ends in `:`": a Unix folder may be named `a:`.
+  if (!/^(|[a-z]:|\\\\\?\\[a-z]:)$/i.test(folder.slice(0, -1))) folder = folder.slice(0, -1);
+  const clip = (from, to) =>
+    ranges.map(([a, b]) => [Math.max(a, from) - from, Math.min(b, to) - from]).filter(([a, b]) => a < b);
+  return { folder, folderRanges: clip(0, folder.length), nameRanges: clip(cut, path.length) };
+}
+
+/**
+ * `text` cut at the start to fit `width`, as `measure(text, ranges)` sizes it:
+ * "…" and the longest tail that fits, its `ranges` clipped and moved along.
+ * Unchanged when it fits.
+ */
+function cutStart(text, ranges, width, measure) {
+  if (measure(text, ranges) <= width) return { text, ranges };
+  const cutAt = (i) => ({
+    text: `…${text.slice(i)}`,
+    ranges: ranges.map(([a, b]) => [Math.max(a, i) - i + 1, b - i + 1]).filter(([a, b]) => a < b),
+  });
+  // Only between whole characters as the reader sees them: never inside an
+  // emoji sequence (joined people, a skin tone, a flag) or before an accent
+  // (macOS keeps names decomposed, "e" then its accent). Searched among those
+  // alone: part of a joined emoji draws wider than the whole, which would
+  // throw the search off a cut that fits.
+  graphemes ??= new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  const cuts = [...graphemes.segment(text)].map((s) => s.index).slice(1).concat(text.length);
+  // The smallest cut whose tail fits; cutting it all always does.
+  let lo = 0;
+  let hi = cuts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    const c = cutAt(cuts[mid]);
+    if (measure(c.text, c.ranges) <= width) hi = mid;
+    else lo = mid + 1;
+  }
+  return cutAt(cuts[lo]);
+}
+
+/** Splits text into the characters a reader sees, for `cutStart`. */
+let graphemes = null;
+
+/** A canvas to size folder lines on, without laying out a row per try. */
+let ruler = null;
+
+/** Fill `el` with `text`, the `ranges` of it in `<mark>`. Never `innerHTML`: a file name can hold `<`. */
+function markMatches(el, text, ranges) {
+  let at = 0;
+  for (const [a, b] of ranges) {
+    if (a > at) el.append(document.createTextNode(text.slice(at, a)));
+    const mark = document.createElement("mark");
+    mark.textContent = text.slice(a, b);
+    el.append(mark);
+    at = b;
+  }
+  if (at < text.length) el.append(document.createTextNode(text.slice(at)));
+}
+
+/**
+ * Rebuild the list. `keep` is a redraw while open (a tab changed behind it):
+ * the picked tab stays picked while it is listed, and the list doesn't
+ * scroll, so a file reloading behind it leaves the list where it was wheeled.
+ */
+function renderSwitcher(keep) {
+  if (!tabs.length) {
+    closeSwitcher();
+    return;
+  }
+  const kept = keep ? switcherShown[switcherPick]?.id : undefined;
+  const query = els.switcherInput.value;
+  const words = switcherWords(query);
+  switcherShown = switcherMatches(tabs, query, activeId);
+  switcherPick = switcherShown.findIndex((t) => t.id === kept);
+  // The second row on an empty query, so Ctrl+P, Enter flips back to the
+  // previous tab; the first match once something is typed.
+  if (switcherPick < 0)
+    switcherPick = !switcherShown.length ? -1 : !words.length && switcherShown.length > 1 ? 1 : 0;
+  // A file rewritten behind it redraws several times a second. Rows that
+  // would come out the same aren't rebuilt: a click whose press and release
+  // straddle the swap would be lost.
+  // The window's height too: the list's cap is 60vh, and a scrollbar coming
+  // or going changes the width the folder lines are cut to.
+  const shown = switcherShown.map((t) => [t.id, t.path, t.heading]);
+  const drawn = JSON.stringify([query, activeId, innerWidth, innerHeight, shown]);
+  if (keep && drawn === switcherDrawn) return;
+  switcherDrawn = drawn;
+
+  const folders = [];
+  const scrolled = els.switcherList.scrollTop;
+  els.switcherList.replaceChildren(
+    ...switcherShown.map((t) => {
+      const li = document.createElement("li");
+      li.id = `switcher-opt-${t.id}`;
+      li.setAttribute("role", "option");
+      li.title = t.path;
+      if (t.id === activeId) li.className = "current";
+      const lines = switcherLines(t.path, t.label, words);
+      const top = document.createElement("div");
+      top.className = "switcher-top";
+      const name = document.createElement("span");
+      name.className = "switcher-name";
+      markMatches(name, t.label, lines.nameRanges);
+      top.append(name);
+      if (t.heading) {
+        const heading = document.createElement("span");
+        heading.className = "switcher-heading";
+        markMatches(heading, t.heading, matchRanges(t.heading, words));
+        top.append(heading);
+      }
+      const folder = document.createElement("div");
+      folder.className = "switcher-folder";
+      // Uncut for now, so the rows have their full height when the width is
+      // read below: empty, they are shorter, and the list may not yet show
+      // the scrollbar that narrows them.
+      folder.textContent = lines.folder;
+      folders.push([folder, lines]);
+      li.append(top, folder);
+      return li;
+    }),
+  );
+  // Folder lines are cut at the start, not the end: the deepest folders tell
+  // rows apart, and a match there stays in view. By hand, as CSS cuts only at
+  // the end (WebKit paints a right-to-left box's "…" over the text). All rows
+  // share the width and font. Marks are bold, so each adds what bold costs it.
+  if (folders.length) {
+    const style = getComputedStyle(folders[0][0]);
+    // Less a pixel: `clientWidth` is rounded, and canvas and page may not kern
+    // alike.
+    const width = folders[0][0].clientWidth - 1;
+    const font = (weight) => `${style.fontStyle} ${weight} ${style.fontSize} ${style.fontFamily}`;
+    ruler ??= document.createElement("canvas").getContext("2d");
+    const size = (s, weight) => ((ruler.font = font(weight)), ruler.measureText(s).width);
+    const measure = (s, ranges) =>
+      ranges.reduce(
+        (w, [a, b]) => w + size(s.slice(a, b), 600) - size(s.slice(a, b), style.fontWeight),
+        size(s, style.fontWeight),
+      );
+    for (const [folder, lines] of folders) {
+      const cut = cutStart(lines.folder, lines.folderRanges, width, measure);
+      folder.replaceChildren();
+      markMatches(folder, cut.text, cut.ranges);
+    }
+  }
+  // A redraw while open stays where the list was: the layout read above can
+  // clamp the scroll before the rows are final.
+  if (keep) els.switcherList.scrollTop = scrolled;
+  els.switcherNone.textContent = switcherShown.length ? "" : "No open tab matches";
+  // A kept pick stays where the list was; one that fell back is brought in.
+  showSwitcherPick(!keep || switcherShown[switcherPick]?.id !== kept);
+}
+
+/** Mark the picked row, and with `reveal` scroll the list to it. */
+function showSwitcherPick(reveal) {
+  const rows = els.switcherList.children;
+  for (let i = 0; i < rows.length; i++) rows[i].setAttribute("aria-selected", String(i === switcherPick));
+  const row = rows[switcherPick];
+  if (row) els.switcherInput.setAttribute("aria-activedescendant", row.id);
+  else els.switcherInput.removeAttribute("aria-activedescendant");
+  if (!reveal || !row) return;
+  // By hand: `scrollIntoView` can scroll the document too, when the box runs
+  // past the bottom of a short window.
+  const list = els.switcherList;
+  if (row.offsetTop < list.scrollTop) list.scrollTop = row.offsetTop;
+  else if (row.offsetTop + row.offsetHeight > list.scrollTop + list.clientHeight)
+    list.scrollTop = row.offsetTop + row.offsetHeight - list.clientHeight;
+}
+
+function openSwitcher() {
+  if (!tabs.length) return;
+  if (els.switcher.hidden) {
+    // As find's: an item of the open-menu is about to be hidden with it; go
+    // back to its button instead.
+    switcherReturn = els.openMenu.contains(document.activeElement) ? els.openMore : document.activeElement;
+    els.switcherInput.value = "";
+    els.switcher.hidden = false;
+    // From the top: the list keeps its scroll while hidden, and revealing the
+    // second row only scrolls as far as it, leaving the current row above.
+    els.switcherList.scrollTop = 0;
+    els.tabSearch.setAttribute("aria-expanded", "true");
+  }
+  showOpenMenu(false);
+  renderSwitcher(false);
+  els.switcherInput.focus();
+  els.switcherInput.select();
+}
+
+/**
+ * `restore` false when focus is already going somewhere of its own accord, as
+ * on Tab out of it.
+ */
+function closeSwitcher(restore = true) {
+  // The focus restore below fires `focusout`, which would close it again.
+  if (els.switcher.hidden) return;
+  // Read before hiding, which takes the focus away.
+  const inside = els.switcher.contains(document.activeElement);
+  els.switcher.hidden = true;
+  els.tabSearch.setAttribute("aria-expanded", "false");
+  if (inside && restore) {
+    els.switcherInput.blur();
+    if (switcherReturn?.isConnected && switcherReturn.getClientRects().length)
+      switcherReturn.focus({ preventScroll: true });
+  }
+  switcherReturn = null;
+}
+
+function pickSwitcher(i) {
+  const tab = switcherShown[i];
+  closeSwitcher();
+  activateTab(tab.id).catch(toast);
 }
 
 /* ---------------- open mode ---------------- */
@@ -4850,15 +5149,20 @@ async function onKeydown(event) {
     return;
   }
 
-  // WebView2 opens its own find bar on each of these (measured). The modifier
-  // is checked as the reload's is: AltGr arrives as Ctrl+Alt, and AltGr+F
-  // types "[" on a Hungarian layout. `keyCode` for non-Latin layouts, as
-  // above. `key` can be missing (an autofill keydown), hence the `?.`.
+  // WebView2 opens its own find bar on each of these (measured), and most
+  // likely its print preview on Ctrl+P (unmeasured). The modifier is checked
+  // as the reload's is: AltGr arrives as Ctrl+Alt, and AltGr+F types "[" on a
+  // Hungarian layout. `keyCode` for non-Latin layouts, as above. `key` can be
+  // missing (an autofill keydown), hence the `?.`. Before the modal guard, so
+  // no print preview opens under a dialog either.
   const k = event.key?.toLowerCase();
+  // The tab switcher's key. Cmd only on the Mac, where Control+P in a text
+  // box moves the caret up a line.
+  const switcherKey = (k === "p" || event.keyCode === 80) && (!isMac || event.metaKey);
   if (
     event.key === "F3" ||
     event.keyCode === 114 ||
-    (ctrl && !event.altKey && (k === "f" || k === "g" || event.keyCode === 70 || event.keyCode === 71))
+    (ctrl && !event.altKey && (k === "f" || k === "g" || event.keyCode === 70 || event.keyCode === 71 || switcherKey))
   )
     event.preventDefault();
 
@@ -4885,6 +5189,12 @@ async function onKeydown(event) {
     showOpenMenu(false);
     els.openMore.focus();
     if (event.key === "Escape") return;
+  }
+  // Before the actor menus and the find bar: it hangs over both, and one
+  // opened before it would otherwise take the first Esc.
+  if (event.key === "Escape" && !els.switcher.hidden && !event.isComposing && event.keyCode !== 229) {
+    closeSwitcher();
+    return;
   }
   if (event.key === "Escape" && closeActorMenus()) return;
   // From anywhere while the find bar is open, not only from its input. Not the
@@ -4993,6 +5303,10 @@ async function onKeydown(event) {
     openFind();
   } else if (key === "g" || event.keyCode === 71) {
     findAgain(event.shiftKey ? -1 : 1);
+  } else if (switcherKey && !event.shiftKey) {
+    // Not with Shift, so Ctrl+Shift+P stays free; Ctrl+Shift+З on a Cyrillic
+    // layout has keyCode 80 too.
+    openSwitcher();
   } else if (key === "t" && event.shiftKey) {
     event.preventDefault();
     await reopenClosed();
@@ -5161,6 +5475,49 @@ async function main() {
   els.findPrev.addEventListener("click", () => findStep(-1));
   els.findNext.addEventListener("click", () => findStep(1));
   els.findClose.addEventListener("click", closeFind);
+  // Stopped once handled, so `onKeydown` doesn't see it; Ctrl+W, Ctrl+Tab and
+  // the rest go on to it, and the list redraws for them.
+  els.switcherInput.addEventListener("keydown", (event) => {
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      const n = switcherShown.length;
+      if (!n) return;
+      event.preventDefault(); // no caret move
+      event.stopPropagation();
+      switcherPick = (switcherPick + (event.key === "ArrowDown" ? 1 : n - 1)) % n;
+      showSwitcherPick(true);
+    } else if (event.key === "Enter") {
+      // Or the focus restore would hand the Enter to whatever gets the focus
+      // back, and a button there would be clicked.
+      event.preventDefault();
+      event.stopPropagation();
+      if (switcherPick >= 0) pickSwitcher(switcherPick);
+    }
+  });
+  // A few dozen tabs and no layout reads: no debounce.
+  // From the top, as on opening: the pick is the first or second row, and
+  // the current tab above it should stay in view.
+  els.switcherInput.addEventListener("input", () => {
+    els.switcherList.scrollTop = 0;
+    renderSwitcher(false);
+  });
+  // Keeps the focus in the input: `preventDefault` on `pointerdown` doesn't
+  // stop the focus change in Chromium.
+  els.switcherList.addEventListener("mousedown", (e) => e.preventDefault());
+  els.switcherList.addEventListener("click", (e) => {
+    const row = e.target.closest("li");
+    if (row) pickSwitcher([...els.switcherList.children].indexOf(row));
+  });
+  // Never focused by a click, on any engine, so closing hands focus back to
+  // where it was. Still a Tab stop for the keyboard.
+  els.tabSearch.addEventListener("mousedown", (e) => e.preventDefault());
+  els.tabSearch.addEventListener("click", () => (els.switcher.hidden ? openSwitcher() : closeSwitcher()));
+  // Tab or Shift+Tab out of it: focus is already going where it was sent. Not
+  // a null `relatedTarget` — the window losing focus, or a click on nothing
+  // focusable, which the press rule below covers.
+  els.switcher.addEventListener("focusout", (e) => {
+    if (e.relatedTarget && !els.switcher.contains(e.relatedTarget)) closeSwitcher(false);
+  });
   // Toast, not the console: Shift+click asks Rust for a window, and a failure
   // there has nothing of its own to show — the other two branches render their
   // own error page.
@@ -5210,6 +5567,8 @@ async function main() {
       // reopen on the click that follows — same reason as `#open-split`.
       if (!els.sortMenu.hidden && !e.target.closest("#sort-menu, #sidebar-sort"))
         showSortMenu(false);
+      // The tab switcher likewise, its button left out for the same reason.
+      if (!els.switcher.hidden && !e.target.closest("#switcher, #tab-search")) closeSwitcher();
     },
     true,
   );
