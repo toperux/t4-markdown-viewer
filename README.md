@@ -233,11 +233,13 @@ Repeat per extension if you want `.markdown`, `.mdown`, `.mkd`, `.mdtext`,
 
 ## Keyboard
 
-On macOS, read `Cmd` for every `Ctrl` below.
+On macOS, read `Cmd` for every `Ctrl` below, except `Ctrl+Tab`, which is
+`Control+Tab` there as in Safari (`Cmd+Tab` belongs to macOS), and
+`Ctrl`+wheel, which is `Control`+wheel or a pinch.
 
 | Key | Action |
 | --- | --- |
-| `Alt+←` / `Alt+→`, or `Ctrl+[` / `Ctrl+]` | Back / forward through visited documents |
+| `Alt+←` / `Alt+→`, or `Ctrl+[` / `Ctrl+]` | Back / forward through visited documents (on macOS, `Option+←/→` in a text box moves by a word instead) |
 | `Ctrl+O` | Open a file, wherever Settings says |
 | `Ctrl+Shift+O` | Show or hide the sidebar with the tab's folder — the one you picked, or the one it last showed while the document is inside it, otherwise the current file's (a picker when nothing is open) |
 | `Ctrl+F` | Find in the document |

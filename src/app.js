@@ -49,6 +49,7 @@ const els = {
   diagramColourRadios: document.querySelectorAll('#settings-dialog input[name="diagram-colours"]'),
   docFont: document.getElementById("doc-font"),
   docFontNote: document.getElementById("doc-font-note"),
+  fileManager: document.getElementById("file-manager"),
   autoUpdate: document.getElementById("auto-update"),
   checkNow: document.getElementById("check-now"),
   updateStatus: document.getElementById("update-status"),
@@ -283,6 +284,22 @@ const isMac = navigator.userAgent.includes("Macintosh");
 /** WebKitGTK's user agent names Linux, X11 and Wayland alike; WebView2's doesn't. */
 const isLinux = navigator.userAgent.includes("Linux");
 document.documentElement.classList.toggle("linux", isLinux);
+
+/** The shortcut modifier: Cmd on the Mac, where Control+letter belongs to text boxes,
+ *  and Control+Cmd keys are left to the system. */
+function cmdKey(event) {
+  return isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey || event.metaKey;
+}
+
+/** On the Mac, Option+Left/Right in a text box move by a word, not Back/Forward. */
+function macWordKeys(event) {
+  return (
+    isMac &&
+    event.altKey &&
+    (event.key === "ArrowLeft" || event.key === "ArrowRight") &&
+    document.activeElement?.matches("input[type=text], input[type=search]")
+  );
+}
 
 /** Guards against a slow load painting over a newer tab switch. */
 let renderToken = 0;
@@ -1480,7 +1497,7 @@ function onDiagramToolsClick(event) {
 
 /** The same Ctrl spellings the picture tab takes. Escape is the dialog's own. */
 function onDiagramKeydown(event) {
-  if (!zoomed || !(event.ctrlKey || event.metaKey) || event.altKey) return;
+  if (!zoomed || !cmdKey(event) || event.altKey) return;
   if (event.key === "+" || event.key === "=") zoomDiagram(zoomed.scale * ZOOM_STEP);
   else if (event.key === "-") zoomDiagram(zoomed.scale / ZOOM_STEP);
   else if (event.key === "0") zoomDiagram(1);
@@ -3931,6 +3948,9 @@ function pickSwitcher(i) {
 
 /* ---------------- open mode ---------------- */
 
+/** The Open button's key, spelled as the boot pass in `main` spells the rest. */
+const KEY_OPEN = isMac ? "⌘O" : "Ctrl+O";
+
 /**
  * Reflect the mode in the UI without writing it back. Also called when another
  * window changes it, so it must not re-broadcast.
@@ -3939,7 +3959,7 @@ function showOpenMode(mode) {
   state.openMode = mode;
   for (const radio of els.modeRadios) radio.checked = radio.value === mode;
   els.openBtn.title =
-    mode === "window" ? "Open a file in a new window (Ctrl+O)" : "Open a file in a new tab (Ctrl+O)";
+    mode === "window" ? `Open a file in a new window (${KEY_OPEN})` : `Open a file in a new tab (${KEY_OPEN})`;
 }
 
 function setOpenMode(mode) {
@@ -5172,7 +5192,7 @@ async function onKeydown(event) {
    * Handled before the modal guard, and with any modifier, so no spelling of
    * a reload key can get past it — Ctrl+F5 and Shift+F5 included.
    */
-  const ctrl = event.ctrlKey || event.metaKey;
+  const ctrl = cmdKey(event);
   // `keyCode` too: WebView2's accelerator reads the virtual key, so Ctrl+К on
   // a Cyrillic layout reloads although `key` is "к". Not `code`: on Dvorak
   // `KeyR` is where P is.
@@ -5193,9 +5213,9 @@ async function onKeydown(event) {
   // missing (an autofill keydown), hence the `?.`. Before the modal guard, so
   // no print preview opens under a dialog either.
   const k = event.key?.toLowerCase();
-  // The tab switcher's key. Cmd only on the Mac, where Control+P in a text
-  // box moves the caret up a line.
-  const switcherKey = (k === "p" || event.keyCode === 80) && (!isMac || event.metaKey);
+  // The tab switcher's key. `ctrl` leaves out the Mac's Control, which
+  // moves the caret up a line in a text box.
+  const switcherKey = k === "p" || event.keyCode === 80;
   if (
     event.key === "F3" ||
     event.keyCode === 114 ||
@@ -5217,7 +5237,9 @@ async function onKeydown(event) {
   // but not WebView2's Back and Forward, which would walk the `#id` history
   // under it.
   if (els.settings.open || els.updateDialog.open || els.diagramDialog.open) {
-    if (event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) event.preventDefault();
+    // Not the Mac's Option+Arrow in the font box, which moves by a word.
+    if (event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight") && !macWordKeys(event))
+      event.preventDefault();
     return;
   }
 
@@ -5246,7 +5268,7 @@ async function onKeydown(event) {
   // too, which would otherwise scroll the page. Not on a held key's repeat,
   // which would open a picture's tab again before the first has taken the
   // page away.
-  if ((event.key === "Enter" || event.key === " ") && !ctrl && !event.altKey && !event.shiftKey && !event.repeat) {
+  if ((event.key === "Enter" || event.key === " ") && !ctrl && !event.metaKey && !event.altKey && !event.shiftKey && !event.repeat) {
     const el = document.activeElement;
     // Only a keyboard focus. A mouse press lets go of any focus it gave (the
     // mousedown listener, and `onLinkClick`); this is the last guard.
@@ -5264,6 +5286,7 @@ async function onKeydown(event) {
   }
 
   if (event.altKey && !event.ctrlKey && !event.metaKey) {
+    if (macWordKeys(event)) return; // left to the field
     if (event.key === "ArrowLeft") {
       event.preventDefault();
       go(-1);
@@ -5281,12 +5304,21 @@ async function onKeydown(event) {
     return;
   }
 
+  // After the modal guard, so a dialog still owns it. On the Mac it is
+  // Control+Tab, as in Safari: Cmd+Tab belongs to macOS. `keyCode` too:
+  // WebKitGTK names Shift+Tab "Unidentified" (it is ISO_Left_Tab there).
+  if ((event.key === "Tab" || event.keyCode === 9) && !event.altKey && (isMac ? event.ctrlKey && !event.metaKey : ctrl)) {
+    event.preventDefault();
+    cycleTab(event.shiftKey ? -1 : 1);
+    return;
+  }
+
   // Windows reports AltGr as Ctrl+Alt, and on a German or Nordic keyboard
   // AltGr is how `[` and `]` are typed. Nothing below is a Ctrl+Alt shortcut.
   if (!ctrl || event.altKey) return;
 
-  // Alt+Arrow above is the Windows idiom; Cmd+[ and Cmd+] are the Mac one.
-  // Both are accepted everywhere rather than branching on the platform.
+  // Alt+Arrow above is the Windows idiom, Cmd+[ and Cmd+] the Mac one; both
+  // are accepted off the Mac.
   if (event.key === "[") {
     event.preventDefault();
     go(-1);
@@ -5295,14 +5327,6 @@ async function onKeydown(event) {
   if (event.key === "]") {
     event.preventDefault();
     go(1);
-    return;
-  }
-
-  // `keyCode` too: WebKitGTK names Shift+Tab "Unidentified" (it is
-  // ISO_Left_Tab there).
-  if (event.key === "Tab" || event.keyCode === 9) {
-    event.preventDefault();
-    cycleTab(event.shiftKey ? -1 : 1);
     return;
   }
 
@@ -5574,12 +5598,28 @@ async function main() {
   els.tree.addEventListener("focusin", setTreeStop);
   els.treeMenu.addEventListener("click", (e) => onTreeMenuClick(e).catch(toast));
   for (const menu of [els.openMenu, els.sortMenu, els.treeMenu]) menu.addEventListener("keydown", onMenuKeydown);
-  // The tree answers metaKey as well as ctrlKey; on the Mac only one of those
-  // is the one people reach for, and Ctrl+click is the right-click that opened
-  // this menu in the first place.
-  if (isMac)
+  // The page is written with Windows' key names; the Mac's are ⇧⌘O, ⌥← and,
+  // for a click, ⌘-Click (Ctrl+click is the right-click that opens the tree's
+  // menu there). Before any tab or tree row exists, so no path in a title is
+  // touched.
+  if (isMac) {
+    for (const el of document.querySelectorAll("[title]"))
+      el.title = el.title
+        .replaceAll("Ctrl+Shift+", "⇧⌘")
+        .replaceAll("Ctrl+", "⌘")
+        .replaceAll("Alt+Left", "⌥←")
+        .replaceAll("Alt+Right", "⌥→")
+        .replaceAll("Shift+Enter", "⇧Enter");
     for (const key of els.treeMenu.querySelectorAll(".menu-key"))
-      key.textContent = key.textContent.replace("Ctrl", "⌘");
+      key.textContent = key.textContent.replace("Ctrl+", "⌘-").replace("Shift+", "⇧-");
+    // <kbd>Ctrl</kbd>+<kbd>O</kbd> becomes ⌘O, with no "+".
+    for (const kbd of document.querySelectorAll("kbd")) {
+      if (kbd.textContent !== "Ctrl") continue;
+      kbd.textContent = "⌘";
+      if (kbd.nextSibling?.nodeValue === "+") kbd.nextSibling.remove();
+    }
+  }
+  els.fileManager.textContent = isMac ? "Finder" : isLinux ? "your file manager" : "Explorer";
 
   els.openMore.addEventListener("click", () => showOpenMenu());
   els.openMenu.addEventListener("click", async (e) => {
