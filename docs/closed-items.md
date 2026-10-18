@@ -667,6 +667,54 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   GTK's (`gtk_window_get_size`, read on the main thread), the counterpart of the resize that sets it
   back. Walked on the VM: 1100×860 through three cycles on Wayland (was +52×89 each); X11
   unchanged.*
+- [x] **On macOS Shift+Cmd+W closes a tab, not the window** (added 2026-09-28, the drive-app
+  macOS run, measured). The webview sees a real key before the menu, and `onKeydown` handled `w`
+  with any Shift as close-tab, so **Window › Close Window** never fired from the keyboard.
+  *Fixed 2026-10-18 (`plans/tab-strip-follow-ups.md`, ruling Q6): on the Mac the page leaves
+  Shift+Cmd+W to the menu, and README's workaround sentence is gone. Walked on the Mac with a
+  real key: a two-tab window closed whole, the other window kept its tabs.*
+- [x] **On Linux, Ctrl+Shift+Tab doesn't go to the previous tab** (added 2026-10-07, seen with
+  xdotool under Xvfb only). WebKitGTK names the key `Unidentified` (it is `ISO_Left_Tab`), and
+  `onKeydown` matched `event.key === "Tab"` only.
+  *Fixed 2026-10-18 (`plans/tab-strip-follow-ups.md`, change review): the Tab shortcuts also
+  match `keyCode` 9, as does the Open menu's Tab. Walked on Linux: back one tab at a time and a
+  wrap from the first to the last; Shift+Tab in a filter still moves focus.*
+- [x] **Ctrl/Cmd+Shift+T reopens a tab at the end of the strip** (added 2026-10-07, seen on the
+  Mac; the code is shared). The closed-tab record kept no position.
+  *Fixed 2026-10-18 (`plans/tab-strip-follow-ups.md`, ruling Q7): a closed tab keeps its index
+  and comes back there, or at the end if the strip has since shrunk. Walked on all three.*
+- [x] **On macOS and Linux, some app text speaks Windows** (added 2026-10-07, the Mac's W12).
+  The Open-mode hint said Explorer, and tooltips said Ctrl and Alt, on every platform.
+  *Fixed 2026-10-18 (`plans/tab-strip-follow-ups.md`, rulings Q5 and Q9): the hint says Finder on
+  the Mac and "your file manager" on Linux; on the Mac every tooltip, key hint and menu key reads
+  ⌘, ⇧ and ⌥ (⌘O, ⇧⌘O, ⌥←, ⇧Enter, ⌘-Click, ⇧-Click). Walked on the Mac: a scan of the page
+  found no Windows key name left.*
+- [x] **On macOS, Option+Left/Right in the tree filter and the find bar goes Back/Forward, not a
+  word** (added 2026-10-09, `archive/plans/find-in-document.md`, ruling G).
+  *Fixed 2026-10-18 (`plans/tab-strip-follow-ups.md`, rulings Q7 and G): on the Mac, in any text
+  box, the keys are left to the box. Walked on the Mac: the caret moves by a word in the tree
+  filter, the find bar, the tab switcher and Settings' font box; in the page they still go
+  Back/Forward.*
+- [x] **On Linux, a tab in an overflowing strip takes clicks only in its top 7 px** (added
+  2026-10-17, the tab switcher walks). Below that a click hit `#tabs`, and a drag scrolled the
+  strip.
+  *Fixed 2026-10-18 (`plans/tab-strip-follow-ups.md`, ruling Q1): the probe found WebKitGTK's
+  overlay scrollbar taking a fixed 21 px band at the strip's foot; on Linux the strip goes
+  without a scrollbar (the wheel, Shift+wheel and the active tab's reveal move it). Walked on
+  Wayland and X11: clicks and drags work over the whole tab.*
+- [x] **The tab strip doesn't scroll to the active tab, and a plain wheel doesn't scroll it**
+  (added 2026-10-17, the tab switcher walks).
+  *Fixed 2026-10-18 (`plans/tab-strip-follow-ups.md`, rulings Q2, Q4, Q8 and A-D): when the
+  active tab or its document changes, the strip scrolls the least amount that shows it whole; a
+  live reload or a hand scroll is left alone. A plain wheel over a strip with a tab cut off
+  scrolls it sideways, and a scroll hold lets it. Walked on all three, restore at launch
+  included.*
+- [x] **On macOS, the app's Ctrl shortcuts also fire on the Control key** (added 2026-10-17, the
+  tab switcher walks).
+  *Fixed 2026-10-18 (`plans/tab-strip-follow-ups.md`, rulings Q3 and E): on the Mac every
+  shortcut is Cmd-only, but for Control+Tab, and zoom by Control+wheel or a pinch. Keys holding
+  Control and Cmd together go to the system, so Control+Cmd+F is full screen. Walked on the Mac
+  with real keys: Control+letters reach text boxes, and every Cmd shortcut works.*
 
 ## Needs a Mac, a Dependabot run, or an older build
 
@@ -1302,6 +1350,8 @@ tooling; listed so nobody rediscovers them.
   R6), in text fields included, where it would move the caret one character. Control+N,
   Control+W and Control+O already do the same.
   *Kept 2026-10-09, owner's call, no trigger.*
+  *Lifted 2026-10-18 (`plans/tab-strip-follow-ups.md`, ruling Q3): the Mac's shortcuts are
+  Cmd-only, so Control+F reaches the text field.*
 - [x] **No find highlights on a Mac without Safari 17.2 or later** (2026-10-09,
   `archive/plans/find-in-document.md`, ruling F). The highlights use the CSS Custom Highlight API, which
   every engine measured has; a macOS 13 or 14 Mac that never took Safari 17.2+ lacks it (from
@@ -1387,3 +1437,20 @@ tooling; listed so nobody rediscovers them.
   review; reasoned, not tested). Opened from the magnifier by keyboard, a pick puts focus back
   on the button, and an Enter held past the key repeat presses it again. Esc closes it.
   *Kept 2026-10-17, owner's call, no trigger.*
+- [x] **Resizing the window doesn't bring the active tab back into the strip** (2026-10-18,
+  `plans/tab-strip-follow-ups.md`, ruling Q8). The strip scrolls to the active tab only when the
+  tab or its document changes, so a window made narrower can leave the active tab off-screen
+  until the next switch.
+  *Kept 2026-10-18, owner's call, no trigger.*
+- [x] **A tab cut off by 1 px doesn't let a plain wheel scroll the strip** (2026-10-18, the
+  tab-strip change review, Windows). The strip's wheel test allows 1 px of slack for display
+  rounding, so a last tab cut by exactly 1 px reads as fitting, and the wheel scrolls the page.
+  Shift+wheel and switching to the tab still show it.
+  *Kept 2026-10-18, owner's call, no trigger.*
+- [x] **drive-app on macOS: other menu shortcuts vs the page are unmeasured** (added
+  2026-09-28, `archive/plans/drive-app-macos.md`). A real Shift+Cmd+W was seen reaching the page
+  before the menu. Whether Cmd+H/M and the Edit menu's Cmd+A/C/V/X/Z did too was unknown.
+  *Lifted 2026-10-18 (`plans/tab-strip-follow-ups.md`, its trigger): with real keys, the page
+  sees each and leaves it alone, and the menu or the text system acts. Cmd+H hides the app,
+  Cmd+M minimizes the window, and select all, cut, copy, paste, undo and redo work in the tree
+  filter and the find bar; in the document, Cmd+A and Cmd+C select and copy its text.*

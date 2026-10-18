@@ -101,15 +101,6 @@ section, so this file lists only what is still to do. Finished plans and reviews
   fired; kept deferred by the owner 2026-10-07, now with the trigger *the tear-off placement
   work* (with *A torn-off window can land off-screen* and *A tab released level with the strip
   but outside the window reorders it*).*
-- [ ] **On macOS Shift+Cmd+W closes a tab, not the window** (added 2026-09-28, the drive-app
-  macOS run, measured). README gives `Shift+Cmd+W` as the shortcut for Close Window, and
-  `macos_menu` binds it so. But the webview sees a real key before the menu, and `onKeydown`
-  handles `w` with any Shift as close-tab with `preventDefault`, so the menu item never fires: a
-  window with two tabs was left with one. Clicking **Window › Close Window** does close the
-  window (measured), and README now says to use it; drop that sentence from README with the fix.
-  Likely fix: let `onKeydown` skip Shift+Cmd+W on macOS so the menu gets it, checked with a real
-  keystroke through `drive-app`'s `macos.md`. Reopen with the next macOS keyboard or menu work,
-  or on a user report.
 - [ ] **Diagrams are unproven on the macOS 13 floor** (added 2026-09-29, found after the Mermaid
   item closed). The app supports macOS 13 and up (`minimumSystemVersion` in
   `tauri.conf.json`), and the Mermaid item asked for a check on macOS 13's WKWebView, but it
@@ -132,8 +123,8 @@ section, so this file lists only what is still to do. Finished plans and reviews
   app's own in the bundle — unknown whether `tauri.conf.json`'s file associations can express
   one. Reopen when someone asks, or with the next file-association work.
 
-The next five came out of the Tauri 2.12 walks (`archive/plans/tauri-2.12.md`, 2026-10-07).
-Each also shows on 1.7.2 or 1.7.1, so none comes from that change; each was deferred by the
+The next two came out of the Tauri 2.12 walks (`archive/plans/tauri-2.12.md`, 2026-10-07).
+Each also shows on 1.7.2 or 1.7.1, so neither comes from that change; each was deferred by the
 owner at its triage.
 
 - [ ] **A torn-off window can land off-screen** (added 2026-10-07). On Windows and Linux a
@@ -150,23 +141,6 @@ owner at its triage.
   the end instead of tearing it off. Whether that was meant as a forgiving reorder is unknown.
   Likely fix: also require the pointer within the window's width plus slack. Reopen with the
   tear-off placement work.
-- [ ] **On Linux, Ctrl+Shift+Tab doesn't go to the previous tab** (added 2026-10-07, seen
-  with xdotool under Xvfb only). WebKitGTK reports the key as `Unidentified` (code `Tab`) and
-  `onKeydown` matches `event.key === "Tab"` only (`app.js:4234`). Ctrl+Tab works; 1.7.2 the
-  same. Whether a real keyboard does it too is unknown (Shift+Tab is the `ISO_Left_Tab` keysym
-  on Linux, a guess at the cause). First step: press it on a real keyboard in the VM; likely fix
-  one line, also matching `event.code === "Tab"`. Reopen with the next Linux walk, or on a
-  report.
-- [ ] **Ctrl/Cmd+Shift+T reopens a tab at the end of the strip** (added 2026-10-07, seen on
-  the Mac; the code is shared). `reopenClosed` appends with `tabs.push` (`app.js:2066-2074`)
-  and the closed-tab record keeps no position, where browsers put it back in its place. Likely
-  fix: save the index on close and insert there. Reopen with the next tab-strip work, or on a
-  report.
-- [ ] **On macOS and Linux, some app text speaks Windows** (added 2026-10-07, the Mac's W12).
-  The Open-mode hint says "double-click a `.md` file in Explorer" (`index.html:179`), and the
-  Open button's tooltip says Ctrl+O on every platform (`index.html:30`, `app.js:2883`); macOS
-  says Finder and Cmd. Likely fix: pick the words per platform. Reopen with the next UI-text or
-  macOS keyboard work (the Shift+Cmd+W item), or on a report.
 
 The next three came out of the session-restore walks (`archive/plans/session-restore.md`,
 2026-10-08); the first is how the plan's rule plays out, the other two are Linux X11 only.
@@ -214,10 +188,6 @@ The next three came out of the session-restore walks (`archive/plans/session-res
   chosen font reads too small or large at the themes' sizes, or on a report about Tufte.
   The reading width (`archive/plans/reading-width.md`) is 75ch of the document font (100ch in a wide
   window), so a size change keeps the line length and moves the edge with it.
-- [ ] **On macOS, Option+Left/Right in the tree filter and the find bar goes Back/Forward, not a
-  word** (added 2026-10-09, `archive/plans/find-in-document.md`, ruling G). The app's Back/Forward
-  shortcut takes the keys in both text fields, where macOS would move the caret by a word. Fix
-  both fields together. Reopen on a Mac user's report, or with the next keyboard work.
 - [ ] **The JSON viewer's memory and layout cost per chunk** (added 2026-10-10, the find walks,
   `archive/plans/find-in-document.md` Q5). Each 512 KB chunk costs 400-500 MB of webview memory on
   Windows, with find open or closed; 17 chunks of a 9.75 MB file reached 9.7 GB on an 8 GB VM,
@@ -256,27 +226,6 @@ The next three came out of the session-restore walks (`archive/plans/session-res
   New commits are covered by `CLAUDE.md` → "Commit messages" and by `attribution` turned off in
   the user settings. Reopen if the old messages must leave GitHub: start with the Support
   request, then the plan.
-- [ ] **On Linux, a tab in an overflowing strip takes clicks only in its top 7 px** (added
-  2026-10-17, the tab switcher walks; also on 8f69bc9, before it). A tab spans y 42-70, but
-  `elementFromPoint` finds it only at 42-48; below, it hits `#tabs`. A click on a tab's label
-  doesn't switch, and a drag there scrolls the strip instead of moving the tab. Wayland and
-  X11; Windows and the Mac are fine. Likely cause, not measured: WebKitGTK's overlay scrollbar
-  for `#tabs` (`overflow-x: auto; scrollbar-width: thin`) takes the hits. The tab switcher
-  (Ctrl+P) gets around it. Reopen next, right after the switcher ships, in one plan with the
-  two strip items below; probe the cause on the Linux VM first.
-- [ ] **The tab strip doesn't scroll to the active tab, and a plain wheel doesn't scroll it**
-  (added 2026-10-17, the tab switcher walks; also before it). With many tabs the active one can
-  sit off-screen (left edge at x 2796 with the strip at scroll 0), so a tab picked in the
-  switcher may show no highlighted tab in the strip. And a vertical wheel over the strip does
-  nothing (Windows, measured); only Shift+wheel, the scrollbar or a trackpad move it. Reopen
-  with the Linux strip item above.
-- [ ] **On macOS, the app's Ctrl shortcuts also fire on the Control key** (added 2026-10-17,
-  the tab switcher walks). `onKeydown`'s `ctrl` is `ctrlKey || metaKey`, so Control+N opens the
-  Open panel even inside a text box, where macOS moves the caret down (measured); Control+F,
-  T, O, W and R likely do the same (reasoned). Ctrl+P is already Cmd-only on the Mac (owner's
-  ruling, `plans/tab-switcher.md`). Fix: make every shortcut Cmd-only there, in the shared
-  check, which reopens the Control+F limit in `closed-items.md` (2026-10-09, ruling R6). Reopen
-  next, right after the switcher ships, with a Mac keyboard walk of every shortcut.
 - [ ] **On Wayland, the tab switcher's list rendered heavier in a light theme** (added
   2026-10-17, the tab switcher walks, Linux VM). In `sakura`, with the list overflowing, its
   text looked visibly heavier and the bold matches were hard to tell apart; computed weights
@@ -284,6 +233,20 @@ The next three came out of the session-restore walks (`archive/plans/session-res
   Seen once, before matches were also underlined. Cause unknown. Reopen on a report of heavy or
   blurry text in the switcher on Linux, or with the next Wayland walk: reproduce at the current
   tip first.
+- [ ] **A restored reading position can land a screen past its spot after a page reload**
+  (added 2026-10-18, the tab-strip walks, Windows). With no input at all, 2 of 5 restores after
+  a driver's full page reload ended at 21005 instead of 20000 (once 22010): the hold took the
+  page as settled while it was still past the spot, and let go. 909faa9, before the tab-strip
+  work, gives the same rate and spot. Restore at launch passed on all three platforms, run a few
+  times each, and F5 is the app's own refresh, so whether a reader meets it is unknown. Reopen
+  on a report of a document reopening off its spot, or with the next scroll-hold work: start in
+  `holdScroll`'s settle test.
+- [ ] **A short tab drag moves the tab one slot fewer than its distance** (added 2026-10-18, the
+  tab-strip walks, Linux). With tabs 82 px apart, drags of 85, 170 and 255 px moved the tab 0, 1
+  and 3 slots; 135 px apart, 0, 1 and 2. The same on two runs, and on 909faa9 before the
+  tab-strip work. Windows and the Mac unmeasured. Reasoned, not measured: the slot is counted
+  from where the drag threshold was passed, not from the press. Reopen on a report of a tab
+  dropped short of its aim, or with the next drag work: measure on all three first.
 
 ## Accepted limits
 
@@ -305,13 +268,6 @@ as it is found.
   with `macmouse.js drag`, as `drag-corner.ps1` does on Windows — untested.
   *Accepted 2026-09-28. Reopen when a change touches the minimum size or window sizing on
   macOS.*
-- [ ] **drive-app on macOS: other menu shortcuts vs the page are unmeasured** (added
-  2026-09-28, `archive/plans/drive-app-macos.md`). A real Shift+Cmd+W was seen reaching the page
-  before the menu. Cmd+Q reaches the menu (measured 2026-09-28 and 2026-09-29,
-  `archive/plans/macos-quit-report.md`). Whether Cmd+H/M and the Edit menu's Cmd+A/C/V/X/Z do
-  too is unknown; the page doesn't handle them today, so the menu probably still gets them.
-  *Accepted 2026-09-28. Reopen with the deferred Shift+Cmd+W fix, which will test keys against
-  the menu anyway.*
 - [ ] **Linux update checks off Debian are unwalked under updater 2.13** (added 2026-10-07,
   `archive/plans/tauri-2.12.md`). Updater 2.13 no longer points `SSL_CERT_FILE`/`SSL_CERT_DIR` at
   Debian's paths when they are unset (t4-git-ui's reading of the source). Debian and Ubuntu are
@@ -446,3 +402,17 @@ as it is found.
   width. Windows and macOS unmeasured.
   *Accepted 2026-10-11. Reopen if gantts start redrawing on resize, or on a report of a narrow
   restored gantt.*
+- [ ] **A wheel over the tab strip as a document restores can leave it a line or two off**
+  (added 2026-10-18, the tab-strip walks, Windows). The first notch of a wheel gesture can't be
+  cancelled, and when it lands in the same millisecond the hold starts (9 of 10 runs), it scrolls
+  the page before the hold listens: the page ended 19-37 px past its spot. Later notches are
+  handled.
+  *Accepted 2026-10-18. Reopen on a report of a restored document drifting after a wheel over
+  the tabs.*
+- [ ] **The strip's wheel test is unwalked at real fractional display scaling** (added
+  2026-10-18, the tab-strip walks). It allows 1 px of slack for rounding. A probe on Windows set
+  the strip to fractional widths 0.2 px apart at device scales 1, 1.25 and 1.5: a strip that
+  fits never read as over. But emulated scaling keeps whole-pixel layout, so a real 125 % or
+  150 % display, whose viewport is fractional, wasn't tried.
+  *Accepted 2026-10-18. Reopen on a report of a plain wheel over a strip that fits doing nothing
+  on a scaled display.*
