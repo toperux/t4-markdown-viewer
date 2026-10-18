@@ -5383,6 +5383,7 @@ async function onKeydown(event) {
     const p = await pickFile();
     if (p) await invoke("open_window", { path: p });
   } else if (key === "w") {
+    if (isMac && event.shiftKey) return; // Close Window, the menu's (Shift+Cmd+W)
     event.preventDefault();
     if (activeId !== null) await closeTab(activeId);
   } else if (key === ",") {

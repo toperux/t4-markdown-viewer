@@ -270,10 +270,8 @@ switching away and back returns to the same place.
 macOS keeps `Cmd+W` for closing a **tab**, as browsers do, and moves closing the
 window to **Window › Close Window** (`Shift+Cmd+W`). The menu Tauri would build
 by default binds `Cmd+W` to the window, which would leave no way to close a tab
-from the keyboard. For now `Shift+Cmd+W` closes a tab instead, because the page
-sees the key before the menu does; use the menu item or the window's close
-button to close a window. Quit is replaced as well, so each window can send
-where it stands before the app exits.
+from the keyboard. Quit is replaced as well, so each window can send where it
+stands before the app exits.
 
 Theme cycling used to be `Ctrl+T`; it moved to `F8` so the tab shortcuts could
 follow the conventions every browser and editor already uses.
