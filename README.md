@@ -248,7 +248,7 @@ On macOS, read `Cmd` for every `Ctrl` below, except `Ctrl+Tab`, which is
 | `Ctrl+T` | Open a file in a new **tab** |
 | `Ctrl+N` | Open a file in a new **window** |
 | `Ctrl+W` | Close the current tab |
-| `Ctrl+Shift+T` | Reopen the last closed tab |
+| `Ctrl+Shift+T` | Reopen the last closed tab, where it was |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab |
 | `Ctrl+P` | Search the open tabs and switch to one |
 | `F5` / `Ctrl+R` | Re-read the current file, keeping your scroll position |

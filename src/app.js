@@ -2349,6 +2349,7 @@ async function removeTab(id) {
   const wasActive = id === activeId;
   if (wasActive) rememberScroll();
   const [gone] = tabs.splice(i, 1);
+  gone.closedAt = i; // where Ctrl+Shift+T puts it back
   if (wasActive) activeId = (tabs[i] ?? tabs[i - 1])?.id ?? null;
   syncWatch();
   // Said now rather than left to `updateChrome`: for the active tab that waits
@@ -2377,7 +2378,8 @@ async function reopenClosed() {
   const tab = closedTabs.pop();
   if (!tab) return;
   tab.id = nextTabId++;
-  tabs.push(tab);
+  // Where it was, as browsers do: tabs closed or moved since shift it.
+  tabs.splice(Math.min(tab.closedAt ?? tabs.length, tabs.length), 0, tab);
   activeId = tab.id;
   syncWatch();
   await showActive();
