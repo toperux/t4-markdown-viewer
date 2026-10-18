@@ -1644,6 +1644,15 @@ const SCROLL_KEYS = new Set([
   " ",
 ]);
 
+/** A wheel the tab strip takes for itself: over it while a tab is cut off. */
+function stripTakes(event) {
+  // Not its end padding: with every tab in view the strip looks as if it fits.
+  // And a pixel of slack, as the sidebar's test has: fractional scaling can
+  // round a strip that fits to one over.
+  const pad = parseFloat(getComputedStyle(els.tabs).paddingRight);
+  return els.tabs.contains(event.target) && els.tabs.scrollWidth - pad > els.tabs.clientWidth + 1;
+}
+
 /*
  * Keep a restored position while the page is still growing under it. On
  * WebView2 the images reload after the `scrollTo`, and scroll anchoring then
@@ -1734,7 +1743,7 @@ function holdScroll(target, token, entry) {
   // touch; a press on the page's own scrollbar.
   const stop = () => hold.abort();
   // A sidebar at its end in the wheel's direction, or too short to scroll,
-  // hands the wheel on to the page.
+  // hands the wheel on to the page. An overflowing tab strip never does.
   const sidebarTakes = (event) => {
     const bar = els.sidebar;
     if (!bar.contains(event.target)) return false;
@@ -1745,7 +1754,13 @@ function holdScroll(target, token, entry) {
   window.addEventListener(
     "wheel",
     (event) => {
-      if (!sidebarTakes(event)) stop();
+      // The strip takes a plain or Shift wheel; one with Alt, Ctrl or Cmd it
+      // leaves alone, and that may scroll the page. So may one that can't be
+      // cancelled: the first of a gesture just after the strip is drawn comes
+      // that way (WebView2, measured), and the page takes it.
+      const strip =
+        event.cancelable && stripTakes(event) && !event.altKey && !event.ctrlKey && !event.metaKey;
+      if (!sidebarTakes(event) && !strip) stop();
     },
     { passive: true, capture: true, signal },
   );
@@ -2122,6 +2137,9 @@ function measureBar() {
 /** Slot the drop caret sits in, or -1 when no drag is hovering this window. */
 let dropCaret = -1;
 
+/** The active tab's id and path when the strip last scrolled to it. */
+let revealed = "";
+
 function renderTabs() {
   // First: the one-tab path below returns early.
   if (!els.switcher.hidden) renderSwitcher(true);
@@ -2164,6 +2182,21 @@ function renderTabs() {
   els.tabs.replaceChildren(...nodes);
   paintDrag();
   measureBar();
+
+  // Scrolled to only when the active tab or its document changes, so a live
+  // reload or a caret move leaves a strip scrolled by hand where it is. By
+  // hand, not `scrollIntoView`, which would scroll the page too; instant, as
+  // a smooth scroll would race the next redraw.
+  const key = `${activeId}\n${activeTab()?.path}`;
+  const tab = els.tabs.querySelector(".tab.active");
+  if (key !== revealed && tab) {
+    revealed = key;
+    const s = els.tabs.getBoundingClientRect();
+    const r = tab.getBoundingClientRect();
+    const pad = parseFloat(getComputedStyle(els.tabs).paddingLeft);
+    if (r.left < s.left + pad) els.tabs.scrollLeft -= s.left + pad - r.left;
+    else if (r.right > s.right - pad) els.tabs.scrollLeft += r.right - (s.right - pad);
+  }
 }
 
 function caretElement() {
@@ -5739,6 +5772,21 @@ async function main() {
   els.imageView.addEventListener("lostpointercapture", (e) => e.target === els.imageView && imagePan.up(e));
   els.tabs.addEventListener("click", onTabClick);
   els.tabs.addEventListener("keydown", onTabsKeydown);
+  // A plain wheel over an overflowing strip moves it sideways (owner's ruling).
+  // Shift+wheel and trackpad swipes already do, and modifiers mean other things.
+  els.tabs.addEventListener(
+    "wheel",
+    (event) => {
+      if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+      // One that can't be cancelled scrolls the page anyway; moving the strip
+      // too would move both. The scroll hold counts it as the page's as well.
+      if (!event.cancelable) return;
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX) || !stripTakes(event)) return;
+      event.preventDefault();
+      els.tabs.scrollLeft += event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+    },
+    { passive: false },
+  );
 
   // onKeydown is async, so a failed open or close comes back as a rejected
   // promise no listener would ever look at: a shortcut would just do nothing.
