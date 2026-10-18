@@ -237,10 +237,12 @@ The next three came out of the session-restore walks (`archive/plans/session-res
   (added 2026-10-18, the tab-strip walks, Windows). With no input at all, 2 of 5 restores after
   a driver's full page reload ended at 21005 instead of 20000 (once 22010): the hold took the
   page as settled while it was still past the spot, and let go. 909faa9, before the tab-strip
-  work, gives the same rate and spot. Restore at launch passed on all three platforms, run a few
-  times each, and F5 is the app's own refresh, so whether a reader meets it is unknown. Reopen
-  on a report of a document reopening off its spot, or with the next scroll-hold work: start in
-  `holdScroll`'s settle test.
+  work, gives the same rate and spot. Counted at 3604d5b on Windows, it didn't show in real use:
+  40 real launches (a text doc at 20000, an 80-picture doc at 40000) and 20 Ctrl+Tab switches
+  all came back exact. The ~1005 px overshoot still appeared inside the hold in 3 launches, and
+  the hold corrected each. 10 driver reloads of those two docs were exact too, so the original
+  doc and build weren't retested like for like. Reopen on a report of a document reopening off
+  its spot, or with the next scroll-hold work: start in `holdScroll`'s settle test.
 - [ ] **A short tab drag moves the tab one slot fewer than its distance** (added 2026-10-18, the
   tab-strip walks, Linux). With tabs 82 px apart, drags of 85, 170 and 255 px moved the tab 0, 1
   and 3 slots; 135 px apart, 0, 1 and 2. The same on two runs, and on 909faa9 before the
