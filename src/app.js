@@ -267,7 +267,7 @@ let tabs = [];
 let activeId = null;
 let nextTabId = 1;
 
-// Tab switcher (docs/plans/tab-switcher.md).
+// Tab switcher (docs/archive/plans/tab-switcher.md).
 let useClock = 0; // stamps tab.used, most recent highest
 let switcherShown = []; // the tabs the list shows, in its order
 let switcherPick = -1; // index into switcherShown
