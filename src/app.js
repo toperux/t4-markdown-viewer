@@ -280,6 +280,10 @@ const CLOSED_LIMIT = 20;
 /** Where Ctrl+click is a right-click and Cmd is the modifier that opens tabs. */
 const isMac = navigator.userAgent.includes("Macintosh");
 
+/** WebKitGTK's user agent names Linux, X11 and Wayland alike; WebView2's doesn't. */
+const isLinux = navigator.userAgent.includes("Linux");
+document.documentElement.classList.toggle("linux", isLinux);
+
 /** Guards against a slow load painting over a newer tab switch. */
 let renderToken = 0;
 
@@ -5218,7 +5222,8 @@ async function onKeydown(event) {
   }
 
   // Tab closes it too, from its button, for the reason the tree's menu does.
-  if ((event.key === "Escape" || event.key === "Tab") && !els.openMenu.hidden) {
+  // `keyCode` for WebKitGTK's Shift+Tab, which it names "Unidentified".
+  if ((event.key === "Escape" || event.key === "Tab" || event.keyCode === 9) && !els.openMenu.hidden) {
     showOpenMenu(false);
     els.openMore.focus();
     if (event.key === "Escape") return;
@@ -5293,7 +5298,9 @@ async function onKeydown(event) {
     return;
   }
 
-  if (event.key === "Tab") {
+  // `keyCode` too: WebKitGTK names Shift+Tab "Unidentified" (it is
+  // ISO_Left_Tab there).
+  if (event.key === "Tab" || event.keyCode === 9) {
     event.preventDefault();
     cycleTab(event.shiftKey ? -1 : 1);
     return;
