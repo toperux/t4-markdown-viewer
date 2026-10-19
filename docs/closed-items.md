@@ -741,6 +741,30 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   all three. Now it swaps once its leading edge passes the neighbour's middle: at 80 px tabs 42,
   124 and 206 px, so 85/170/255 move 1/2/3, both ways and wherever it's grabbed. Walked on all
   three; cross-window drops unchanged.*
+- [x] **A page left or re-rendered while its position restores can bank a passing spot** (added
+  2026-10-19, `archive/plans/restore-banks-its-spot.md`, triage 2-4).
+  *Fixed 2026-10-19 (`archive/plans/restore-banks-its-target.md`): while a restore's hold runs
+  for the entry on screen, `rememberScroll` banks the hold's target, not the spot anchoring is
+  passing through; a reader's scroll ends the hold first, so it still banks its own spot.
+  Walked: Windows, a live reload mid-restore 10 of 10 at 20000 (v1.8.7: 2 of 3 low), a switch
+  away mid-restore 10 of 10 (78 logged banks, all 20000, while the page passed 938-29045); Linux
+  Wayland 0 of 30 reports off, launches, reloads and switches onto a restoring tab alike, so
+  the plan's Q1 gap didn't show; the Mac unchanged. One Linux walk launch lost its WebDriver
+  session (1 of 31, no crash report, cause unknown): noted only, an item if it recurs. Left: the
+  few-millisecond 0 after a swap (`open-items.md`, accepted).*
+- [x] **On Linux X11, a long or image-heavy document can freeze the page** (added 2026-10-08, the
+  session-restore walks on the Linux VM).
+  *Fixed 2026-10-20 (`archive/plans/xwayland-freeze.md`): any document, not only long ones. The
+  probe found the shipped v1.8.7 AppImage (bundled WebKitGTK 2.50.4, forced to X11, so under
+  XWayland on a Wayland desktop) frozen after its first paint in 26 of 26 driver-less launches;
+  `WEBKIT_DISABLE_DMABUF_RENDERER=1` avoided it 26 of 26, at ~1.6x the web process's CPU while
+  scrolling (45% → 72%; ~+7 points with 2.52.6), memory unchanged. The app now sets it at startup
+  when it will run X11 on a Wayland desktop, unless the user set it. Walked on the Linux VM: a
+  locally built AppImage (2.52.6) 0 of 26 frozen; a user's `0` wins (6 of 6 frozen); native
+  Wayland and `wayland,x11` left alone, `x11` and `x11,wayland` set. Unmeasured: the shipped
+  AppImage with the fix (after release), real hardware, KDE. Left: native Xorg and a launch
+  without Wayland markers (`open-items.md`, accepted); a launch failing with no crash report
+  (`open-items.md`, deferred). The README stays as is (owner, triage 3).*
 
 ## Needs a Mac, a Dependabot run, or an older build
 

@@ -142,8 +142,8 @@ owner at its triage.
   Likely fix: also require the pointer within the window's width plus slack. Reopen with the
   tear-off placement work.
 
-The next three came out of the session-restore walks (`archive/plans/session-restore.md`,
-2026-10-08); the first is how the plan's rule plays out, the other two are Linux X11 only.
+The next two came out of the session-restore walks (`archive/plans/session-restore.md`,
+2026-10-08); the first is how the plan's rule plays out, the second is Linux X11 only.
 
 - [ ] **A window maximized right after it first opens un-maximizes to the default size** (added
   2026-10-08, the session-restore walks, Windows and the Mac). The normal rectangle comes only from
@@ -152,24 +152,6 @@ The next three came out of the session-restore walks (`archive/plans/session-res
   the plan's rule says (maximized with no old frame: `normal: false`). Likely fix (reasoned): record
   each window's starting frame when it is first shown. Reopen on a report, or with the next session
   or frame work.
-- [ ] **On Linux X11, a long or image-heavy document can freeze the page** (added 2026-10-08, the
-  session-restore walks on the Linux VM). Under XWayland (`GDK_BACKEND=x11`) the window resizes but
-  the page stays a stale picture and stops answering; its web process waits on a futex and the UI
-  loop is idle. 5 of 5 on *Reopen* with README, and 3 of 3 on a plain launch of a long noise-image
-  document, on 1.7.3 (b5a8220) and every commit of the plan alike; Wayland 0 of 3, small documents
-  0 of 3. `WEBKIT_DISABLE_DMABUF_RENDERER=1` avoided it (0 of 2), as did disabling compositing:
-  likely WebKitGTK 2.52's DMA-BUF renderer under XWayland. Not measured: the AppImage (it forces X11
-  but bundles 22.04's older WebKit), a native X11 session, the variable's cost. Likely fix: set it
-  whenever the app runs on X11, beside `gdk_backend` in `main.rs`.
-  *Deferred by the owner 2026-10-08. Reopen: next, as its own plan, which probes the AppImage
-  first.*
-  New on 2026-10-19 (the walks of the restore, tab drag and Linux text fixes, Linux VM, through
-  WebDriver): it hits a small document too: `kitchen-sink.md`'s `requestAnimationFrame` stalled
-  5 s after launch on v1.8.6 (3 of 3) and on c5e195b (all of 5); a locally built AppImage of
-  c5e195b (host WebKitGTK 2.52.6, not CI's 2.50.4) stalled 4 of 4; mouse, focus and resize
-  didn't wake it; `WEBKIT_DISABLE_DMABUF_RENDERER=1` avoided it, 6 of 6. Still not measured: the
-  shipped AppImage, a launch with no driver attached, a native X11 session, the variable's cost.
-  *The owner, 2026-10-19: its own plan right after that change ships.*
 - [ ] **On Linux X11, un-maximizing a restored window keeps its size but not its place** (added
   2026-10-08, the session-restore walks on the Linux VM). A 900×700 window at 300,200, maximized,
   came back maximized through five relaunches and un-maximized to 900×700 at 67,32, the work area's
@@ -233,22 +215,14 @@ The next three came out of the session-restore walks (`archive/plans/session-res
   New commits are covered by `CLAUDE.md` → "Commit messages" and by `attribution` turned off in
   the user settings. Reopen if the old messages must leave GitHub: start with the Support
   request, then the plan.
-- [ ] **A page left or re-rendered while its position restores can bank a passing spot**
-  (added 2026-10-19, `archive/plans/restore-banks-its-spot.md`, triage 2-4). While a restore's
-  hold runs (~0.1-0.7 s on Windows, 2 s or more on Linux Wayland), whatever banks the live
-  `scrollY` can catch a spot anchoring is carrying the page through. Measured three ways:
-  - a live reload (the file saved on disk) during a restore landed 0, 1 and 2 pictures low
-    (20000, 21005, 22010; Windows, `slow.md`, 3 runs);
-  - a tab switched away mid-restore held 938 on its entry for under 2 s before it read 20000
-    again (Windows, 1 of 3); a quit in that gap would save it (reasoned);
-  - on Linux Wayland a routine report ~2 s into a launch wrote a passing 3252 or 6084 to
-    `session.json` for ~1.5 s, until the final report (11 of 20 launches, v1.8.6 and the fix
-    alike); only a kill or power loss in that gap would reopen there (reasoned).
-
-  Likely fix (Q1's option b in the plan): while a hold runs for the entry on screen,
-  `rememberScroll` banks the hold's target rather than `scrollY`; a reader's scroll still has to
-  bank its own spot. Reopen on a report of a document reopening or reloading off its spot, or
-  with the next scroll-hold work.
+- [ ] **On Linux, a launch can fail with no crash report** (added 2026-10-20, the walks of the
+  restore target and XWayland freeze fixes, Linux VM). Twice in ~58 walk launches: a debug build
+  on native Wayland lost its WebDriver session at 0.4 s ("page crash or hang"; `session.json`
+  stopped after its first write), and a locally built AppImage on Wayland, no driver, never
+  started a web process or a window. Each rerun was fine; no `/var/crash` report either time.
+  Not the XWayland freeze, which still shows a first paint. Cause unknown; the second launch's
+  own output wasn't captured. Next Linux walks log the app's output and process state for every
+  launch. Reopen on a report of the app not opening on Linux, or a third sighting in a walk.
 
 ## Accepted limits
 
@@ -418,3 +392,20 @@ as it is found.
   150 % display, whose viewport is fractional, wasn't tried.
   *Accepted 2026-10-18. Reopen on a report of a plain wheel over a strip that fits doing nothing
   on a scaled display.*
+- [ ] **Right after a reload or a switch, a document's saved spot reads 0 for a few
+  milliseconds** (added 2026-10-19, `archive/plans/restore-banks-its-target.md`, triage 1). After
+  the swap the new page sits at its top until its restore's first frame, and the scroll listener
+  banks 0 on the incoming entry: 6-21 ms on the Mac, in every live reload and switch back; no
+  report carried it (`session.json` stayed at 20000). A quit inside that gap would save 0
+  (reasoned). Likely as old as the restore. A fix would set the hold's target before the frame.
+  *Accepted 2026-10-19. Reopen on a report of a document reopening at its top.*
+- [ ] **The XWayland freeze workaround isn't applied on a native Xorg session, or under XWayland
+  without Wayland markers** (added 2026-10-20, `archive/plans/xwayland-freeze.md`, triage 1).
+  `WEBKIT_DISABLE_DMABUF_RENDERER=1` is set only for X11 on a Wayland desktop, told by
+  `WAYLAND_DISPLAY` or `XDG_SESSION_TYPE=wayland` (owner's Q1, option b). A native Xorg session
+  is unmeasured (no Xorg session on the VM); an AppImage started on the Wayland desktop with
+  both markers removed ran under XWayland, wasn't detected, and froze (1 run). Normal desktop
+  launches carry the markers (reasoned). Wider: set it for any X11 (Xorg users pay ~+7-27
+  points of web CPU while scrolling), or ask the X server whether it is XWayland (before any
+  thread: a bigger change).
+  *Accepted 2026-10-20. Reopen on a report of the Linux app freezing after its first paint.*
