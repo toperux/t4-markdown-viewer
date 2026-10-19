@@ -223,6 +223,13 @@ The next two came out of the session-restore walks (`archive/plans/session-resto
   Not the XWayland freeze, which still shows a first paint. Cause unknown; the second launch's
   own output wasn't captured. Next Linux walks log the app's output and process state for every
   launch. Reopen on a report of the app not opening on Linux, or a third sighting in a walk.
+- [ ] **Closing the dragged tab mid-drag may leave another window's drop caret lit** (added
+  2026-10-20, the tab drag plan's review, `archive/plans/tab-drag-half-pitch.md`). Reasoned from
+  the code, never seen. Ctrl+W during a drag closes the active tab; if that leaves one tab, the
+  strip hides and the drag counts as detached. Released still detached, `onDragEnd` finds no tab
+  (`app.js:4508-4509`) and returns without `drag_cancel`, so on Windows (`crossWindowDrag`) a
+  caret another window lit from earlier `drag_over` probes may stay lit. Likely fix: send
+  `drag_cancel` on that early return. Reopen on a report of a drop caret left showing.
 
 ## Accepted limits
 
