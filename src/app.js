@@ -368,7 +368,9 @@ function rememberScroll() {
   // A picture scrolls inside its own box, and in two directions; it also has a
   // zoom to keep.
   if (isImage(shownEntry.path)) rememberImage();
-  else shownEntry.scrollY = window.scrollY;
+  // A restore still holding the page: where it's going, not where anchoring
+  // has it on the way (a reload, a switch or a report mid-restore).
+  else shownEntry.scrollY = scrollHold?.entry === shownEntry ? scrollHold.target : window.scrollY;
 }
 
 /* ---------------- rendering ---------------- */
@@ -1686,11 +1688,12 @@ function stripTakes(event) {
  */
 function holdScroll(target, token, entry) {
   const hold = new AbortController();
-  // So a jump to a find match can let go of it.
-  scrollHold = hold;
+  // So a jump to a find match can let go of it, and `rememberScroll` can bank
+  // where it's going.
+  scrollHold = { hold, target, entry };
   hold.signal.addEventListener("abort", () => {
     // A newer hold may have taken its place.
-    if (scrollHold === hold) scrollHold = null;
+    if (scrollHold?.hold === hold) scrollHold = null;
     // Its last scrollTo may fire no scroll event, which would leave the entry
     // on a spot anchoring passed through on the way (measured, Windows: up to
     // 9000 px).
@@ -3311,10 +3314,11 @@ function bankLanding(hash) {
 async function refresh() {
   const entry = currentEntry(activeTab());
   if (!entry) return;
-  // The paint lands where this entry's page stands at the swap: the scroll
-  // listener banks while this loads and `showActive` banks at the swap, so the
-  // reader can scroll on as its diagrams draw. Mid-switch, or over the error
-  // panel, the page on screen is not this entry's, and its saved spot stands.
+  // The paint lands where this entry's page stands at the swap, or where its
+  // restore is heading if one is still running: the scroll listener banks
+  // while this loads and `showActive` banks at the swap, so the reader can
+  // scroll on as its diagrams draw. Mid-switch, or over the error panel, the
+  // page on screen is not this entry's, and its saved spot stands.
   // A re-saved picture keeps its path, and the webview would serve the copy it
   // already has. Documents are re-read by Rust, and their pictures are watched
   // in their own right, so nothing else needs invalidating here — refetching
@@ -3350,7 +3354,7 @@ let findTimer = 0; // the typing debounce
 let findRefreshTimer = 0; // the mutation debounce
 let findObserver = null; // watches #content while the bar is open
 let findReturn = null; // what had focus before the bar opened
-let scrollHold = null; // the running holdScroll's AbortController
+let scrollHold = null; // the running holdScroll: { hold, target, entry }
 
 // The two highlights, registered once and then only cleared and refilled:
 // WebKit leaves a highlight painted after it is deleted or replaced in
@@ -3551,7 +3555,7 @@ function scrollToHit(hit) {
   const findBottom = els.find.getBoundingClientRect().bottom;
   if (rect.top < findBottom || rect.bottom > innerHeight) {
     // A restore's hold would pull the page back to its saved position.
-    scrollHold?.abort();
+    scrollHold?.hold.abort();
     window.scrollBy(0, rect.top - (findBottom + innerHeight) / 2);
   }
 }
