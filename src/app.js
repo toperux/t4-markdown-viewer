@@ -4343,6 +4343,21 @@ function insertionIndex(clientX) {
   return nodes.length;
 }
 
+/**
+ * Slot for the dragged tab itself: probed with its leading edge rather than
+ * the pointer, so it swaps once it is halfway over its neighbour, the same
+ * travel either way and wherever on the tab it was grabbed.
+ */
+function dragSlot(clientX) {
+  const el = els.tabs.querySelector(`.tab[data-id="${drag.id}"]`);
+  // Closed mid-drag (Ctrl+W on the active tab): reorderTo finds no tab and
+  // returns.
+  if (!el) return insertionIndex(clientX);
+  const r = el.getBoundingClientRect();
+  const left = clientX - drag.grab;
+  return insertionIndex(left < r.left ? left : left + r.width);
+}
+
 function reorderTo(target) {
   const from = tabs.findIndex((t) => t.id === drag.id);
   if (from < 0) return;
@@ -4357,11 +4372,15 @@ function reorderTo(target) {
 
 function beginDrag(event, id) {
   event.preventDefault();
+  const el = els.tabs.querySelector(`.tab[data-id="${id}"]`);
   drag = {
     id,
     pointerId: event.pointerId,
     startX: event.clientX,
     startY: event.clientY,
+    // How far into the tab it was grabbed, so a reorder follows the tab's
+    // edges. The document name has no tab in the strip, hence 0.
+    grab: el ? event.clientX - el.getBoundingClientRect().left : 0,
     // Where the tab sat before the drag, so a cancel can put it back.
     startIndex: tabs.findIndex((t) => t.id === id),
     moved: false,
@@ -4434,7 +4453,7 @@ function onDragMove(event) {
       drag.detached = false;
       drag.ipc = drag.ipc.then(() => invoke("drag_cancel")).catch(() => {});
     }
-    reorderTo(insertionIndex(event.clientX));
+    reorderTo(dragSlot(event.clientX));
     paintDrag();
     return;
   }
