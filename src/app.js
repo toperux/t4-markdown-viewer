@@ -1691,6 +1691,13 @@ function holdScroll(target, token, entry) {
   hold.signal.addEventListener("abort", () => {
     // A newer hold may have taken its place.
     if (scrollHold === hold) scrollHold = null;
+    // Its last scrollTo may fire no scroll event, which would leave the entry
+    // on a spot anchoring passed through on the way (measured, Windows: up to
+    // 9000 px).
+    if (token === shownToken && shownEntry === entry) {
+      rememberScroll();
+      scheduleReport();
+    }
   });
   const { signal } = hold;
   const settled = () => [...els.content.querySelectorAll("img")].every((img) => img.complete);
@@ -5843,13 +5850,14 @@ async function main() {
   document.addEventListener("keydown", (e) => onKeydown(e).catch(toast));
   document.addEventListener("mouseup", onMouseUp);
   // The one change `updateChrome` never hears about, and the reading position
-  // is otherwise only banked on the way out of a tab — so quitting after a
-  // scroll would come back at the top of the document. Recording it here and
-  // not in the report itself is deliberate: a render puts the page back at the
-  // top before restoring the saved offset, and a timer firing in that gap
-  // would write the zero over the position it is about to restore. On a real
-  // scroll the current offset is by definition the right answer, and the
-  // restore fires one of its own, so the last write is the correct one.
+  // is otherwise only banked on the way out of a tab or as a restore's hold
+  // lets go — so quitting after a scroll would come back at the top of the
+  // document. Recording it here and not in the report itself is deliberate: a
+  // render puts the page back at the top before restoring the saved offset,
+  // and a timer firing in that gap would write the zero over the position it
+  // is about to restore. On a real scroll the current offset is by definition
+  // the right answer. The restore's last `scrollTo` may fire no event of its
+  // own (measured), which is why `holdScroll` banks the spot when it lets go.
   // `rememberScroll` banks on the entry whose page is on screen, so scrolling
   // the old document while a switch loads stays on the old document's entry.
   window.addEventListener(
