@@ -1,8 +1,8 @@
 # XWayland Freeze Plan
 
 > **Status (2026-10-20):** executed on the owner's go (65a0a47, plus a comment fixup from the
-> change review); walked on the Linux VM (steps 1-4); change review clean; triaged below. Step 5,
-> the shipped AppImage, waits for the release.
+> change review); walked on the Linux VM (steps 1-4); change review clean; triaged below. Step 5
+> passed on the shipped v1.8.8 AppImage: 0 of 10 launches frozen, 0 failed.
 
 **Spec:** the open item "On Linux X11, a long or image-heavy document can freeze the page"
 (`docs/open-items.md` → Deferred), which the owner set for its own plan right after the restore,
