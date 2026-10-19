@@ -233,29 +233,22 @@ The next three came out of the session-restore walks (`archive/plans/session-res
   New commits are covered by `CLAUDE.md` → "Commit messages" and by `attribution` turned off in
   the user settings. Reopen if the old messages must leave GitHub: start with the Support
   request, then the plan.
-- [ ] **On Wayland, the tab switcher's list rendered heavier in a light theme** (added
-  2026-10-17, the tab switcher walks, Linux VM). In `sakura`, with the list overflowing, its
-  text looked visibly heavier and the bold matches were hard to tell apart; computed weights
-  were normal (400 and 600), with no shadow or stroke. X11 looked normal in the same themes.
-  Seen once, before matches were also underlined. Cause unknown. Reopen on a report of heavy or
-  blurry text in the switcher on Linux, or with the next Wayland walk: reproduce at the current
-  tip first.
-- [ ] **A restored reading position can land a screen past its spot after a page reload**
-  (added 2026-10-18, the tab-strip walks, Windows). With no input at all, 2 of 5 restores after
-  a driver's full page reload ended at 21005 instead of 20000 (once 22010): the hold took the
-  page as settled while it was still past the spot, and let go. 909faa9, before the tab-strip
-  work, gives the same rate and spot. Counted at 3604d5b on Windows, it didn't show in real use:
-  40 real launches (a text doc at 20000, an 80-picture doc at 40000) and 20 Ctrl+Tab switches
-  all came back exact. The ~1005 px overshoot still appeared inside the hold in 3 launches, and
-  the hold corrected each. 10 driver reloads of those two docs were exact too, so the original
-  doc and build weren't retested like for like. Reopen on a report of a document reopening off
-  its spot, or with the next scroll-hold work: start in `holdScroll`'s settle test.
-- [ ] **A short tab drag moves the tab one slot fewer than its distance** (added 2026-10-18, the
-  tab-strip walks, Linux). With tabs 82 px apart, drags of 85, 170 and 255 px moved the tab 0, 1
-  and 3 slots; 135 px apart, 0, 1 and 2. The same on two runs, and on 909faa9 before the
-  tab-strip work. Windows and the Mac unmeasured. Reasoned, not measured: the slot is counted
-  from where the drag threshold was passed, not from the press. Reopen on a report of a tab
-  dropped short of its aim, or with the next drag work: measure on all three first.
+- [ ] **A page left or re-rendered while its position restores can bank a passing spot**
+  (added 2026-10-19, `archive/plans/restore-banks-its-spot.md`, triage 2-4). While a restore's
+  hold runs (~0.1-0.7 s on Windows, 2 s or more on Linux Wayland), whatever banks the live
+  `scrollY` can catch a spot anchoring is carrying the page through. Measured three ways:
+  - a live reload (the file saved on disk) during a restore landed 0, 1 and 2 pictures low
+    (20000, 21005, 22010; Windows, `slow.md`, 3 runs);
+  - a tab switched away mid-restore held 938 on its entry for under 2 s before it read 20000
+    again (Windows, 1 of 3); a quit in that gap would save it (reasoned);
+  - on Linux Wayland a routine report ~2 s into a launch wrote a passing 3252 or 6084 to
+    `session.json` for ~1.5 s, until the final report (11 of 20 launches, v1.8.6 and the fix
+    alike); only a kill or power loss in that gap would reopen there (reasoned).
+
+  Likely fix (Q1's option b in the plan): while a hold runs for the entry on screen,
+  `rememberScroll` banks the hold's target rather than `scrollY`; a reader's scroll still has to
+  bank its own spot. Reopen on a report of a document reopening or reloading off its spot, or
+  with the next scroll-hold work.
 
 ## Accepted limits
 

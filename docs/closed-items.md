@@ -715,6 +715,32 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   shortcut is Cmd-only, but for Control+Tab, and zoom by Control+wheel or a pinch. Keys holding
   Control and Cmd together go to the system, so Control+Cmd+F is full screen. Walked on the Mac
   with real keys: Control+letters reach text boxes, and every Cmd shortcut works.*
+- [x] **On Wayland, the tab switcher's list rendered heavier in a light theme** (added
+  2026-10-17, the tab switcher walks, Linux VM).
+  *Fixed 2026-10-19 (`archive/plans/heavy-text-on-linux.md`): on Linux an overflowing scroller
+  is composited, and WebKitGTK's subpixel text in it came out ~43% heavier in a light theme
+  (thinner in a dark one). The tab strip and the sidebar tree had it too (scope probe); the
+  switcher's input and code blocks didn't. On Linux the three now use grayscale smoothing, which
+  gives each its short-list weight. Walked on Wayland, Xvfb, XWayland and a local AppImage
+  (host WebKitGTK 2.52.6; the shipped one's 2.50.4 unmeasured); Windows and the Mac unchanged.*
+- [x] **A restored reading position can land a screen past its spot after a page reload**
+  (added 2026-10-18, the tab-strip walks, Windows).
+  *Fixed 2026-10-19 (`archive/plans/restore-banks-its-spot.md`): not an overshoot. A scroll
+  event during the restore banked a passing spot, the hold's last `scrollTo` fired none to
+  correct it, and a quit saved it: 7 of 20 launches and 9 of 30 reloads of `slow.md` off at
+  v1.8.6 on Windows. The hold now banks the live spot and schedules a report as it lets go
+  (the report kept by the owner as cover for slow holds, though Windows and Wayland didn't need
+  it). Walked: Windows 0 of 20 off, plus the kill, find-jump and switch-away paths; the Mac and
+  Linux (X11, Wayland) never reproduced it, at v1.8.6 or the fix, 0 of 80. Seen once only, on
+  909faa9: a hold let go early on a 2 px move at 236 ms and the page landed at 16015; never on
+  v1.8.6 or the fix in ~180 runs. Left: a page left or reloaded mid-restore (`open-items.md`).*
+- [x] **A short tab drag moves the tab one slot fewer than its distance** (added 2026-10-18, the
+  tab-strip walks, Linux).
+  *Fixed 2026-10-19 (`archive/plans/tab-drag-half-pitch.md`): the tab swapped only when the
+  pointer passed the next tab's middle, a full pitch, shifted 9 px by the label-middle grab, on
+  all three. Now it swaps once its leading edge passes the neighbour's middle: at 80 px tabs 42,
+  124 and 206 px, so 85/170/255 move 1/2/3, both ways and wherever it's grabbed. Walked on all
+  three; cross-window drops unchanged.*
 
 ## Needs a Mac, a Dependabot run, or an older build
 
