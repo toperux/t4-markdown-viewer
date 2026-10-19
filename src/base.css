@@ -1227,6 +1227,17 @@ html.linux #tabs {
   scrollbar-width: none;
 }
 
+/* On Linux a scroller that overflows is composited, and WebKitGTK's subpixel
+   text in it comes out over 40% heavier in a light theme (Wayland at scale
+   1.0, measured; the switcher's list went thinner in a dark one). Grayscale
+   gives each its weight when it fits. Code blocks and the switcher's input
+   don't change (measured). */
+html.linux #switcher-list,
+html.linux #tabs,
+html.linux #sidebar {
+  -webkit-font-smoothing: antialiased;
+}
+
 /* `display: flex` above would otherwise defeat the `hidden` attribute. */
 #tabs[hidden] {
   display: none;
