@@ -163,6 +163,13 @@ The next three came out of the session-restore walks (`archive/plans/session-res
   whenever the app runs on X11, beside `gdk_backend` in `main.rs`.
   *Deferred by the owner 2026-10-08. Reopen: next, as its own plan, which probes the AppImage
   first.*
+  New on 2026-10-19 (the walks of the restore, tab drag and Linux text fixes, Linux VM, through
+  WebDriver): it hits a small document too: `kitchen-sink.md`'s `requestAnimationFrame` stalled
+  5 s after launch on v1.8.6 (3 of 3) and on c5e195b (all of 5); a locally built AppImage of
+  c5e195b (host WebKitGTK 2.52.6, not CI's 2.50.4) stalled 4 of 4; mouse, focus and resize
+  didn't wake it; `WEBKIT_DISABLE_DMABUF_RENDERER=1` avoided it, 6 of 6. Still not measured: the
+  shipped AppImage, a launch with no driver attached, a native X11 session, the variable's cost.
+  *The owner, 2026-10-19: its own plan right after that change ships.*
 - [ ] **On Linux X11, un-maximizing a restored window keeps its size but not its place** (added
   2026-10-08, the session-restore walks on the Linux VM). A 900×700 window at 300,200, maximized,
   came back maximized through five relaunches and un-maximized to 900×700 at 67,32, the work area's
