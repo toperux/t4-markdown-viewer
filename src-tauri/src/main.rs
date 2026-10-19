@@ -1802,6 +1802,24 @@ fn gdk_backend(in_appimage: bool) -> Option<&'static str> {
     in_appimage.then_some("x11")
 }
 
+/// Whether to turn off WebKitGTK's DMA-BUF renderer: under XWayland it shows the
+/// first paint and then never repaints (measured, WebKitGTK 2.50 and 2.52), and
+/// the AppImage runs there on a Wayland desktop. Costs ~1.6x the web process's
+/// CPU while scrolling (measured). A value the user set is left alone.
+#[cfg(target_os = "linux")]
+fn disable_dmabuf(
+    gdk_backend: Option<&str>,
+    wayland_display: bool,
+    session_type: Option<&str>,
+    user_set: bool,
+) -> bool {
+    // GTK opens the first entry of a comma list it can, and on a Wayland
+    // desktop XWayland takes x11.
+    let x11 = gdk_backend.and_then(|b| b.split(',').next()).map(str::trim) == Some("x11");
+    let wayland = wayland_display || session_type == Some("wayland");
+    !user_set && x11 && wayland
+}
+
 /// Every argument made Unicode, or `None` when they all are already.
 #[cfg(target_os = "linux")]
 fn lossy_args(args: impl IntoIterator<Item = std::ffi::OsString>) -> Option<Vec<String>> {
@@ -1823,6 +1841,16 @@ fn main() {
     {
         if let Some(backend) = gdk_backend(std::env::var_os("APPIMAGE").is_some()) {
             std::env::set_var("GDK_BACKEND", backend);
+        }
+        let backend = std::env::var("GDK_BACKEND").ok();
+        let session_type = std::env::var("XDG_SESSION_TYPE").ok();
+        if disable_dmabuf(
+            backend.as_deref(),
+            std::env::var_os("WAYLAND_DISPLAY").is_some(),
+            session_type.as_deref(),
+            std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_some(),
+        ) {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
         }
         exec_with_unicode_args();
     }
@@ -2060,6 +2088,19 @@ mod tests {
     fn gdk_backend_is_x11_only_inside_an_appimage() {
         assert_eq!(gdk_backend(true), Some("x11"));
         assert_eq!(gdk_backend(false), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn dmabuf_is_off_only_for_x11_on_wayland_unless_the_user_set_it() {
+        assert!(disable_dmabuf(Some("x11"), true, None, false));
+        assert!(disable_dmabuf(Some("x11,wayland"), true, None, false));
+        assert!(!disable_dmabuf(Some("wayland,x11"), true, None, false));
+        assert!(!disable_dmabuf(None, true, None, false));
+        assert!(!disable_dmabuf(Some(""), true, None, false));
+        assert!(!disable_dmabuf(Some("x11"), false, Some("x11"), false));
+        assert!(disable_dmabuf(Some("x11"), false, Some("wayland"), false));
+        assert!(!disable_dmabuf(Some("x11"), true, Some("wayland"), true));
     }
 
     #[cfg(target_os = "linux")]
