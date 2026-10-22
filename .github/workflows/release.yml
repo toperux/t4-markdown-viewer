@@ -119,7 +119,7 @@ jobs:
       # Every action is pinned to a commit, not a tag — GitHub's own included:
       # this job ends up holding the signing key, and a tag or branch can be
       # moved to code nobody reviewed. Dependabot bumps the pins.
-      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # v1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
 
