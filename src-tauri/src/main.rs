@@ -19,8 +19,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex};
 use std::time::Duration;
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, Runtime, State, Url, Webview, WebviewUrl,
-    WebviewWindowBuilder, Window, WindowEvent,
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalRect, PhysicalSize, Runtime, State, Url,
+    Webview, WebviewUrl, WebviewWindowBuilder, Window, WindowEvent,
 };
 use tauri_plugin_opener::OpenerExt;
 
@@ -356,10 +356,27 @@ enum Placement {
     Default,
     /// A physical screen point the window's top-left goes to. The caller has
     /// already stepped it back from the cursor, in its own pixels, so the
-    /// pointer lands near the new window's tab strip.
-    Cursor(f64, f64),
+    /// pointer lands near the new window's tab strip. With the work area of
+    /// the monitor under the cursor, the window is kept inside it (`clamp_to`);
+    /// with none, because no monitor was found there, it goes to the point as is.
+    Cursor(f64, f64, Option<PhysicalRect<i32, u32>>),
     /// Exactly where a window stood before an update restart.
     Frame(session::Frame),
+}
+
+/// The top-left nearest `(x, y)` that keeps a window of `size` inside `area`.
+/// Each axis on its own: on one the window is too big for, it goes to the
+/// area's start, so its left edge or title bar is still on screen.
+fn clamp_to(x: f64, y: f64, size: PhysicalSize<u32>, area: &PhysicalRect<i32, u32>) -> (i32, i32) {
+    let axis = |at: f64, len: u32, start: i32, room: u32| {
+        (at.round() as i32)
+            .min(start + room as i32 - len as i32)
+            .max(start)
+    };
+    (
+        axis(x, size.width, area.position.x, area.size.width),
+        axis(y, size.height, area.position.y, area.size.height),
+    )
 }
 
 /// A label no window has had this run. Apart from `spawn_window` so a restore
@@ -431,9 +448,12 @@ fn spawn_window<R: Runtime>(
         match builder.build() {
             Ok(win) => match place {
                 Placement::Default => {}
-                Placement::Cursor(x, y) => {
-                    let _ =
-                        win.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32));
+                Placement::Cursor(x, y, area) => {
+                    let (x, y) = match (area, win.outer_size()) {
+                        (Some(area), Ok(size)) => clamp_to(x, y, size, &area),
+                        _ => (x.round() as i32, y.round() as i32),
+                    };
+                    let _ = win.set_position(PhysicalPosition::new(x, y));
                 }
                 Placement::Frame(frame) => frame.apply(&win),
             },
@@ -1174,11 +1194,19 @@ fn drop_tab<R: Runtime>(
             // measured in CSS pixels, and `x`/`y` are physical: on a 150%
             // display an unscaled step back lands two thirds of the way there.
             let scale = window.scale_factor().unwrap_or(1.0);
+            // A drop near an edge would otherwise open the window partly off
+            // the screen. Asked through the window rather than the app, which
+            // finds the same monitor and is the one the test runtime answers.
+            let area = window
+                .monitor_from_point(x, y)
+                .ok()
+                .flatten()
+                .map(|m| *m.work_area());
             spawn_window(
                 &app,
                 next_label(&state),
                 Some(json!({ "kind": "tab", "tab": tab })),
-                Placement::Cursor(x - 140.0 * scale, y - 24.0 * scale),
+                Placement::Cursor(x - 140.0 * scale, y - 24.0 * scale, area),
                 Some(window.label().to_string()),
             );
             Ok("detached".into())
@@ -2134,6 +2162,32 @@ mod tests {
     #[test]
     fn lossy_args_of_nothing() {
         assert_eq!(lossy_args(Vec::new()), None);
+    }
+
+    /// A torn-off window stays inside the work area, each axis on its own, and
+    /// one too big for it keeps its top-left corner on screen.
+    #[test]
+    fn a_torn_off_window_is_kept_inside_the_work_area() {
+        // A work area that does not start at the origin, as on a second monitor
+        // or above a taskbar docked at the top.
+        let area = PhysicalRect {
+            position: PhysicalPosition::new(100, 50),
+            size: PhysicalSize::new(1920, 1040),
+        };
+        let size = PhysicalSize::new(1100, 860);
+        // Inside: left alone, rounded.
+        assert_eq!(clamp_to(400.4, 120.6, size, &area), (400, 121));
+        // Past each edge.
+        assert_eq!(clamp_to(20.0, 120.0, size, &area), (100, 120));
+        assert_eq!(clamp_to(400.0, 10.0, size, &area), (400, 50));
+        assert_eq!(clamp_to(1500.0, 120.0, size, &area), (920, 120));
+        assert_eq!(clamp_to(400.0, 900.0, size, &area), (400, 230));
+        // Larger than the area on one axis: pinned to its start there, and the
+        // other axis still follows the point.
+        let tall = PhysicalSize::new(1100, 1200);
+        assert_eq!(clamp_to(400.0, 300.0, tall, &area), (400, 50));
+        let wide = PhysicalSize::new(2000, 860);
+        assert_eq!(clamp_to(400.0, 120.0, wide, &area), (100, 120));
     }
 
     /// Every restored window but the last saved one, the one used last, hands

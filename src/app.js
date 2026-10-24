@@ -4278,7 +4278,7 @@ function onMenuKeydown(event) {
 
 const DRAG_THRESHOLD = 5; // px before a click becomes a drag
 const PROBE_MS = 30; // throttle for the cross-window hit test
-const STRIP_SLACK = 24; // vertical grace before a drag counts as leaving
+const STRIP_SLACK = 24; // grace around the strip before a drag counts as leaving
 
 let drag = null;
 let ghostEl = null;
@@ -4446,11 +4446,15 @@ function onDragMove(event) {
 
   // A hidden strip has a zero-sized rect sitting at the origin, which would
   // otherwise read as "inside" for any pointer near the top of the window.
+  // Level with the strip but beside the window is outside too: a release
+  // there can't aim at a slot, so it tears off.
   const strip = els.tabs.getBoundingClientRect();
   const inStrip =
     !els.tabs.hidden &&
     event.clientY >= strip.top - STRIP_SLACK &&
-    event.clientY <= strip.bottom + STRIP_SLACK;
+    event.clientY <= strip.bottom + STRIP_SLACK &&
+    event.clientX >= -STRIP_SLACK &&
+    event.clientX <= window.innerWidth + STRIP_SLACK;
 
   if (inStrip) {
     if (drag.detached) {
