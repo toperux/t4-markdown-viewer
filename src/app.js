@@ -1281,6 +1281,20 @@ function orderMenuActors(fig) {
   for (const el of run) parent.insertBefore(units.includes(el) ? sorted[k++] : el, after);
 }
 
+/**
+ * Open or close `actor`'s menu as a key does: where mermaid hangs it, under
+ * the top box. mermaid draws every menu after every actor, so Tab from the
+ * actor would visit the others first; opening puts focus on its first link.
+ */
+function toggleActorMenuByKey(actor, menu) {
+  const opening = menu.getAttribute("display") !== "block";
+  showActorMenu(menu, opening, actor);
+  if (opening) menu.querySelector("a")?.focus();
+}
+
+/** An actor that had keyboard focus when pressed (the content's mousedown listener), or null. */
+let pressedActor = null;
+
 /** The keyboard-reachable top box of the actor called `name` in `fig`, or null. */
 function actorNamed(fig, name) {
   return [...fig.querySelectorAll(MENU_ACTOR)].find((g) => g.getAttribute("data-id") === name) ?? null;
@@ -5016,6 +5030,13 @@ function onLinkClick(event) {
     const fig = figureOf(event.target);
     const menu = fig && actorMenu(fig, event.target);
     closeActorMenus(menu);
+    // An actor that had keyboard focus when pressed: as Enter on it would.
+    const keyed = menu && pressedActor && menuActor(menu) === pressedActor ? pressedActor : null;
+    pressedActor = null;
+    if (keyed) {
+      toggleActorMenuByKey(keyed, menu);
+      return;
+    }
     if (menu) {
       if (menu.getAttribute("display") === "block") {
         showActorMenu(menu, false);
@@ -5493,18 +5514,13 @@ async function onKeydown(event) {
   // page away.
   if ((event.key === "Enter" || event.key === " ") && !ctrl && !event.metaKey && !event.altKey && !event.shiftKey && !event.repeat) {
     const el = document.activeElement;
-    // An actor's menu opens where mermaid hangs it, under the top box, and
-    // focus stays on the actor. Not by `el.click()`: `onLinkClick` places a
-    // menu at the click, and a synthetic one is at 0,0.
+    // Not by `el.click()`: `onLinkClick` places a menu at the click, and a
+    // synthetic one is at 0,0.
     if (el?.matches(MENU_ACTOR) && els.content.contains(el) && el.matches(":focus-visible")) {
       event.preventDefault();
       const menu = actorMenu(figureOf(el), el);
       closeActorMenus(menu);
-      const opening = menu.getAttribute("display") !== "block";
-      showActorMenu(menu, opening, el);
-      // mermaid draws every menu after every actor, so Tab from this one would
-      // visit the other actors first; focus goes to the menu's first link.
-      if (opening) menu.querySelector("a")?.focus();
+      toggleActorMenuByKey(el, menu);
       return;
     }
     // Only a keyboard focus. A mouse press lets go of any focus it gave (the
@@ -5999,12 +6015,18 @@ async function main() {
   // too, and any key after makes that a keyboard focus. Let go of it once the
   // press has done its focusing. `onLinkClick` lets go of a diagram at the
   // click as well, which a fast click can reach before this does.
-  els.content.addEventListener("mousedown", () =>
+  els.content.addEventListener("mousedown", (event) => {
+    // A press on an actor that already had keyboard focus is a screen reader
+    // activating it: Narrator's scan mode sends Enter as a click (measured).
+    // That actor keeps its focus, and `onLinkClick` takes the keyboard path.
+    const was = document.activeElement;
+    pressedActor = was?.matches?.(MENU_ACTOR) && was.contains(event.target) ? was : null;
     setTimeout(() => {
       const el = document.activeElement;
+      if (el === pressedActor) return;
       if (els.content.contains(el) && (el.matches(OPENABLE) || el.matches(MENU_ACTOR))) el.blur();
-    }),
-  );
+    });
+  });
   els.content.addEventListener("click", onJsonClick);
   els.content.addEventListener("change", onTaskToggle);
   // A form on the page can only come from a diagram — comrak strips raw
