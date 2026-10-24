@@ -1238,6 +1238,9 @@ function keyActorMenus(fig) {
     // A button that shows its links, not a `menu`: that role promises arrow
     // keys, and these links take Tab.
     actor.setAttribute("role", "button");
+    // Named for the actor: WebKit takes no name from an SVG group's text, so
+    // Orca said only "collapsed button" (measured).
+    actor.setAttribute("aria-label", actor.querySelector("text")?.textContent.trim() || actor.getAttribute("data-id"));
     showActorMenu(menu, false, actor);
   }
   orderMenuActors(fig);
@@ -1301,8 +1304,13 @@ function sayDiagramFailed(pre, error) {
   const p = document.createElement("p");
   p.className = "mermaid-error";
   p.textContent = error;
+  // Tied to the block, so a screen reader on it hears why, not only the code
+  // (Orca and Narrator reached the reason only after the code, measured).
+  p.id = `diagram-error-${++diagramErrors}`;
+  pre.setAttribute("aria-describedby", p.id);
   pre.after(p);
 }
+let diagramErrors = 0;
 
 /**
  * Swap each Mermaid block for its warmed diagram. One that failed keeps its

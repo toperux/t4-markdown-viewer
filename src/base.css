@@ -1934,7 +1934,12 @@ html.diagram-open {
 /* `tspan` too: an actor menu's text sits in one that mermaid colours itself. */
 .markdown-body div.mermaid-diagram a:focus-visible :is(text, tspan) {
   fill: var(--ui-accent) !important;
-  /* The menu entries' underline (below) follows neither `fill` nor the theme's grey otherwise. */
+  /*
+   * The menu entries' underline (below). Chromium paints an SVG text's
+   * underline in its fill and stroke, and mermaid strokes this text grey
+   * (measured on WebView2); the colours are for engines that follow them.
+   */
+  stroke: var(--ui-accent) !important;
   color: var(--ui-accent) !important;
   text-decoration-color: var(--ui-accent) !important;
 }
