@@ -1912,6 +1912,40 @@ html.diagram-open {
   outline-offset: 2px;
 }
 
+/*
+ * WebKit paints no outline on SVG (measured on macOS 26.7), so a focused actor
+ * or diagram link would show nothing there. Its shapes take the accent stroke
+ * instead, and text alone, as in an actor's menu, the accent fill. Important:
+ * mermaid's own rules are scoped by the drawing's id and would win. Chromium's
+ * own ring is turned off there, so every engine shows the one mark, not a
+ * double ring (seen on WebView2).
+ */
+.markdown-body div.mermaid-diagram g[data-et="participant"][tabindex="0"]:focus-visible,
+.markdown-body div.mermaid-diagram a:focus-visible {
+  outline: none;
+}
+
+.markdown-body div.mermaid-diagram g[data-et="participant"][tabindex="0"]:focus-visible :is(rect, path, circle, ellipse, polygon),
+.markdown-body div.mermaid-diagram a:focus-visible :is(rect, path, circle, ellipse, polygon) {
+  stroke: var(--ui-accent) !important;
+  stroke-width: 2px !important;
+}
+
+/* `tspan` too: an actor menu's text sits in one that mermaid colours itself. */
+.markdown-body div.mermaid-diagram a:focus-visible :is(text, tspan) {
+  fill: var(--ui-accent) !important;
+  /*
+   * The menu entries' underline (below). Chromium paints an SVG text's
+   * underline in its fill and stroke, and mermaid strokes this text grey
+   * (measured on WebView2). No stroke, not an accent one, which made the
+   * word look bold (measured on macOS); the colours are for engines that
+   * follow them.
+   */
+  stroke: none !important;
+  color: var(--ui-accent) !important;
+  text-decoration-color: var(--ui-accent) !important;
+}
+
 /* Code stays in the column; a long line scrolls inside its own box (a command wraps, below). */
 .markdown-body pre {
   overflow-x: auto;
