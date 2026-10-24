@@ -75,7 +75,12 @@ If A1 shows a third cause, the plan comes back to the owner with it.
 ### A2. Clamp a torn-off window to the screen
 
 - `drop_tab` looks up the work area of the monitor under the cursor with
-  `app.monitor_from_point(x, y)` and `Monitor::work_area()`. Both exist in tauri 2.12.2.
+  `monitor_from_point(x, y)` and `Monitor::work_area()`. Both exist in tauri 2.12.2.
+  *As built:* through `window`, not `app`. The app-level call is `unimplemented!()` in tauri's
+  mock runtime and panicked a routing test, and both reach the same tao lookup. tao takes that
+  point in physical pixels on Windows only. macOS takes points and GTK its logical pixels, so
+  there the drop point is divided by the scale first (read from tao 0.37.1's source, not
+  measured).
 - `Placement::Cursor` gains that work area as an `Option`. None, when no monitor is found, means
   no clamp. On Wayland the clamp may run, but `set_position` is ignored there anyway.
 - `spawn_window` reads the built window's `outer_size()` and moves the target top-left inside the
@@ -164,7 +169,8 @@ the same index with `preventScroll`. About eight lines.
 ### B2. Keep focus when a redraw fails
 
 When `fig.replaceWith(drawn.pre)` runs on a figure that holds focus, give the `pre`
-`tabindex="-1"` and focus it. A screen reader then reads the code and the error under it.
+`tabindex="-1"` and focus it, so the reader keeps their place. Whether a screen reader also reads
+the error, a sibling `<p>` after the `pre`, is unmeasured.
 The `-1` keeps it out of the Tab order. Settled (Q-B2).
 
 The way back needs the same care. A later redraw that draws it again runs `renderDiagrams`, which
@@ -225,7 +231,9 @@ all three engines on 2026-10-11. The full-window view shows it at size.
   \`${natural * FLOOR}px\``. `min-width` beats `max-width`, so the drawing stops shrinking at the
   floor.
 - In `base.css`, `.markdown-body div.mermaid-diagram { overflow-x: auto; }`. The figure keeps its
-  pane-wide box, and the drawing scrolls inside it.
+  pane-wide box, and the drawing scrolls inside it. *As built:* that rule was already there
+  (`base.css` ~1956), and only its comment changed. The natural-width code is in `warmSources`,
+  which `warmDiagrams` calls.
 - A diagram already smaller than the column is unchanged: its floor is below its natural width.
 - `openDiagram` (`app.js:1396`) clears the copy's `minWidth` beside the `maxWidth` it already
   clears. Otherwise the floor would stop the full-window view's Fit from shrinking a wide diagram
