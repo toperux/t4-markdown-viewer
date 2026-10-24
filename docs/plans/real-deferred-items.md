@@ -185,6 +185,11 @@ opens.
 flowchart links. The hidden actor-menu links are skipped there, so the invisible Tab stop is
 WebKit's.
 
+**B0 result, Linux (2026-10-24, X11 via XTEST and native Wayland via Mutter, identical):** the
+same order, and every hidden actor-menu link is a Tab stop: 5 in the walk document, 2–3 per
+sequence diagram, with no menu and no focus ring showing. So on every engine B3's menus step by
+Tab, and no arrow keys are needed.
+
 ### B1. Keep a focused link across a redraw
 
 In `redrawDiagrams`, before `fig.innerHTML = done.svg`: if the figure contains
