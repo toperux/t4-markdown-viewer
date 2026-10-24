@@ -181,6 +181,10 @@ such link was reached; the rest are likely the same, by reasoning, not measured.
 also takes a closed menu's links out of the Tab order (`tabindex="-1"`), restoring them when it
 opens.
 
+**B0 result, Windows (2026-10-24, CDP Tab):** the same order for plain links, figures and
+flowchart links. The hidden actor-menu links are skipped there, so the invisible Tab stop is
+WebKit's.
+
 ### B1. Keep a focused link across a redraw
 
 In `redrawDiagrams`, before `fig.innerHTML = done.svg`: if the figure contains
@@ -322,6 +326,29 @@ same size, pretty-printed records, and this plan records how. The runs stop at 4
    No `content-visibility` variant: a chunk is spliced inline where its button was, often
    mid-line after a comma (`onJsonClick`), so it has no block of its own to put that on.
 3. Record each variant's memory and fold time in this plan.
+
+**D1 result (Windows VM, 2026-10-24, 7eaaed3).** The find walks' file was gone, so a seeded
+script made a 10,223,605-byte one (12,253 records, md5 `174f9b64…210b9`; the generator is in the
+VM session's report). A fresh launch per variant; samples 3 s after each step:
+
+| Variant | 1 chunk MB / nodes | 4 chunks MB / nodes | Fold at 4 |
+|---|---|---|---|
+| baseline | 548 / 204,946 | 2,089 / 816,778 | 2,972–3,949 ms |
+| a. fold buttons as spans | 542 / 204,946 | 2,083 / 816,778 | 2,985 ms |
+| b. no `.fold::before` | 515 / 199,092 | 1,951 / 793,401 | 3,460 ms |
+| c. all punctuation bare | 606 / 126,084 | 1,402 / 501,683 | 1,970–2,192 ms |
+
+- Memory follows node count at about 2.4 KB a node in every variant. The JS heap stays at
+  16–49 MB, so the cost is Blink's own.
+- A heap snapshot at 2 chunks: 341 MB native, led by computed-style data (about 125 MB) and
+  layout and text shaping. There is about one `ComputedStyle` per element, so identical token
+  spans don't share styles. Why is unknown. The VM suspects something in the CSS defeats Blink's
+  style cache, perhaps the sibling rule `.fold-body[hidden] + .hljs-punctuation::before`; that is
+  reasoned, not checked.
+- Variant c is not shippable as measured. It also made brackets bare, and the fold control needs
+  them: the button finds its body through the opening bracket's element, and the `…` hangs off
+  the closing one. No theme styles `.hljs-punctuation` (checked), so bare commas and colons
+  would look the same.
 
 D1 changes nothing in the product; the variants are reverted. It ends with the numbers and fix
 options back to the owner (Q-D1). The fix is then planned here as D2, and the plan goes through
