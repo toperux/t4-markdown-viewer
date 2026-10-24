@@ -1905,12 +1905,8 @@ html.diagram-open {
   cursor: zoom-in;
 }
 
-/*
- * These open from the keyboard too, an actor its link menu; the ring is the
- * only sign which has focus.
- */
+/* Both open from the keyboard too; the ring is the only sign which has focus. */
 .markdown-body div.mermaid-diagram:focus-visible,
-.markdown-body div.mermaid-diagram g[data-et="participant"][tabindex="0"]:focus-visible,
 .markdown-body img[data-file]:focus-visible {
   outline: 2px solid var(--ui-accent);
   outline-offset: 2px;
@@ -1920,8 +1916,15 @@ html.diagram-open {
  * WebKit paints no outline on SVG (measured on macOS 26.7), so a focused actor
  * or diagram link would show nothing there. Its shapes take the accent stroke
  * instead, and text alone, as in an actor's menu, the accent fill. Important:
- * mermaid's own rules are scoped by the drawing's id and would win.
+ * mermaid's own rules are scoped by the drawing's id and would win. Chromium's
+ * own ring is turned off there, so every engine shows the one mark, not a
+ * double ring (seen on WebView2).
  */
+.markdown-body div.mermaid-diagram g[data-et="participant"][tabindex="0"]:focus-visible,
+.markdown-body div.mermaid-diagram a:focus-visible {
+  outline: none;
+}
+
 .markdown-body div.mermaid-diagram g[data-et="participant"][tabindex="0"]:focus-visible :is(rect, path, circle, ellipse, polygon),
 .markdown-body div.mermaid-diagram a:focus-visible :is(rect, path, circle, ellipse, polygon) {
   stroke: var(--ui-accent) !important;
