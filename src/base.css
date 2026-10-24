@@ -2054,8 +2054,12 @@ html.diagram-open {
   content: "▸";
 }
 
-/* A collapsed body puts its brackets on one line; this is what goes between. */
-.fold-body[hidden] + .hljs-punctuation::before {
+/* A collapsed body puts its brackets on one line; this is what goes between.
+   `onJsonClick` marks the closing bracket rather than this keying off
+   `.fold-body[hidden] +`: an adjacent-sibling rule made Blink stop sharing
+   styles among the punctuation spans, about 42k more ComputedStyle objects
+   at 2 chunks of a 10 MB file. */
+.hljs-punctuation.folded::before {
   content: " … ";
 }
 
