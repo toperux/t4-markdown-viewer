@@ -5030,8 +5030,12 @@ function onLinkClick(event) {
     const fig = figureOf(event.target);
     const menu = fig && actorMenu(fig, event.target);
     closeActorMenus(menu);
-    // An actor that had keyboard focus when pressed: as Enter on it would.
-    const keyed = menu && pressedActor && menuActor(menu) === pressedActor ? pressedActor : null;
+    // An actor that had keyboard focus when pressed, or one clicked with no
+    // press at all (`detail` 0, VoiceOver's VO+Space, measured): a screen
+    // reader activating it, so as Enter on it would.
+    const actor = menu && menuActor(menu);
+    const keyed =
+      actor && (pressedActor === actor || (event.detail === 0 && event.target.closest(MENU_ACTOR) === actor)) ? actor : null;
     pressedActor = null;
     if (keyed) {
       toggleActorMenuByKey(keyed, menu);
