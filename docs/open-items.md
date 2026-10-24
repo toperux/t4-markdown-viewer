@@ -177,6 +177,8 @@ The next two came out of the session-restore walks (`archive/plans/session-resto
   chosen font reads too small or large at the themes' sizes, or on a report about Tufte.
   The reading width (`archive/plans/reading-width.md`) is 75ch of the document font (100ch in a wide
   window), so a size change keeps the line length and moves the edge with it.
+  *Kept deferred by the owner 2026-10-24 (`plans/real-deferred-items.md`, Q-E1): no one has asked,
+  and all three walkers found it readable.*
 - [ ] **The JSON viewer's memory and layout cost per chunk** (added 2026-10-10, the find walks,
   `archive/plans/find-in-document.md` Q5). Each 512 KB chunk costs 400-500 MB of webview memory on
   Windows, with find open or closed; 17 chunks of a 9.75 MB file reached 9.7 GB on an 8 GB VM,
@@ -215,6 +217,8 @@ The next two came out of the session-restore walks (`archive/plans/session-resto
   New commits are covered by `CLAUDE.md` → "Commit messages" and by `attribution` turned off in
   the user settings. Reopen if the old messages must leave GitHub: start with the Support
   request, then the plan.
+  *Kept deferred by the owner 2026-10-24 (`plans/real-deferred-items.md`, Q-F1): the cost is lost
+  PR pages and new hashes for every old commit.*
 - [ ] **On Linux, a launch can fail with no crash report** (added 2026-10-20, the walks of the
   restore target and XWayland freeze fixes, Linux VM). Twice in ~58 walk launches: a debug build
   on native Wayland lost its WebDriver session at 0.4 s ("page crash or hang"; `session.json`
