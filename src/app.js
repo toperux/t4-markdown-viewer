@@ -1240,6 +1240,42 @@ function keyActorMenus(fig) {
     actor.setAttribute("role", "button");
     showActorMenu(menu, false, actor);
   }
+  orderMenuActors(fig);
+}
+
+/**
+ * mermaid moves each actor's top box, in a group with its lifeline, to the
+ * front of the drawing as it draws them, so they stand right to left and Tab
+ * would visit them so. The ones with menus are put back left to right, in the
+ * places they hold among the top boxes, so nothing else's paint order
+ * changes. A stick figure, entity, control or boundary keeps its box apart
+ * from its lifeline, at the end of what was drawn so far: where the top boxes
+ * from the first actor with a menu to the last don't stand side by side, the
+ * order stays mermaid's.
+ */
+function orderMenuActors(fig) {
+  const keyed = [...fig.querySelectorAll(MENU_ACTOR)];
+  if (keyed.length < 2) return;
+  // What moves: the box with its lifeline, or the box alone where they are apart.
+  const unit = (g) => (g.parentElement.querySelector(':scope > line[data-et="life-line"]') ? g.parentElement : g);
+  const units = keyed.map(unit);
+  const tops = new Set([...fig.querySelectorAll('g[data-et="participant"]')].map(unit));
+  const last = units.at(-1);
+  const run = [];
+  for (let el = units[0]; el !== last; el = el.nextElementSibling) {
+    if (!tops.has(el)) return;
+    run.push(el);
+  }
+  run.push(last);
+  // From the lifeline's attribute, not `getBBox`: a figure being rendered is
+  // not on the page yet, and has no layout to measure.
+  const lines = [...fig.querySelectorAll('line[data-et="life-line"]')];
+  const x = (g) => +lines.find((l) => l.getAttribute("data-id") === g.getAttribute("data-id"))?.getAttribute("x1");
+  const sorted = [...keyed].sort((a, b) => x(a) - x(b)).map(unit);
+  const parent = last.parentNode;
+  const after = last.nextSibling;
+  let k = 0;
+  for (const el of run) parent.insertBefore(units.includes(el) ? sorted[k++] : el, after);
 }
 
 /** The keyboard-reachable top box of the actor called `name` in `fig`, or null. */
@@ -5389,6 +5425,32 @@ async function onKeydown(event) {
     const actor = menu && menuActor(menu);
     if (closeActorMenus()) {
       actor?.focus();
+      return;
+    }
+  }
+  // Tab past either end of an actor's menu puts it away. mermaid draws every
+  // menu after every actor, so Tab on would skip the actors after this one,
+  // and Shift+Tab land on the last: focus goes to the next actor, or back to
+  // this one. `keyCode` for WebKitGTK's Shift+Tab, as above.
+  if ((event.key === "Tab" || event.keyCode === 9) && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    const el = document.activeElement;
+    const menu = el?.closest?.('g.actorPopupMenu[id$="_popup"][display="block"]');
+    const links = menu && els.content.contains(menu) ? [...menu.querySelectorAll("a")] : [];
+    if (el === (event.shiftKey ? links[0] : links.at(-1))) {
+      const actor = menuActor(menu);
+      const actors = [...menu.ownerSVGElement.querySelectorAll(MENU_ACTOR)];
+      const to = event.shiftKey ? actor : actors[actors.indexOf(actor) + 1];
+      if (to) {
+        event.preventDefault();
+        showActorMenu(menu, false, actor);
+        to.focus();
+      } else {
+        // The last actor's: Tab goes on out of the diagram, and the menu goes
+        // once it has. Not before: Tab would then move on from a hidden link,
+        // which is unmeasured on every engine. The closed menus after this
+        // one hold no Tab stops (`showActorMenu`).
+        setTimeout(() => showActorMenu(menu, false, actor));
+      }
       return;
     }
   }
