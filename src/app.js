@@ -1204,11 +1204,53 @@ function actorMenu(fig, el) {
   return line ? fig.querySelector(`#${CSS.escape(`${line.id}_popup`)}`) : null;
 }
 
+/** An actor's top box that opens its menu from the keyboard (`keyActorMenus`). */
+const MENU_ACTOR = 'g[data-et="participant"][tabindex="0"]';
+
+/** The top box of the actor whose menu `menu` is, or null. */
+function menuActor(menu) {
+  const svg = menu.ownerSVGElement;
+  return [...svg.querySelectorAll('g[data-et="participant"]')].find((g) => actorMenu(svg, g) === menu) ?? null;
+}
+
+/**
+ * Open or put away an actor's menu. A closed menu's links leave the Tab
+ * order: WebKit stops on them although they are hidden, with nothing to see.
+ */
+function showActorMenu(menu, open, actor = menuActor(menu)) {
+  menu.setAttribute("display", open ? "block" : "none");
+  if (!open) menu.removeAttribute("transform");
+  for (const a of menu.querySelectorAll("a"))
+    if (open) a.removeAttribute("tabindex");
+    else a.setAttribute("tabindex", "-1");
+  actor?.setAttribute("aria-expanded", String(open));
+}
+
+/**
+ * Each actor of `fig`'s that has a menu becomes a Tab stop, whose Enter or
+ * Space opens the menu (`onKeydown`); every menu starts closed.
+ */
+function keyActorMenus(fig) {
+  for (const actor of fig.querySelectorAll('g[data-et="participant"]')) {
+    const menu = actorMenu(fig, actor);
+    if (!menu) continue;
+    actor.setAttribute("tabindex", "0");
+    actor.setAttribute("role", "button");
+    actor.setAttribute("aria-haspopup", "menu");
+    showActorMenu(menu, false, actor);
+  }
+}
+
+/** The keyboard-reachable top box of the actor called `name` in `fig`, or null. */
+function actorNamed(fig, name) {
+  return [...fig.querySelectorAll(MENU_ACTOR)].find((g) => g.getAttribute("data-id") === name) ?? null;
+}
+
 /** Put away every open actor menu but `except`; whether one was open. */
 function closeActorMenus(except) {
   let closed = false;
   for (const menu of els.content.querySelectorAll('g.actorPopupMenu[id$="_popup"][display="block"]'))
-    if (menu !== except) menu.setAttribute("display", "none"), menu.removeAttribute("transform"), (closed = true);
+    if (menu !== except) showActorMenu(menu, false), (closed = true);
   return closed;
 }
 
@@ -1246,6 +1288,7 @@ function renderDiagrams(root, look) {
       fig.setAttribute("role", "group");
       fig.setAttribute("aria-label", "Diagram — Enter opens it full window");
       fig.innerHTML = done.svg;
+      keyActorMenus(fig);
       diagramBlocks.set(fig, { pre, look: look.key });
       // A block that took focus when its figure failed to redraw hands it to
       // the figure that replaces it, or focus falls to the page.
@@ -1324,9 +1367,28 @@ async function redrawDiagrams() {
     if (done?.svg) {
       // Focus on one of its links would go with the old drawing; the link at
       // the same place in the new one takes it instead.
-      const link = [...fig.querySelectorAll("a")].indexOf(document.activeElement);
+      const was = document.activeElement;
+      const link = [...fig.querySelectorAll("a")].indexOf(was);
+      // So would an open actor menu, and focus on an actor or in its menu.
+      // They are found again by the actor's name, as `actorMenu` finds them:
+      // mermaid's numbers for actors run on across diagrams. The menu stays
+      // where it was opened.
+      const open = fig.querySelector('g.actorPopupMenu[id$="_popup"][display="block"]');
+      const openName = open && menuActor(open)?.getAttribute("data-id");
+      const shift = open?.getAttribute("transform");
+      const inMenu = open ? [...open.querySelectorAll("a")].indexOf(was) : -1;
+      const focusName = fig.contains(was) && was.matches(MENU_ACTOR) ? was.getAttribute("data-id") : null;
       fig.innerHTML = done.svg;
-      if (link >= 0) fig.querySelectorAll("a")[link]?.focus({ preventScroll: true });
+      keyActorMenus(fig);
+      const actor = openName && actorNamed(fig, openName);
+      const menu = actor && actorMenu(fig, actor);
+      if (menu) {
+        if (shift) menu.setAttribute("transform", shift);
+        showActorMenu(menu, true, actor);
+      }
+      if (focusName) actorNamed(fig, focusName)?.focus({ preventScroll: true });
+      else if (inMenu >= 0) menu?.querySelectorAll("a")[inMenu]?.focus({ preventScroll: true });
+      else if (link >= 0) fig.querySelectorAll("a")[link]?.focus({ preventScroll: true });
       drawn.look = look.key;
       continue;
     }
@@ -1402,8 +1464,9 @@ function openDiagram(fig) {
   // The copy is for reading, and its links are not followed there, so a menu
   // open on the page is not open in it.
   t.content.querySelectorAll('g.actorPopupMenu[id$="_popup"]').forEach((m) => m.setAttribute("display", "none"));
-  // Its links are not followed there, so they are not Tab stops either.
-  t.content.querySelectorAll("a").forEach((a) => a.setAttribute("tabindex", "-1"));
+  // Its links are not followed there, nor its actors' menus opened, so neither
+  // are Tab stops.
+  t.content.querySelectorAll(`a, ${MENU_ACTOR}`).forEach((el) => el.setAttribute("tabindex", "-1"));
   const svg = t.content.querySelector("svg");
   const root = original.id;
   // Under `x0zoom`, not `-zoom`: a gantt task named `zoom` is already
@@ -4890,8 +4953,7 @@ function onLinkClick(event) {
     closeActorMenus(menu);
     if (menu) {
       if (menu.getAttribute("display") === "block") {
-        menu.setAttribute("display", "none");
-        menu.removeAttribute("transform");
+        showActorMenu(menu, false);
         return;
       }
       // mermaid hangs every menu under the actor's top box, which on a
@@ -4911,7 +4973,7 @@ function onLinkClick(event) {
       let dy = Math.max(0, y + GAP - top);
       if (top + dy + height > box.y + box.height) dy = y - GAP - height - top;
       if (dy) menu.setAttribute("transform", `translate(0, ${dy})`);
-      menu.setAttribute("display", "block");
+      showActorMenu(menu, true);
       return;
     }
     if (fig) openDiagram(fig);
@@ -5317,7 +5379,16 @@ async function onKeydown(event) {
     closeSwitcher();
     return;
   }
-  if (event.key === "Escape" && closeActorMenus()) return;
+  if (event.key === "Escape") {
+    // Focus in the menu goes back to its actor rather than out with it, to
+    // the page. Focus on the actor stays there.
+    const menu = document.activeElement?.closest('g.actorPopupMenu[id$="_popup"][display="block"]');
+    const actor = menu && menuActor(menu);
+    if (closeActorMenus()) {
+      actor?.focus();
+      return;
+    }
+  }
   // From anywhere while the find bar is open, not only from its input. Not the
   // Esc that cancels IME input.
   if (event.key === "Escape" && !els.find.hidden && !event.isComposing && event.keyCode !== 229) {
@@ -5331,6 +5402,16 @@ async function onKeydown(event) {
   // page away.
   if ((event.key === "Enter" || event.key === " ") && !ctrl && !event.metaKey && !event.altKey && !event.shiftKey && !event.repeat) {
     const el = document.activeElement;
+    // An actor's menu opens where mermaid hangs it, under the top box, and
+    // focus stays on the actor. Not by `el.click()`: `onLinkClick` places a
+    // menu at the click, and a synthetic one is at 0,0.
+    if (el?.matches(MENU_ACTOR) && els.content.contains(el) && el.matches(":focus-visible")) {
+      event.preventDefault();
+      const menu = actorMenu(figureOf(el), el);
+      closeActorMenus(menu);
+      showActorMenu(menu, menu.getAttribute("display") !== "block", el);
+      return;
+    }
     // Only a keyboard focus. A mouse press lets go of any focus it gave (the
     // mousedown listener, and `onLinkClick`); this is the last guard.
     if (
@@ -5819,14 +5900,14 @@ async function main() {
   els.content.addEventListener("click", onCopySection);
   els.content.addEventListener("click", onLinkClick);
   // A press that never becomes a click on the page — a right or middle
-  // button, or one dragged out of it — focuses a diagram or picture too, and
-  // any key after makes that a keyboard focus. Let go of it once the press
-  // has done its focusing. `onLinkClick` lets go at the click as well, which
-  // a fast click can reach before this does.
+  // button, or one dragged out of it — focuses a diagram, picture or actor
+  // too, and any key after makes that a keyboard focus. Let go of it once the
+  // press has done its focusing. `onLinkClick` lets go of a diagram at the
+  // click as well, which a fast click can reach before this does.
   els.content.addEventListener("mousedown", () =>
     setTimeout(() => {
       const el = document.activeElement;
-      if (els.content.contains(el) && el.matches(OPENABLE)) el.blur();
+      if (els.content.contains(el) && (el.matches(OPENABLE) || el.matches(MENU_ACTOR))) el.blur();
     }),
   );
   els.content.addEventListener("click", onJsonClick);
