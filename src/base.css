@@ -1934,6 +1934,9 @@ html.diagram-open {
 /* `tspan` too: an actor menu's text sits in one that mermaid colours itself. */
 .markdown-body div.mermaid-diagram a:focus-visible :is(text, tspan) {
   fill: var(--ui-accent) !important;
+  /* The menu entries' underline (below) follows neither `fill` nor the theme's grey otherwise. */
+  color: var(--ui-accent) !important;
+  text-decoration-color: var(--ui-accent) !important;
 }
 
 /* Code stays in the column; a long line scrolls inside its own box (a command wraps, below). */
