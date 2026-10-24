@@ -1309,8 +1309,15 @@ function sayDiagramFailed(pre, error) {
   p.id = `diagram-error-${++diagramErrors}`;
   pre.setAttribute("aria-describedby", p.id);
   pre.after(p);
+  return p;
 }
 let diagramErrors = 0;
+
+/** Focus a failed diagram's reason, out of the Tab order: where a keyboard user was. */
+function focusReason(p) {
+  p.tabIndex = -1;
+  p.focus({ preventScroll: true });
+}
 
 /**
  * Swap each Mermaid block for its warmed diagram. One that failed keeps its
@@ -1341,7 +1348,9 @@ function renderDiagrams(root, look) {
       pre.replaceWith(fig);
       if (focused) fig.focus({ preventScroll: true });
     } else if (done?.error) {
-      sayDiagramFailed(pre, done.error);
+      const focused = pre.contains(document.activeElement);
+      const p = sayDiagramFailed(pre, done.error);
+      if (focused) focusReason(p);
     }
   });
   numberRepeats(root);
@@ -1395,7 +1404,10 @@ async function redrawDiagrams() {
   if (stale()) return;
   // Blocks that had failed are drawn afresh, before any figure below turns
   // back into one; their old reasons go first.
-  // `p.`: a diagram can give its own nodes the class too.
+  // `p.`: a diagram can give its own nodes the class too. A reason holding
+  // focus hands it to its block first, which `renderDiagrams` passes on.
+  const reason = document.activeElement?.closest?.("p.mermaid-error");
+  if (reason && els.content.contains(reason)) reason.previousElementSibling?.focus({ preventScroll: true });
   els.content.querySelectorAll("p.mermaid-error").forEach((p) => p.remove());
   const look = diagramLook();
   renderDiagrams(els.content, look);
@@ -1440,13 +1452,13 @@ async function redrawDiagrams() {
     }
     const focused = fig.contains(document.activeElement);
     fig.replaceWith(drawn.pre);
-    // Out of the Tab order, but focused, so the reader keeps their place,
-    // now on the code with the reason under it.
-    if (focused) {
-      drawn.pre.tabIndex = -1;
-      drawn.pre.focus({ preventScroll: true });
-    }
-    if (done?.error) sayDiagramFailed(drawn.pre, done.error);
+    // Out of the Tab order, but focused, so the reader keeps their place:
+    // on the reason, read first, with the code above it. Not the code with
+    // the reason as its description, which VoiceOver, Narrator and Orca all
+    // left unsaid (measured).
+    drawn.pre.tabIndex = -1;
+    const p = done?.error && sayDiagramFailed(drawn.pre, done.error);
+    if (focused) (p ? focusReason(p) : drawn.pre.focus({ preventScroll: true }));
     if (!drawn.pre.querySelector(".hljs")) highlight(drawn.pre);
   }
   numberRepeats(els.content);
