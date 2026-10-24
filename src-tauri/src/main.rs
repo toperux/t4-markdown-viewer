@@ -140,6 +140,12 @@ struct Origin {
     /// False when the compositor would not say where the window is, so the
     /// frontend must fall back to the pointer's own screen coordinates.
     exact: bool,
+    /// macOS only: the frame's height, physical. tao reports the frame's top
+    /// and size there as the "inner" ones, title bar and all (measured on
+    /// macOS 26.7.1), so the frontend takes its own content height from this
+    /// to find where the page really starts. None elsewhere, where `x`/`y`
+    /// already are the page's top-left.
+    frame_height: Option<f64>,
 }
 
 /// What the frontend needs at boot: the saved settings, plus the facts about
@@ -1114,18 +1120,25 @@ fn set_session<R: Runtime>(
 #[tauri::command]
 fn window_origin(window: Window) -> Origin {
     let scale = window.scale_factor().unwrap_or(1.0);
+    let frame_height = if cfg!(target_os = "macos") {
+        window.inner_size().ok().map(|s| s.height as f64)
+    } else {
+        None
+    };
     match window.inner_position() {
         Ok(pos) => Origin {
             x: pos.x as f64,
             y: pos.y as f64,
             scale,
             exact: true,
+            frame_height,
         },
         Err(_) => Origin {
             x: 0.0,
             y: 0.0,
             scale,
             exact: false,
+            frame_height,
         },
     }
 }

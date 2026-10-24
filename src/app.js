@@ -4324,9 +4324,12 @@ function screenPoint(event, origin) {
       y: event.screenY * window.devicePixelRatio,
     };
   }
+  // On macOS the origin is the frame's top, title bar included; the page
+  // starts that bar's height lower (`Origin::frame_height`).
+  const bar = origin.frame_height ? Math.max(0, origin.frame_height - window.innerHeight * origin.scale) : 0;
   return {
     x: origin.x + event.clientX * origin.scale,
-    y: origin.y + event.clientY * origin.scale,
+    y: origin.y + bar + event.clientY * origin.scale,
   };
 }
 
