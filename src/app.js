@@ -1235,8 +1235,9 @@ function keyActorMenus(fig) {
     const menu = actorMenu(fig, actor);
     if (!menu) continue;
     actor.setAttribute("tabindex", "0");
+    // A button that shows its links, not a `menu`: that role promises arrow
+    // keys, and these links take Tab.
     actor.setAttribute("role", "button");
-    actor.setAttribute("aria-haspopup", "menu");
     showActorMenu(menu, false, actor);
   }
 }
@@ -1387,7 +1388,8 @@ async function redrawDiagrams() {
         showActorMenu(menu, true, actor);
       }
       if (focusName) actorNamed(fig, focusName)?.focus({ preventScroll: true });
-      else if (inMenu >= 0) menu?.querySelectorAll("a")[inMenu]?.focus({ preventScroll: true });
+      // An actor not found again leaves focus with the diagram, not the page.
+      else if (inMenu >= 0) (menu?.querySelectorAll("a")[inMenu] ?? fig).focus({ preventScroll: true });
       else if (link >= 0) fig.querySelectorAll("a")[link]?.focus({ preventScroll: true });
       drawn.look = look.key;
       continue;
@@ -1465,7 +1467,8 @@ function openDiagram(fig) {
   // open on the page is not open in it.
   t.content.querySelectorAll('g.actorPopupMenu[id$="_popup"]').forEach((m) => m.setAttribute("display", "none"));
   // Its links are not followed there, nor its actors' menus opened, so neither
-  // are Tab stops.
+  // are Tab stops, and its actors are no buttons.
+  t.content.querySelectorAll(MENU_ACTOR).forEach((g) => (g.removeAttribute("role"), g.removeAttribute("aria-expanded")));
   t.content.querySelectorAll(`a, ${MENU_ACTOR}`).forEach((el) => el.setAttribute("tabindex", "-1"));
   const svg = t.content.querySelector("svg");
   const root = original.id;
@@ -5409,7 +5412,11 @@ async function onKeydown(event) {
       event.preventDefault();
       const menu = actorMenu(figureOf(el), el);
       closeActorMenus(menu);
-      showActorMenu(menu, menu.getAttribute("display") !== "block", el);
+      const opening = menu.getAttribute("display") !== "block";
+      showActorMenu(menu, opening, el);
+      // mermaid draws every menu after every actor, so Tab from this one would
+      // visit the other actors first; focus goes to the menu's first link.
+      if (opening) menu.querySelector("a")?.focus();
       return;
     }
     // Only a keyboard focus. A mouse press lets go of any focus it gave (the
