@@ -19,8 +19,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex};
 use std::time::Duration;
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, Runtime, State, Url, Webview, WebviewUrl,
-    WebviewWindowBuilder, Window, WindowEvent,
+    AppHandle, Emitter, LogicalSize, Manager, Monitor, PhysicalPosition, PhysicalRect,
+    PhysicalSize, Runtime, State, Url, Webview, WebviewUrl, WebviewWindowBuilder, Window,
+    WindowEvent,
 };
 use tauri_plugin_opener::OpenerExt;
 
@@ -140,6 +141,12 @@ struct Origin {
     /// False when the compositor would not say where the window is, so the
     /// frontend must fall back to the pointer's own screen coordinates.
     exact: bool,
+    /// macOS only: the frame's height, physical. tao reports the frame's top
+    /// and size there as the "inner" ones, title bar and all (measured on
+    /// macOS 26.7.1), so the frontend takes its own content height from this
+    /// to find where the page really starts. None elsewhere, where `x`/`y`
+    /// already are the page's top-left.
+    frame_height: Option<f64>,
 }
 
 /// What the frontend needs at boot: the saved settings, plus the facts about
@@ -355,11 +362,30 @@ enum Placement {
     /// Wherever the OS puts it.
     Default,
     /// A physical screen point the window's top-left goes to. The caller has
-    /// already stepped it back from the cursor, in its own pixels, so the
-    /// pointer lands near the new window's tab strip.
-    Cursor(f64, f64),
+    /// already stepped it back from the cursor, at the scale of the monitor it
+    /// opens on, so the pointer lands near the new window's tab strip. With the
+    /// monitor under the cursor, the window is kept inside its work area
+    /// (`clamp_to`); with none, because no monitor was found there, it goes to
+    /// the point as is. The size is the frame around the page, in logical
+    /// pixels, as the window the tab came from has it.
+    Cursor(f64, f64, Option<Monitor>, LogicalSize<f64>),
     /// Exactly where a window stood before an update restart.
     Frame(session::Frame),
+}
+
+/// The top-left nearest `(x, y)` that keeps a window of `size` inside `area`.
+/// Each axis on its own: on one the window is too big for, it goes to the
+/// area's start, so its left edge or title bar is still on screen.
+fn clamp_to(x: f64, y: f64, size: PhysicalSize<u32>, area: &PhysicalRect<i32, u32>) -> (i32, i32) {
+    let axis = |at: f64, len: u32, start: i32, room: u32| {
+        (at.round() as i32)
+            .min(start + room as i32 - len as i32)
+            .max(start)
+    };
+    (
+        axis(x, size.width, area.position.x, area.size.width),
+        axis(y, size.height, area.position.y, area.size.height),
+    )
 }
 
 /// A label no window has had this run. Apart from `spawn_window` so a restore
@@ -369,6 +395,9 @@ fn next_label(state: &AppState) -> String {
     let n = state.next_window.fetch_add(1, Ordering::Relaxed) + 1;
     format!("w{n}")
 }
+
+/// The page size a new window is built with, in logical pixels.
+const PAGE: (f64, f64) = (1100.0, 860.0);
 
 /// Create a window under `label`, which the caller has from `next_label`.
 ///
@@ -420,7 +449,7 @@ fn spawn_window<R: Runtime>(
         let mut builder =
             WebviewWindowBuilder::new(&app, &target, WebviewUrl::App("index.html".into()))
                 .title("Markdown Viewer")
-                .inner_size(1100.0, 860.0)
+                .inner_size(PAGE.0, PAGE.1)
                 // The same minimum `main` has from the config; a saved smaller
                 // frame is clamped to it.
                 .min_inner_size(420.0, 320.0)
@@ -431,9 +460,63 @@ fn spawn_window<R: Runtime>(
         match builder.build() {
             Ok(win) => match place {
                 Placement::Default => {}
-                Placement::Cursor(x, y) => {
-                    let _ =
-                        win.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32));
+                Placement::Cursor(x, y, monitor, frame) => {
+                    let (x, y) = match (monitor, win.outer_size()) {
+                        // Built where the OS put it, the window takes the
+                        // target's scale once moved there, so it is clamped at
+                        // the size it will have: at 100% to 150% it grows by half.
+                        (Some(m), Ok(size)) => {
+                            let s = m.scale_factor();
+                            let k = s / win.scale_factor().unwrap_or(1.0);
+                            // GTK has no outer size until the window is first
+                            // configured (tao seeds it with a position), so the
+                            // page it is built with, in its frame, counts at the
+                            // least: GNOME's title bar is 37 px (measured).
+                            let page =
+                                LogicalSize::new(PAGE.0 + frame.width, PAGE.1 + frame.height)
+                                    .to_physical::<f64>(s);
+                            let outer = (
+                                (size.width as f64 * k).max(page.width),
+                                (size.height as f64 * k).max(page.height),
+                            );
+                            // Too big for the work area, it is shrunk to it:
+                            // GNOME would keep its bottom on screen and push the
+                            // title bar off the top (measured, 800 px tall at 200%).
+                            // In logical pixels, which the move to the target keeps.
+                            let area = m.work_area();
+                            let fit = (
+                                outer.0.min(area.size.width as f64),
+                                outer.1.min(area.size.height as f64),
+                            );
+                            if fit != outer {
+                                let _ = win.set_size(LogicalSize::new(
+                                    PAGE.0 - (outer.0 - fit.0) / s,
+                                    PAGE.1 - (outer.1 - fit.1) / s,
+                                ));
+                            }
+                            let fit = PhysicalSize::new(fit.0.round() as u32, fit.1.round() as u32);
+                            clamp_to(x, y, fit, area)
+                        }
+                        _ => (x.round() as i32, y.round() as i32),
+                    };
+                    let _ = win.set_position(PhysicalPosition::new(x, y));
+                    // GNOME puts a window it maps for the first time on the
+                    // main monitor, wherever it was asked to go (measured with
+                    // two), but lets a mapped one be moved: so once the page
+                    // shows it, the move is asked again. Polled: tao has no
+                    // event for a window being shown.
+                    if cfg!(target_os = "linux") {
+                        for _ in 0..200 {
+                            match win.is_visible() {
+                                Ok(true) => {
+                                    let _ = win.set_position(PhysicalPosition::new(x, y));
+                                    break;
+                                }
+                                Ok(false) => std::thread::sleep(Duration::from_millis(50)),
+                                Err(_) => break,
+                            }
+                        }
+                    }
                 }
                 Placement::Frame(frame) => frame.apply(&win),
             },
@@ -1094,18 +1177,25 @@ fn set_session<R: Runtime>(
 #[tauri::command]
 fn window_origin(window: Window) -> Origin {
     let scale = window.scale_factor().unwrap_or(1.0);
+    let frame_height = if cfg!(target_os = "macos") {
+        window.inner_size().ok().map(|s| s.height as f64)
+    } else {
+        None
+    };
     match window.inner_position() {
         Ok(pos) => Origin {
             x: pos.x as f64,
             y: pos.y as f64,
             scale,
             exact: true,
+            frame_height,
         },
         Err(_) => Origin {
             x: 0.0,
             y: 0.0,
             scale,
             exact: false,
+            frame_height,
         },
     }
 }
@@ -1174,11 +1264,30 @@ fn drop_tab<R: Runtime>(
             // measured in CSS pixels, and `x`/`y` are physical: on a 150%
             // display an unscaled step back lands two thirds of the way there.
             let scale = window.scale_factor().unwrap_or(1.0);
+            // A drop near an edge would otherwise open the window partly off
+            // the screen. Asked through the window rather than the app, which
+            // finds the same monitor and is the one the test runtime answers.
+            // The lookup takes physical pixels on Windows only: macOS asks in
+            // points and GTK in its own logical pixels, so there the drop point
+            // is scaled back first, or a drop on the far half of a 2x screen
+            // finds no monitor at all.
+            let at = if cfg!(windows) { 1.0 } else { scale };
+            let monitor = window.monitor_from_point(x / at, y / at).ok().flatten();
+            // The new window takes the scale of the monitor it opens on, so
+            // the step back is in that monitor's pixels.
+            let step = monitor.as_ref().map_or(scale, |m| m.scale_factor());
+            let frame = match (window.outer_size(), window.inner_size()) {
+                (Ok(o), Ok(i)) => LogicalSize::new(
+                    o.width.saturating_sub(i.width) as f64 / scale,
+                    o.height.saturating_sub(i.height) as f64 / scale,
+                ),
+                _ => LogicalSize::new(0.0, 0.0),
+            };
             spawn_window(
                 &app,
                 next_label(&state),
                 Some(json!({ "kind": "tab", "tab": tab })),
-                Placement::Cursor(x - 140.0 * scale, y - 24.0 * scale),
+                Placement::Cursor(x - 140.0 * step, y - 24.0 * step, monitor, frame),
                 Some(window.label().to_string()),
             );
             Ok("detached".into())
@@ -2134,6 +2243,32 @@ mod tests {
     #[test]
     fn lossy_args_of_nothing() {
         assert_eq!(lossy_args(Vec::new()), None);
+    }
+
+    /// A torn-off window stays inside the work area, each axis on its own, and
+    /// one too big for it keeps its top-left corner on screen.
+    #[test]
+    fn a_torn_off_window_is_kept_inside_the_work_area() {
+        // A work area that does not start at the origin, as on a second monitor
+        // or above a taskbar docked at the top.
+        let area = PhysicalRect {
+            position: PhysicalPosition::new(100, 50),
+            size: PhysicalSize::new(1920, 1040),
+        };
+        let size = PhysicalSize::new(1100, 860);
+        // Inside: left alone, rounded.
+        assert_eq!(clamp_to(400.4, 120.6, size, &area), (400, 121));
+        // Past each edge.
+        assert_eq!(clamp_to(20.0, 120.0, size, &area), (100, 120));
+        assert_eq!(clamp_to(400.0, 10.0, size, &area), (400, 50));
+        assert_eq!(clamp_to(1500.0, 120.0, size, &area), (920, 120));
+        assert_eq!(clamp_to(400.0, 900.0, size, &area), (400, 230));
+        // Larger than the area on one axis: pinned to its start there, and the
+        // other axis still follows the point.
+        let tall = PhysicalSize::new(1100, 1200);
+        assert_eq!(clamp_to(400.0, 300.0, tall, &area), (400, 50));
+        let wide = PhysicalSize::new(2000, 860);
+        assert_eq!(clamp_to(400.0, 120.0, wide, &area), (100, 120));
     }
 
     /// Every restored window but the last saved one, the one used last, hands
