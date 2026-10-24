@@ -555,8 +555,13 @@ fn emit_as(
                         finish(&mut out, src, base, token.start, &ends, &stack);
                         return Some(out);
                     }
-                    span(&mut out, "hljs-punctuation", text);
+                    escape(text, &mut out);
                 }
+                // Commas and colons are bare text: no theme styles them apart,
+                // and a span apiece was a large share of a chunk's elements,
+                // each with a style of its own. Brackets keep theirs; the fold
+                // control finds its body and hangs its `…` through them.
+                b',' | b':' => escape(text, &mut out),
                 _ => span(&mut out, "hljs-punctuation", text),
             },
         }
@@ -912,8 +917,17 @@ mod tests {
             html.contains(r#"<span class="hljs-literal">null</span>"#),
             "{html}"
         );
+        // Commas and colons are bare text; brackets keep their spans.
+        assert!(html.contains(r#"</span>: <span"#), "{html}");
+        assert!(html.contains(r#"</span>, <span"#), "{html}");
+        assert!(!html.contains(r#"hljs-punctuation">:"#), "{html}");
+        assert!(!html.contains(r#"hljs-punctuation">,"#), "{html}");
         assert!(
-            html.contains(r#"<span class="hljs-punctuation">:</span>"#),
+            html.contains(r#"<span class="hljs-punctuation">{</span>"#),
+            "{html}"
+        );
+        assert!(
+            html.contains(r#"<span class="hljs-punctuation">}</span>"#),
             "{html}"
         );
         // No class on the `code` element: highlight.js keys off `language-`, and
@@ -1308,7 +1322,8 @@ mod tests {
     fn a_render_past_the_ceiling_is_refused() {
         let depth = 10_000;
         let src = format!("{}1{}", "[\n".repeat(depth), ",\n]".repeat(depth));
-        assert!(render_within(&src, 0, 1024 * 1024).is_err());
+        // Flat, it is a span per bracket and the commas bare: 20,000 spans.
+        assert!(render_within(&src, 0, 512 * 1024).is_err());
         // The same document under a ceiling it fits is rendered as ever.
         assert!(render_within(&src, 0, usize::MAX).is_ok());
     }

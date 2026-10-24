@@ -5214,7 +5214,12 @@ function onJsonClick(event) {
     // The body is the button's next sibling but one: the opening bracket sits
     // between them, and the closing one after, which is what the `…` hangs off.
     const body = fold.nextElementSibling?.nextElementSibling;
-    if (body) body.hidden = open;
+    if (body) {
+      body.hidden = open;
+      // `.folded` hangs the `…` off the closing bracket; see base.css.
+      const closer = body.nextElementSibling;
+      if (closer?.matches(".hljs-punctuation")) closer.classList.toggle("folded", open);
+    }
     return;
   }
 
