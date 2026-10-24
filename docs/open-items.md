@@ -420,3 +420,13 @@ as it is found.
   points of web CPU while scrolling), or ask the X server whether it is XWayland (before any
   thread: a bigger change).
   *Accepted 2026-10-20. Reopen on a report of the Linux app freezing after its first paint.*
+- [ ] **With Narrator in scan mode, Enter can move keyboard focus out of the page** (added
+  2026-10-24, `plans/real-deferred-items.md`, triage). Enter on a control sometimes left Windows
+  focus on WebView2's inner "Chrome Legacy Window", and no key reached the page until focus was
+  put back. Measured on the Windows VM: the theme button 3 of 5, an in-page link 4 of 5, a
+  sequence-diagram actor 2 of 5, so not the actor code. In all 15 tries the control got focus
+  once before Narrator's click when it jumped (9 of 9) and twice when it didn't (6 of 6); a race
+  inside Narrator is reasoned from that, not proven. A real mouse click never did it, and
+  `appWindow.setFocus()` didn't recover it.
+  *Accepted 2026-10-24. Reopen on a report, or when a WebView2 or Windows update changes
+  Narrator's activation.*
