@@ -1197,8 +1197,13 @@ fn drop_tab<R: Runtime>(
             // A drop near an edge would otherwise open the window partly off
             // the screen. Asked through the window rather than the app, which
             // finds the same monitor and is the one the test runtime answers.
+            // The lookup takes physical pixels on Windows only: macOS asks in
+            // points and GTK in its own logical pixels, so there the drop point
+            // is scaled back first, or a drop on the far half of a 2x screen
+            // finds no monitor at all.
+            let at = if cfg!(windows) { 1.0 } else { scale };
             let area = window
-                .monitor_from_point(x, y)
+                .monitor_from_point(x / at, y / at)
                 .ok()
                 .flatten()
                 .map(|m| *m.work_area());
