@@ -765,6 +765,71 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   AppImage with the fix (after release), real hardware, KDE. Left: native Xorg and a launch
   without Wayland markers (`open-items.md`, accepted); a launch failing with no crash report
   (`open-items.md`, deferred). The README stays as is (owner, triage 3).*
+- [x] **A diagram's links and actor menus lack full keyboard access** (added 2026-09-26,
+  review of the Mermaid work; narrowed 2026-09-28, `archive/plans/viewer-follow-ups.md`). A
+  diagram or picture is now focusable and opens with Enter or Space (Task 4). What's left:
+  keyboard focus on a link inside a diagram is lost when a light/dark change redraws it, since
+  `redrawDiagrams` replaces the SVG — fix: note the focused link's index among the figure's
+  links before the swap, focus the same one after. And a sequence diagram's actor menus are
+  mouse-only, with no keyboard way to open or step through them, and a redraw closes an open
+  one. A keyboard-focused diagram that fails to draw in the new look is replaced by its code
+  block, so focus is lost. Reopen with the next accessibility pass, or when someone asks.
+  *Fixed 2026-10-25 (`archive/plans/real-deferred-items.md`, Part B): a focused link keeps its
+  place across a light/dark redraw; a failed redraw puts focus on its reason, which now starts
+  "Diagram didn't draw:"; each actor with a menu is a button that Enter or Space opens, Tab
+  steps through its links and Escape returns. Screen readers say each actor once, left to right,
+  and name an open menu "<actor>'s links" (Narrator and VoiceOver; Orca's limits are under
+  Accepted limits). Walked on Windows, macOS and Linux.*
+- [x] **A macOS tab tear-off lands 32 pt high** (added 2026-09-28, the drive-app
+  macOS run, `archive/plans/drive-app-macos.md`). On macOS `invoke("window_origin")` was measured
+  to return the top of the window frame, not of the content: 32 pt higher, the title bar. The
+  tear-off maps the cursor with it (`screenPoint` in `app.js`, then `drop_tab`'s
+  `Placement::Cursor`), so the new window should land that much high. Cause unknown: tao
+  0.35.3's `inner_position` reads as the content rect. Reopen when a macOS tear-off is seen
+  landing high, or when `window_origin` is touched.
+  *Seen 2026-10-07 on macOS 26.7.1, tauri 2.12.1 / tao 0.37.1 (`archive/plans/tauri-2.12.md`,
+  walk W2): a real drag released at 200,140 pt opened the window's frame at 60,84 — 140 pt left and
+  56 pt up of the cursor, 32 pt higher than the 140,24 the code intends (`drop_tab`,
+  `main.rs:1170`). On Windows and Linux the same drop lands at exactly 140,24. That trigger
+  fired; kept deferred by the owner 2026-10-07, now with the trigger *the tear-off placement
+  work* (with *A torn-off window can land off-screen* and *A tab released level with the strip
+  but outside the window reorders it*).*
+  *Fixed 2026-10-25 (`archive/plans/real-deferred-items.md`, Part A): on macOS `window_origin`
+  also reports the frame's height, and `screenPoint` takes the title bar off; a macOS drop now
+  lands at 140,24 like the others. Walked on the Mac.*
+- [x] **A torn-off window can land off-screen** (added 2026-10-07). On Windows and Linux a
+  tab dropped away from every window opens one 140,24 px up-left of the cursor at full size,
+  with no clamp (`drop_tab`, `main.rs:1170`): a drop at y=1100 on a 1440-high screen put the
+  bottom at 1975 (measured, Windows). The title bar stays on screen then; a drop within 24 px of
+  the top would put it above the screen (reasoned, untested). macOS clamps it itself. Likely
+  fix: clamp to the work area of the monitor under the cursor, as `Frame::apply` checks
+  monitors. Reopen with the tear-off placement work (with the macOS 32 pt item above and the
+  next one), or on a report of a window landing off-screen.
+  *Fixed 2026-10-25 (`archive/plans/real-deferred-items.md`, Part A): the window is clamped to
+  the work area of the monitor under the drop, at the size it will have there (scaled to that
+  monitor, frame included, shrunk to fit if too big), and on Linux moved again once shown, since
+  GNOME places a new window on the main monitor. Walked on one monitor on all three, and across
+  100/150 % (Windows) and 100/200 % (Linux) monitors. Leftovers are under Deferred and Accepted
+  limits.*
+- [x] **A tab released level with the strip but outside the window reorders it** (added
+  2026-10-07, seen on the Mac; the code is shared). `inStrip` (`app.js:3378`) tests the
+  pointer's height only, so a release at the strip's height far to the side reorders the tab to
+  the end instead of tearing it off. Whether that was meant as a forgiving reorder is unknown.
+  Likely fix: also require the pointer within the window's width plus slack. Reopen with the
+  tear-off placement work.
+  *Fixed 2026-10-25 (`archive/plans/real-deferred-items.md`, Part A): `inStrip` also wants the
+  pointer within the window's width plus the strip's slack, so a release beside the window tears
+  off. Walked on all three.*
+- [x] **In a narrow window a wide diagram shrinks until its labels can't be read** (added
+  2026-10-11, the reading-width walks, `archive/plans/reading-width.md`). At ~700 px a 10-node `LR`
+  flowchart (natural ~2 240 px) is scaled to the ~610 px column on all three engines, and it
+  doesn't scroll in its box. It did the same before the reading width: mermaid's `width="100%"`
+  shrank it too. The zoom view shows it full size. A fix to start from: a smallest readable
+  scale, past which the drawing keeps that width and scrolls in its box. Reopen on a report of
+  unreadable diagrams in a narrow window, or with the next diagram layout work.
+  *Fixed 2026-10-25 (`archive/plans/real-deferred-items.md`, Part C): a diagram shrinks to at
+  most 0.6 of its size, past which it keeps that width and scrolls sideways in its box; the zoom
+  view still fits it whole. Walked at 700 px on all three.*
 
 ## Needs a Mac, a Dependabot run, or an older build
 
@@ -1504,3 +1569,43 @@ tooling; listed so nobody rediscovers them.
   sees each and leaves it alone, and the menu or the text system acts. Cmd+H hides the app,
   Cmd+M minimizes the window, and select all, cut, copy, paste, undo and redo work in the tree
   filter and the find bar; in the document, Cmd+A and Cmd+C select and copy its text.*
+- [x] **A sequence diagram's menu reopened by a redraw keeps its old shift** (2026-10-24,
+  `archive/plans/real-deferred-items.md`, triage). A menu opened by mouse on a tall diagram sits
+  where it was clicked, shifted down from its default spot; a light/dark redraw reopens it with
+  the same `transform`. If the new look's font changes the drawing's size, it may sit slightly
+  off.
+  *Kept 2026-10-24 by the owner. Reasoned at the time, not the owner's words: the menu stays
+  open and in reach, and recomputing the shift would need the click point kept across the
+  redraw.*
+- [x] **VoiceOver adds the diagram's label when Tab enters its first actor** (2026-10-25,
+  `archive/plans/real-deferred-items.md`, triage). "Alice, collapsed, button, Diagram – Enter
+  opens it full window, group" (measured); Narrator says the label again on re-entry too.
+  *Kept 2026-10-25: that's how readers announce entering a named group, and the label carries
+  the Enter hint.*
+- [x] **Tab in the full-window diagram view stops once on the page** (2026-10-25,
+  `archive/plans/real-deferred-items.md`, triage; predates it). The cycle runs −, +, Fit, ×,
+  then one unseen stop on the document before the buttons again (measured on the Mac); nothing
+  behind the view is reached.
+  *Kept 2026-10-25: the browser's own cycle through a modal dialog (reasoned); one extra Tab,
+  nothing exposed.*
+- [x] **Orca repeats a failed diagram's error once after Up** (2026-10-25,
+  `archive/plans/real-deferred-items.md`, triage). Focus goes to the error paragraph; one Up
+  reaches the code's last line, and Orca then says the error again, since focus stays on the
+  paragraph while its reading position moves (measured on Linux).
+  *Kept 2026-10-25: Orca's own reading, and minor.*
+- [x] **A focused link's underline in a diagram is thinner than an unfocused one** (2026-10-25,
+  `archive/plans/real-deferred-items.md`, triage). About 1 px in the accent against about 2 px
+  (Windows VM zooms): the focused text has `stroke: none`, which ended the faux-bold the accent
+  stroke gave it.
+  *Kept 2026-10-25: cosmetic, and the cost of the weight matching.*
+- [x] **Tab reaches a mouse-opened actor menu's links after every actor** (2026-10-25,
+  `archive/plans/real-deferred-items.md`, triage). mermaid draws every menu at the end of the
+  drawing, so they paint on top; a menu opened by mouse is reached by Tab from elsewhere only
+  after all the actors. A menu opened from the keyboard takes focus at once, and Tab past its
+  last link goes to the next actor (measured).
+  *Kept 2026-10-25: only when mouse and keyboard mix, and every link stays reachable.*
+- [x] **A note in a sequence diagram is read between two actors** (2026-10-25,
+  `archive/plans/real-deferred-items.md`, triage). Narrator went "… C, A note over two, B, …"
+  through a diagram with a note, where mermaid puts the note in the drawing; the reorder leaves
+  it there.
+  *Kept 2026-10-25: moving it would change what's drawn on top, and it reads as it did.*

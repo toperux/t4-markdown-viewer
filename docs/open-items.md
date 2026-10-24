@@ -32,15 +32,6 @@ section, so this file lists only what is still to do. Finished plans and reviews
 
 ## Deferred
 
-- [ ] **A diagram's links and actor menus lack full keyboard access** (added 2026-09-26,
-  review of the Mermaid work; narrowed 2026-09-28, `archive/plans/viewer-follow-ups.md`). A
-  diagram or picture is now focusable and opens with Enter or Space (Task 4). What's left:
-  keyboard focus on a link inside a diagram is lost when a light/dark change redraws it, since
-  `redrawDiagrams` replaces the SVG — fix: note the focused link's index among the figure's
-  links before the swap, focus the same one after. And a sequence diagram's actor menus are
-  mouse-only, with no keyboard way to open or step through them, and a redraw closes an open
-  one. A keyboard-focused diagram that fails to draw in the new look is replaced by its code
-  block, so focus is lost. Reopen with the next accessibility pass, or when someone asks.
 - [ ] **A diagram render stuck in a loop still freezes its window** (added 2026-09-26, third
   review; widened to every platform 2026-09-27, `archive/plans/mermaid-follow-ups.md`, Task
   3). A frame that stops answering — navigating itself away, or simply gone quiet — is now
@@ -87,20 +78,6 @@ section, so this file lists only what is still to do. Finished plans and reviews
   loop. Fix: wry passing only main-frame navigations to the handler, as it does on WebView2, or
   telling it which frame (wry #1593, open). Reopen when wry ships that, or on any mermaid escape
   of its sandbox. A comment is drafted, not posted: `notes/wry-1593-comment.md`.
-- [ ] **A macOS tab tear-off lands 32 pt high** (added 2026-09-28, the drive-app
-  macOS run, `archive/plans/drive-app-macos.md`). On macOS `invoke("window_origin")` was measured
-  to return the top of the window frame, not of the content: 32 pt higher, the title bar. The
-  tear-off maps the cursor with it (`screenPoint` in `app.js`, then `drop_tab`'s
-  `Placement::Cursor`), so the new window should land that much high. Cause unknown: tao
-  0.35.3's `inner_position` reads as the content rect. Reopen when a macOS tear-off is seen
-  landing high, or when `window_origin` is touched.
-  *Seen 2026-10-07 on macOS 26.7.1, tauri 2.12.1 / tao 0.37.1 (`archive/plans/tauri-2.12.md`,
-  walk W2): a real drag released at 200,140 pt opened the window's frame at 60,84 — 140 pt left and
-  56 pt up of the cursor, 32 pt higher than the 140,24 the code intends (`drop_tab`,
-  `main.rs:1170`). On Windows and Linux the same drop lands at exactly 140,24. That trigger
-  fired; kept deferred by the owner 2026-10-07, now with the trigger *the tear-off placement
-  work* (with *A torn-off window can land off-screen* and *A tab released level with the strip
-  but outside the window reorders it*).*
 - [ ] **Diagrams are unproven on the macOS 13 floor** (added 2026-09-29, found after the Mermaid
   item closed). The app supports macOS 13 and up (`minimumSystemVersion` in
   `tauri.conf.json`), and the Mermaid item asked for a check on macOS 13's WKWebView, but it
@@ -122,25 +99,6 @@ section, so this file lists only what is still to do. Finished plans and reviews
   works, and so does `.jsonc` on Windows, deb and rpm. Fix: declare a `.jsonc` type of the
   app's own in the bundle — unknown whether `tauri.conf.json`'s file associations can express
   one. Reopen when someone asks, or with the next file-association work.
-
-The next two came out of the Tauri 2.12 walks (`archive/plans/tauri-2.12.md`, 2026-10-07).
-Each also shows on 1.7.2 or 1.7.1, so neither comes from that change; each was deferred by the
-owner at its triage.
-
-- [ ] **A torn-off window can land off-screen** (added 2026-10-07). On Windows and Linux a
-  tab dropped away from every window opens one 140,24 px up-left of the cursor at full size,
-  with no clamp (`drop_tab`, `main.rs:1170`): a drop at y=1100 on a 1440-high screen put the
-  bottom at 1975 (measured, Windows). The title bar stays on screen then; a drop within 24 px of
-  the top would put it above the screen (reasoned, untested). macOS clamps it itself. Likely
-  fix: clamp to the work area of the monitor under the cursor, as `Frame::apply` checks
-  monitors. Reopen with the tear-off placement work (with the macOS 32 pt item above and the
-  next one), or on a report of a window landing off-screen.
-- [ ] **A tab released level with the strip but outside the window reorders it** (added
-  2026-10-07, seen on the Mac; the code is shared). `inStrip` (`app.js:3378`) tests the
-  pointer's height only, so a release at the strip's height far to the side reorders the tab to
-  the end instead of tearing it off. Whether that was meant as a forgiving reorder is unknown.
-  Likely fix: also require the pointer within the window's width plus slack. Reopen with the
-  tear-off placement work.
 
 The next two came out of the session-restore walks (`archive/plans/session-restore.md`,
 2026-10-08); the first is how the plan's rule plays out, the second is Linux X11 only.
@@ -177,6 +135,8 @@ The next two came out of the session-restore walks (`archive/plans/session-resto
   chosen font reads too small or large at the themes' sizes, or on a report about Tufte.
   The reading width (`archive/plans/reading-width.md`) is 75ch of the document font (100ch in a wide
   window), so a size change keeps the line length and moves the edge with it.
+  *Kept deferred by the owner 2026-10-24 (`archive/plans/real-deferred-items.md`, Q-E1): no one
+  has asked, and all three walkers found it readable.*
 - [ ] **The JSON viewer's memory and layout cost per chunk** (added 2026-10-10, the find walks,
   `archive/plans/find-in-document.md` Q5). Each 512 KB chunk costs 400-500 MB of webview memory on
   Windows, with find open or closed; 17 chunks of a 9.75 MB file reached 9.7 GB on an 8 GB VM,
@@ -185,13 +145,10 @@ The next two came out of the session-restore walks (`archive/plans/session-resto
   closed or open alike. First step: measure which part of a chunk's rendered HTML dominates
   (fold buttons, spans per value). Reopen on a report of a JSON file exhausting memory or
   freezing, or with the next JSON viewer work.
-- [ ] **In a narrow window a wide diagram shrinks until its labels can't be read** (added
-  2026-10-11, the reading-width walks, `archive/plans/reading-width.md`). At ~700 px a 10-node `LR`
-  flowchart (natural ~2 240 px) is scaled to the ~610 px column on all three engines, and it
-  doesn't scroll in its box. It did the same before the reading width: mermaid's `width="100%"`
-  shrank it too. The zoom view shows it full size. A fix to start from: a smallest readable
-  scale, past which the drawing keeps that width and scrolls in its box. Reopen on a report of
-  unreadable diagrams in a narrow window, or with the next diagram layout work.
+  *Narrowed 2026-10-25 (`archive/plans/real-deferred-items.md`, Part D): measured, the sibling
+  rule behind the fold's `…` stopped style sharing; with it gone and commas and colons bare, 4
+  chunks take 27 % less memory on Windows (−47 % style objects). Fold time is unchanged. Kept
+  open by the owner for the rest of the memory cost and the fold time, same trigger.*
 - [ ] **On the Mac, find doesn't paint one match in a list item holding a nested list** (added
   2026-10-11, the Mac's reading-width walk). In `walk.md`'s "A long item: lorem…", which holds
   a nested list, the match is counted and stepped to ("1 of 8"), and the page scrolls to it,
@@ -215,6 +172,8 @@ The next two came out of the session-restore walks (`archive/plans/session-resto
   New commits are covered by `CLAUDE.md` → "Commit messages" and by `attribution` turned off in
   the user settings. Reopen if the old messages must leave GitHub: start with the Support
   request, then the plan.
+  *Kept deferred by the owner 2026-10-24 (`archive/plans/real-deferred-items.md`, Q-F1): the
+  cost is lost PR pages and new hashes for every old commit.*
 - [ ] **On Linux, a launch can fail with no crash report** (added 2026-10-20, the walks of the
   restore target and XWayland freeze fixes, Linux VM). Twice in ~58 walk launches: a debug build
   on native Wayland lost its WebDriver session at 0.4 s ("page crash or hang"; `session.json`
@@ -230,6 +189,22 @@ The next two came out of the session-restore walks (`archive/plans/session-resto
   (`app.js:4508-4509`) and returns without `drag_cancel`, so on Windows (`crossWindowDrag`) a
   caret another window lit from earlier `drag_over` probes may stay lit. Likely fix: send
   `drag_cancel` on that early return. Reopen on a report of a drop caret left showing.
+
+- [ ] **On GNOME, a torn-off window opens with the pointer on its title bar, not its tabs**
+  (added 2026-10-25, `archive/plans/real-deferred-items.md`, triage). The new window's outer
+  frame goes to the drop point less 140×24 CSS px, and GNOME's title bar is 37 px tall, so the
+  pointer ends 13 px above the page (measured once on the Linux VM, through `drop_tab` itself:
+  its pointer input was down). The Linux side of the macOS 32 pt item fixed in the same plan. A
+  fix steps back by the source window's title bar too, which the page would have to report.
+  Reopen on a report, or once the Linux VM can walk real drags again.
+
+- [ ] **A `link` on a sequence diagram's `actor`, `entity`, `control` or `boundary` stops the
+  diagram drawing** (added 2026-10-25, `archive/plans/real-deferred-items.md`, triage). mermaid
+  11.17.2 throws "Cannot read properties of null (reading 'class')" (Chromium; WebKit: "null is
+  not an object (evaluating 'l.class')"), and the error shows in place of the diagram (measured
+  on all three). The drawn-symbol types all fail (Windows VM, 2026-10-25); a `link` on a
+  participant, database, queue or collections works. Not checked: newer mermaid, or an upstream
+  report. Reopen at the next mermaid update, to recheck.
 
 ## Accepted limits
 
@@ -416,3 +391,55 @@ as it is found.
   points of web CPU while scrolling), or ask the X server whether it is XWayland (before any
   thread: a bigger change).
   *Accepted 2026-10-20. Reopen on a report of the Linux app freezing after its first paint.*
+- [ ] **With Narrator in scan mode, Enter can move keyboard focus out of the page** (added
+  2026-10-24, `archive/plans/real-deferred-items.md`, triage). Enter on a control sometimes left
+  Windows focus on WebView2's inner "Chrome Legacy Window", and no key reached the page until
+  focus was put back. Measured on the Windows VM: the theme button 3 of 5, an in-page link 4 of
+  5, a sequence-diagram actor 2 of 5, so not the actor code. In all 15 tries the control got
+  focus once before Narrator's click when it jumped (9 of 9) and twice when it didn't (6 of 6);
+  a race inside Narrator is reasoned from that, not proven. A real mouse click never did it, and
+  `appWindow.setFocus()` didn't recover it.
+  *Accepted 2026-10-24. Reopen on a report, or when a WebView2 or Windows update changes
+  Narrator's activation.*
+- [ ] **A tab torn off onto a second monitor with other scaling is walked on Windows only**
+  (added 2026-10-25, `archive/plans/real-deferred-items.md`, triage). The new window is clamped
+  at the size it takes on the target monitor (its size × the target's scale / its own), and
+  stepped back from the pointer at the target's scale. Walked on the Windows VM across 100 % and
+  150 % monitors in both directions; macOS runs the same math (reasoned), with no two-monitor
+  setup to walk it on. On GNOME under XWayland the app sees every monitor at the same scale
+  (measured at 100 % and 200 %), so there the math never applies; the Linux VM walked two
+  monitors at those scales and the window landed inside the target's work area.
+  *Accepted 2026-10-25. Reopen on a report of a torn-off window landing wrong on a second
+  monitor on macOS or Linux.*
+- [ ] **On Linux, a press on a wide diagram's scrollbar is only weakly shown not to open the
+  full-window view** (added 2026-10-25, `archive/plans/real-deferred-items.md`, triage). GTK's
+  overlay scrollbar takes no layout space, so the box's bottom edge can't be told from the bar
+  by position. A real press at the bottom 4 px opened nothing, and a drag there scrolled the box
+  (0 → 17 px), which a drag on the drawing doesn't do (reasoned: the press hit the bar). Windows
+  and macOS pass. If wrong, the view opens and Escape closes it.
+  *Accepted 2026-10-25. Reopen on a report of the full-window view opening from a scrollbar
+  press.*
+- [ ] **On Linux, Orca still reads a sequence diagram's actor names twice** (added 2026-10-25,
+  `archive/plans/real-deferred-items.md`, triage). Each bottom actor box is `aria-hidden`, which
+  fixes Narrator and VoiceOver (measured), but WebKitGTK builds the figure's text from all its
+  drawn text regardless: Orca 50.2 still said "Bob Alice Alice Bob Hello Hi" (measured; the
+  AT-SPI children were right). The same as before the fix, so nothing got worse.
+  *Accepted 2026-10-25. Reopen on a WebKitGTK update that respects `aria-hidden` in a group's
+  text, or on a report.*
+- [ ] **On Linux, Orca doesn't say whose actor menu focus moved into** (added 2026-10-25,
+  `archive/plans/real-deferred-items.md`, triage). Each menu is a group named "<actor>'s links";
+  Narrator and VoiceOver say it on entry (measured), but Orca 50.2 says only "Home link"
+  (measured; AT-SPI shows the named panel around the link). Orca seems not to announce a named
+  panel on a focus change (reasoned).
+  *Accepted 2026-10-25. Reopen on an Orca update that announces it, or on a report.*
+- [ ] **On GNOME, a tab torn off onto a second monitor shows on the main one for a moment**
+  (added 2026-10-25, `archive/plans/real-deferred-items.md`, triage). GNOME maps every new
+  window on the main monitor whatever position was asked for; the app moves it again once the
+  page shows it, about 16 ms after the map (measured roughly from X event times; no capture was
+  fast enough to see whether it flashes).
+  *Accepted 2026-10-25. Reopen on a report of a torn-off window flashing on the wrong monitor.*
+- [ ] **After a tear-off, the source window once reported a 1102×862 page, not 1100×860** (added
+  2026-10-25, `archive/plans/real-deferred-items.md`, triage). Seen once on the Windows VM in
+  the two-monitor walk: `innerWidth`×`innerHeight` changed while its outer rect stayed 1116×899.
+  Nothing in the tear-off change touches the source window; cause not traced.
+  *Accepted 2026-10-25. Reopen on a report of a window changing size by itself.*
