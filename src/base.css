@@ -1937,9 +1937,11 @@ html.diagram-open {
   /*
    * The menu entries' underline (below). Chromium paints an SVG text's
    * underline in its fill and stroke, and mermaid strokes this text grey
-   * (measured on WebView2); the colours are for engines that follow them.
+   * (measured on WebView2). No stroke, not an accent one, which made the
+   * word look bold (measured on macOS); the colours are for engines that
+   * follow them.
    */
-  stroke: var(--ui-accent) !important;
+  stroke: none !important;
   color: var(--ui-accent) !important;
   text-decoration-color: var(--ui-accent) !important;
 }
