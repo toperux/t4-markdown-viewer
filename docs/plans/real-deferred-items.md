@@ -359,6 +359,42 @@ D1 changes nothing in the product; the variants are reverted. It ends with the n
 options back to the owner (Q-D1). The fix is then planned here as D2, and the plan goes through
 review again.
 
+**D1 follow-up (Windows VM, 2026-10-24, 556e68b, same file and method).** The owner chose to
+measure once more (Q-D1, option 1).
+
+| Variant | MB at 4 chunks | Style objects at 2 chunks | `…` on a fold |
+|---|---|---|---|
+| baseline | 2,090 | ≈109 MB (222,192 `ComputedStyle`) | yes |
+| v1: `,` and `:` as bare text | 1,670 | ≈64 MB | yes |
+| v2: no `.fold-body[hidden] + .hljs-punctuation::before` | 1,880 | ≈88 MB (−42,276 `ComputedStyle`, same DOM) | no |
+| v3: v1 and v2 | 1,519 (−27%) | ≈58 MB (−46%) | no |
+
+No drift against the first run. Fold times are noisy, about ±1 s, and show no clear change. The
+sibling rule alone costing 42k style objects fits Blink declining to share styles among
+sibling-affected spans; that mechanism is reasoned, not traced.
+
+### D2. Bare commas and colons, and a `…` with no sibling rule
+
+The owner chose v3 with the `…` restored another way (D2, option 1, 2026-10-24).
+
+- `src-tauri/src/json.rs`, `emit_as`: a `,` or `:` token is written with `escape`, not
+  `span(… "hljs-punctuation" …)`, in both the past-budget comma arm and the `_` arm. Brackets keep
+  their spans: the fold button finds its body through the opening one
+  (`fold.nextElementSibling?.nextElementSibling` in `onJsonClick`), and the `…` hangs off the
+  closing one. `finish` and `more` are left alone; they write a handful of spans per chunk.
+- `src/base.css` ~2024: `.fold-body[hidden] + .hljs-punctuation::before` becomes
+  `.hljs-punctuation.folded::before`, with the same declarations.
+- `src/app.js`, `onJsonClick`: where it sets `body.hidden = open`, it also toggles `folded` on
+  `body.nextElementSibling`, the closing bracket. That handler is the only place a fold body is
+  hidden or shown (checked with grep).
+- `json.rs` tests that expect a `,` or `:` span change to expect bare text. Tests on brackets
+  stay.
+- Walk on the Windows VM with the same file: memory at 1, 2 and 4 chunks, the style-object count
+  at 2 chunks, and folding with its `…`, folded and unfolded, on a nested fold too. On the Mac
+  and Linux: fold, unfold and the `…`, and that commas and colons look the same as before.
+
+Commit summary: `Large JSON files use about a quarter less memory as they are expanded`.
+
 ## Part E: a size for the document font (decision only)
 
 **What it is.** Settings › *Document font* picks the family only. Libron's x-height is 0.53 of
