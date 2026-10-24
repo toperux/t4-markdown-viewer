@@ -1948,9 +1948,10 @@ html.diagram-open {
 
 /*
  * A diagram is drawn at its own px width (app.js, warmSources) and shrinks to
- * fit the pane; its box is at least the column's width, so a narrow one is
- * centred in the column. A drawing with a fixed width of its own instead
- * scrolls in its box.
+ * fit the pane, down to a floor (DIAGRAM_FLOOR) past which it scrolls in its
+ * box; its box is at least the column's width, so a narrow one is centred in
+ * the column. A drawing with a fixed width of its own instead scrolls in its
+ * box.
  */
 .markdown-body div.mermaid-diagram {
   overflow-x: auto;

@@ -685,6 +685,8 @@ const MERMAID_BLOCK = "pre > code.language-mermaid";
  */
 const diagrams = new Map();
 const DIAGRAMS_KEPT = 200;
+/** The smallest a diagram shrinks to on the page: mermaid's 16 px labels then read at about 10 px. */
+const DIAGRAM_FLOOR = 0.6;
 let diagramId = 0;
 /** One warm at a time: the frame renders one diagram at a time, and a warm's look must not change under it. */
 let diagramQueue = Promise.resolve();
@@ -1107,11 +1109,14 @@ function warmSources(sources, stale) {
           for (const el of root.querySelectorAll(".clickable")) if (!el.closest("a")) el.classList.remove("clickable");
         // Its own width, not mermaid's "100%": the page sizes a diagram's box
         // to the drawing (base.css, wide content), and a percentage there is
-        // circular. Still held to its box, and so the pane, by max-width.
+        // circular. Still held to its box, and so the pane, by max-width —
+        // down to the floor, past which its labels would be too small to
+        // read; min-width beats max-width, so there it scrolls in its box.
         const natural = parseFloat(root.style.maxWidth);
         if (natural) {
           root.setAttribute("width", natural);
           root.style.maxWidth = "100%";
+          root.style.minWidth = `${natural * DIAGRAM_FLOOR}px`;
         }
         // The root alone: the check above read only its styles, so a `<style>`
         // or anything else sent beside the drawing must never reach the page.
@@ -1391,9 +1396,11 @@ function openDiagram(fig) {
   // and `numberRepeats` counts from `x2`.
   renameIds(svg, (old) => (old.startsWith(root) ? `${root}x0zoom${old.slice(root.length)}` : null));
   els.diagramView.replaceChildren(t.content);
-  // mermaid's `max-width` and `width="100%"` would hold it to the window. The
-  // rest of its inline style — a background, on some diagrams — stays.
+  // mermaid's `max-width` and `width="100%"` would hold it to the window, and
+  // the page's floor would stop Fit shrinking a wide one to it. The rest of its
+  // inline style — a background, on some diagrams — stays.
   svg.style.maxWidth = "none";
+  svg.style.minWidth = "";
   svg.removeAttribute("width");
   svg.removeAttribute("height");
   zoomed = {
