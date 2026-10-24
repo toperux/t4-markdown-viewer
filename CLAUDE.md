@@ -52,9 +52,15 @@ Follow these steps in order. Don't skip a step, and don't merge two steps into o
 
 ## Decisions
 
-The owner makes every decision: review rulings, skipped findings, accepted limits, deferrals and plan changes. A
-reviewer's "leave it" or "fine as is" is a recommendation to put to the owner, not a decision. Ask with a
-recommendation; never rule alone.
+The owner makes every decision that has a real tradeoff, or where the options are about equally viable: review
+rulings, plan changes and scope. Ask with a recommendation; never rule alone on these. A reviewer's "leave it" or
+"fine as is" on such a choice is a recommendation to put to the owner, not a decision.
+
+When one option is clearly right and the others are clearly worse, go with it and list what was chosen in the
+report for that step or review pass. If unsure whether it's obvious, ask.
+
+These stay with the owner however obvious they look: skipped findings, accepted limits and deferrals (step 6
+triage), and every push, PR, tag, release and delete (step 7).
 
 Explain each decision so it can be made without digging, even by someone who has been away from the work:
 
