@@ -1916,6 +1916,22 @@ html.diagram-open {
   outline-offset: 2px;
 }
 
+/*
+ * WebKit paints no outline on SVG (measured on macOS 26.7), so a focused actor
+ * or diagram link would show nothing there. Its shapes take the accent stroke
+ * instead, and text alone, as in an actor's menu, the accent fill. Important:
+ * mermaid's own rules are scoped by the drawing's id and would win.
+ */
+.markdown-body div.mermaid-diagram g[data-et="participant"][tabindex="0"]:focus-visible :is(rect, path, circle, ellipse, polygon),
+.markdown-body div.mermaid-diagram a:focus-visible :is(rect, path, circle, ellipse, polygon) {
+  stroke: var(--ui-accent) !important;
+  stroke-width: 2px !important;
+}
+
+.markdown-body div.mermaid-diagram a:focus-visible text {
+  fill: var(--ui-accent) !important;
+}
+
 /* Code stays in the column; a long line scrolls inside its own box (a command wraps, below). */
 .markdown-body pre {
   overflow-x: auto;
