@@ -72,6 +72,19 @@ That says which of these is true:
 Either fix is a few lines under `#[cfg(target_os = "macos")]`. Which one is unknown until A1 runs.
 If A1 shows a third cause, the plan comes back to the owner with it.
 
+**A1 result (Mac, 2026-10-24, 7eaaed3, scale 2): the first case.** tao's `inner_position` and
+`outer_position` are both the frame's top-left, and `inner_size` and `outer_size` are both the
+frame's size, title bar included (2200×1720 for an 1100×860 pt frame). The page's `innerHeight`
+was 828, so the content starts 32 pt below the frame top. A real drag released at 300,150 pt
+opened the frame at 160,94 pt, where 160,126 was intended. `set_position` places the frame
+exactly as asked. WKWebView reports `screenY`, `outerHeight` and `outerWidth` as nonsense (0, or
+the screen height), so they are no use.
+
+The formula above gives 0 here, since "inner" and "outer" sizes agree. *As built:* on macOS
+`window_origin` also returns the frame's height (`frame_height`), and `screenPoint` adds the
+frame height less `innerHeight × scale`: 1720 − 1656 = 64 px, the 32 pt. Elsewhere it is `None`
+and nothing changes.
+
 ### A2. Clamp a torn-off window to the screen
 
 - `drop_tab` looks up the work area of the monitor under the cursor with
@@ -159,6 +172,14 @@ No example document has diagram links, so the walks use one written for them and
 - the same sequence diagram made taller than the window.
 
 On each platform, Tab from the flowchart's figure and record where focus goes.
+
+**B0 result, Mac (2026-10-24, real Tab):** plain links, the diagram figure, and both flowchart
+SVG links are Tab stops, in document order. The belief about WKWebView was wrong. A new finding:
+a *hidden* actor-menu link is a Tab stop too. Its menu group has `display="none"` and computes
+`display: none`, yet Tab lands on the link, with nothing visible and no focus ring. Only the first
+such link was reached; the rest are likely the same, by reasoning, not measured. B3 therefore
+also takes a closed menu's links out of the Tab order (`tabindex="-1"`), restoring them when it
+opens.
 
 ### B1. Keep a focused link across a redraw
 
