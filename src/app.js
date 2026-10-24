@@ -1742,6 +1742,12 @@ function renderDocument(doc, scrollY, hash) {
   clearHash();
 
   els.content.innerHTML = doc.html;
+  // A heading's self-link has no text and no style, so a Tab stop on it shows
+  // nothing (measured on all three engines); the section's copy button beside
+  // it already shares the heading. A screen reader's own navigation still
+  // finds it. Here rather than in Rust, whose markup is comrak's byte for byte.
+  for (const a of els.content.querySelectorAll("h1 > a.anchor, h2 > a.anchor, h3 > a.anchor, h4 > a.anchor, h5 > a.anchor, h6 > a.anchor"))
+    a.tabIndex = -1;
   els.content.dataset.path = doc.path;
   els.content.dataset.stamp = doc.stamp ?? "";
   // The JSON view keeps the whole pane: see `.markdown-body.json`.
