@@ -26,6 +26,35 @@ sequenceDiagram
   Bob-->>Alice: Hi
 ```
 
+## Three actors with menus
+
+```mermaid
+sequenceDiagram
+  participant Alice
+  participant Bob
+  participant Carol
+  link Alice: Home @ https://example.com/alice
+  link Alice: Docs @ https://example.com/alice/docs
+  link Bob: Home @ https://example.com/bob
+  link Carol: Home @ https://example.com/carol
+  Alice->>Bob: Hello
+  Bob->>Carol: Hi
+```
+
+## Mixed: a stick figure with boxes
+
+```mermaid
+sequenceDiagram
+  actor Dana
+  participant Alice
+  participant Bob
+  link Dana: Home @ https://example.com/dana
+  link Alice: Home @ https://example.com/alice
+  link Bob: Home @ https://example.com/bob
+  Dana->>Alice: Hello
+  Alice->>Bob: Hi
+```
+
 ## Taller than the window
 
 ```mermaid
