@@ -1247,7 +1247,11 @@ function renderDiagrams(root, look) {
       fig.setAttribute("aria-label", "Diagram — Enter opens it full window");
       fig.innerHTML = done.svg;
       diagramBlocks.set(fig, { pre, look: look.key });
+      // A block that took focus when its figure failed to redraw hands it to
+      // the figure that replaces it, or focus falls to the page.
+      const focused = pre.contains(document.activeElement);
       pre.replaceWith(fig);
+      if (focused) fig.focus({ preventScroll: true });
     } else if (done?.error) {
       sayDiagramFailed(pre, done.error);
     }
@@ -1318,11 +1322,22 @@ async function redrawDiagrams() {
     if (drawn.look === look.key) continue;
     const done = diagrams.get(diagramKey(look, drawn.pre.textContent));
     if (done?.svg) {
+      // Focus on one of its links would go with the old drawing; the link at
+      // the same place in the new one takes it instead.
+      const link = [...fig.querySelectorAll("a")].indexOf(document.activeElement);
       fig.innerHTML = done.svg;
+      if (link >= 0) fig.querySelectorAll("a")[link]?.focus({ preventScroll: true });
       drawn.look = look.key;
       continue;
     }
+    const focused = fig.contains(document.activeElement);
     fig.replaceWith(drawn.pre);
+    // Out of the Tab order, but focused, so the reader keeps their place,
+    // now on the code with the reason under it.
+    if (focused) {
+      drawn.pre.tabIndex = -1;
+      drawn.pre.focus({ preventScroll: true });
+    }
     if (done?.error) sayDiagramFailed(drawn.pre, done.error);
     if (!drawn.pre.querySelector(".hljs")) highlight(drawn.pre);
   }
