@@ -19,8 +19,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex};
 use std::time::Duration;
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalRect, PhysicalSize, Runtime, State, Url,
-    Webview, WebviewUrl, WebviewWindowBuilder, Window, WindowEvent,
+    AppHandle, Emitter, Manager, Monitor, PhysicalPosition, PhysicalRect, PhysicalSize, Runtime,
+    State, Url, Webview, WebviewUrl, WebviewWindowBuilder, Window, WindowEvent,
 };
 use tauri_plugin_opener::OpenerExt;
 
@@ -361,11 +361,12 @@ enum Placement {
     /// Wherever the OS puts it.
     Default,
     /// A physical screen point the window's top-left goes to. The caller has
-    /// already stepped it back from the cursor, in its own pixels, so the
-    /// pointer lands near the new window's tab strip. With the work area of
-    /// the monitor under the cursor, the window is kept inside it (`clamp_to`);
-    /// with none, because no monitor was found there, it goes to the point as is.
-    Cursor(f64, f64, Option<PhysicalRect<i32, u32>>),
+    /// already stepped it back from the cursor, at the scale of the monitor it
+    /// opens on, so the pointer lands near the new window's tab strip. With the
+    /// monitor under the cursor, the window is kept inside its work area
+    /// (`clamp_to`); with none, because no monitor was found there, it goes to
+    /// the point as is.
+    Cursor(f64, f64, Option<Monitor>),
     /// Exactly where a window stood before an update restart.
     Frame(session::Frame),
 }
@@ -454,9 +455,19 @@ fn spawn_window<R: Runtime>(
         match builder.build() {
             Ok(win) => match place {
                 Placement::Default => {}
-                Placement::Cursor(x, y, area) => {
-                    let (x, y) = match (area, win.outer_size()) {
-                        (Some(area), Ok(size)) => clamp_to(x, y, size, &area),
+                Placement::Cursor(x, y, monitor) => {
+                    let (x, y) = match (monitor, win.outer_size()) {
+                        // Built where the OS put it, the window takes the
+                        // target's scale once moved there, so it is clamped at
+                        // the size it will have: at 100% to 150% it grows by half.
+                        (Some(m), Ok(size)) => {
+                            let k = m.scale_factor() / win.scale_factor().unwrap_or(1.0);
+                            let size = PhysicalSize::new(
+                                (size.width as f64 * k).round() as u32,
+                                (size.height as f64 * k).round() as u32,
+                            );
+                            clamp_to(x, y, size, m.work_area())
+                        }
                         _ => (x.round() as i32, y.round() as i32),
                     };
                     let _ = win.set_position(PhysicalPosition::new(x, y));
@@ -1215,16 +1226,15 @@ fn drop_tab<R: Runtime>(
             // is scaled back first, or a drop on the far half of a 2x screen
             // finds no monitor at all.
             let at = if cfg!(windows) { 1.0 } else { scale };
-            let area = window
-                .monitor_from_point(x / at, y / at)
-                .ok()
-                .flatten()
-                .map(|m| *m.work_area());
+            let monitor = window.monitor_from_point(x / at, y / at).ok().flatten();
+            // The new window takes the scale of the monitor it opens on, so
+            // the step back is in that monitor's pixels.
+            let step = monitor.as_ref().map_or(scale, |m| m.scale_factor());
             spawn_window(
                 &app,
                 next_label(&state),
                 Some(json!({ "kind": "tab", "tab": tab })),
-                Placement::Cursor(x - 140.0 * scale, y - 24.0 * scale, area),
+                Placement::Cursor(x - 140.0 * step, y - 24.0 * step, monitor),
                 Some(window.label().to_string()),
             );
             Ok("detached".into())
