@@ -1223,6 +1223,13 @@ function sayDiagramFailed(pre, error) {
   p.className = "mermaid-error";
   p.textContent = error;
   pre.after(p);
+  return p;
+}
+
+/** Focus a failed diagram's reason, out of the Tab order: where a keyboard user was. */
+function focusReason(p) {
+  p.tabIndex = -1;
+  p.focus({ preventScroll: true });
 }
 
 /**
@@ -1247,9 +1254,15 @@ function renderDiagrams(root, look) {
       fig.setAttribute("aria-label", "Diagram — Enter opens it full window");
       fig.innerHTML = done.svg;
       diagramBlocks.set(fig, { pre, look: look.key });
+      // A block that took focus when its figure failed to redraw hands it to
+      // the figure that replaces it, or focus falls to the page.
+      const focused = pre.contains(document.activeElement);
       pre.replaceWith(fig);
+      if (focused) fig.focus({ preventScroll: true });
     } else if (done?.error) {
-      sayDiagramFailed(pre, done.error);
+      const focused = pre.contains(document.activeElement);
+      const p = sayDiagramFailed(pre, done.error);
+      if (focused) focusReason(p);
     }
   });
   numberRepeats(root);
@@ -1303,7 +1316,10 @@ async function redrawDiagrams() {
   if (stale()) return;
   // Blocks that had failed are drawn afresh, before any figure below turns
   // back into one; their old reasons go first.
-  // `p.`: a diagram can give its own nodes the class too.
+  // `p.`: a diagram can give its own nodes the class too. A reason holding
+  // focus hands it to its block first, which `renderDiagrams` passes on.
+  const reason = document.activeElement?.closest?.("p.mermaid-error");
+  if (reason && els.content.contains(reason)) reason.previousElementSibling?.focus({ preventScroll: true });
   els.content.querySelectorAll("p.mermaid-error").forEach((p) => p.remove());
   const look = diagramLook();
   renderDiagrams(els.content, look);
@@ -1318,12 +1334,23 @@ async function redrawDiagrams() {
     if (drawn.look === look.key) continue;
     const done = diagrams.get(diagramKey(look, drawn.pre.textContent));
     if (done?.svg) {
+      // Focus on one of its links would go with the old drawing; the link at
+      // the same place in the new one takes it instead.
+      const link = [...fig.querySelectorAll("a")].indexOf(document.activeElement);
       fig.innerHTML = done.svg;
+      if (link >= 0) fig.querySelectorAll("a")[link]?.focus({ preventScroll: true });
       drawn.look = look.key;
       continue;
     }
+    const focused = fig.contains(document.activeElement);
     fig.replaceWith(drawn.pre);
-    if (done?.error) sayDiagramFailed(drawn.pre, done.error);
+    // Out of the Tab order, but focused, so the reader keeps their place:
+    // on the reason, read first, with the code above it. Not the code with
+    // the reason as its description, which VoiceOver, Narrator and Orca all
+    // left unsaid (measured).
+    drawn.pre.tabIndex = -1;
+    const p = done?.error && sayDiagramFailed(drawn.pre, done.error);
+    if (focused) (p ? focusReason(p) : drawn.pre.focus({ preventScroll: true }));
     if (!drawn.pre.querySelector(".hljs")) highlight(drawn.pre);
   }
   numberRepeats(els.content);
