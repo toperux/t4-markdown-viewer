@@ -1928,7 +1928,8 @@ html.diagram-open {
   stroke-width: 2px !important;
 }
 
-.markdown-body div.mermaid-diagram a:focus-visible text {
+/* `tspan` too: an actor menu's text sits in one that mermaid colours itself. */
+.markdown-body div.mermaid-diagram a:focus-visible :is(text, tspan) {
   fill: var(--ui-accent) !important;
 }
 
