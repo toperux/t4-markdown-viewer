@@ -1228,9 +1228,21 @@ function showActorMenu(menu, open, actor = menuActor(menu)) {
 
 /**
  * Each actor of `fig`'s that has a menu becomes a Tab stop, whose Enter or
- * Space opens the menu (`onKeydown`); every menu starts closed.
+ * Space opens the menu (`onKeydown`); every menu starts closed. The repeated
+ * bottom boxes are hidden from screen readers, and the actors put in reading
+ * order (`orderActors`).
  */
 function keyActorMenus(fig) {
+  // mermaid repeats each actor's box at the bottom, so a screen reader said
+  // every name twice (Orca, measured). Its class sits on the box's group, on
+  // a shape in it, or on a group of shapes beside the name (a database): what
+  // is hidden is the nearest group holding the name. One holding an actor's
+  // top box or lifeline is left be, and so is a menu, whose panel carries the
+  // class too.
+  for (const el of fig.querySelectorAll(".actor-bottom:not(.actorPopupMenuPanel)")) {
+    const box = el.closest("g:has(> text)");
+    if (box && !box.querySelector("[data-et]")) box.setAttribute("aria-hidden", "true");
+  }
   for (const actor of fig.querySelectorAll('g[data-et="participant"]')) {
     const menu = actorMenu(fig, actor);
     if (!menu) continue;
@@ -1248,42 +1260,34 @@ function keyActorMenus(fig) {
     menu.setAttribute("aria-label", `${name}'s links`);
     showActorMenu(menu, false, actor);
   }
-  orderMenuActors(fig);
+  orderActors(fig);
 }
 
 /**
  * mermaid moves each actor's top box, in a group with its lifeline, to the
- * front of the drawing as it draws them, so they stand right to left and Tab
- * would visit them so. The ones with menus are put back left to right, in the
- * places they hold among the top boxes, so nothing else's paint order
- * changes. A stick figure, entity, control or boundary keeps its box apart
- * from its lifeline, at the end of what was drawn so far: where the top boxes
- * from the first actor with a menu to the last don't stand side by side, the
- * order stays mermaid's.
+ * front of the drawing as it draws them, so they stand right to left, and a
+ * screen reader and Tab follow them so. A stick figure, entity, control or
+ * boundary keeps its box apart from its lifeline, at the end of what was drawn
+ * so far. Every top box is put back left to right, each into a place one of
+ * them held, so the rest of the drawing keeps its places.
  */
-function orderMenuActors(fig) {
-  const keyed = [...fig.querySelectorAll(MENU_ACTOR)];
-  if (keyed.length < 2) return;
-  // What moves: the box with its lifeline, or the box alone where they are apart.
-  const unit = (g) => (g.parentElement.querySelector(':scope > line[data-et="life-line"]') ? g.parentElement : g);
-  const units = keyed.map(unit);
-  const tops = new Set([...fig.querySelectorAll('g[data-et="participant"]')].map(unit));
-  const last = units.at(-1);
-  const run = [];
-  for (let el = units[0]; el !== last; el = el.nextElementSibling) {
-    if (!tops.has(el)) return;
-    run.push(el);
-  }
-  run.push(last);
+function orderActors(fig) {
+  const tops = [...fig.querySelectorAll('g[data-et="participant"]')];
+  if (tops.length < 2) return;
+  // What moves: the box with its lifeline, or the box alone where they are
+  // apart; a stick figure's parent is the drawing itself.
+  const unit = (g) => (g.parentElement.querySelectorAll('g[data-et="participant"]').length === 1 ? g.parentElement : g);
   // From the lifeline's attribute, not `getBBox`: a figure being rendered is
   // not on the page yet, and has no layout to measure.
   const lines = [...fig.querySelectorAll('line[data-et="life-line"]')];
   const x = (g) => +lines.find((l) => l.getAttribute("data-id") === g.getAttribute("data-id"))?.getAttribute("x1");
-  const sorted = [...keyed].sort((a, b) => x(a) - x(b)).map(unit);
-  const parent = last.parentNode;
-  const after = last.nextSibling;
-  let k = 0;
-  for (const el of run) parent.insertBefore(units.includes(el) ? sorted[k++] : el, after);
+  const sorted = [...tops].sort((a, b) => x(a) - x(b)).map(unit);
+  const places = tops.map((g) => {
+    const mark = document.createComment("");
+    unit(g).before(mark);
+    return mark;
+  });
+  places.forEach((mark, i) => mark.replaceWith(sorted[i]));
 }
 
 /**
