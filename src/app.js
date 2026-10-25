@@ -587,7 +587,7 @@ function loadRenderer() {
       removeEventListener("message", onMessage);
       frame.remove();
       if (rendererLoad === load) rendererLoad = null;
-      for (const settle of waiting.values()) settle({ error: "The diagram took too long to draw." });
+      for (const settle of waiting.values()) settle({ error: "It took too long." });
       waiting.clear();
     };
     setTimeout(fail, 15000);
@@ -1326,7 +1326,9 @@ function diagramFigures() {
 function sayDiagramFailed(pre, error) {
   const p = document.createElement("p");
   p.className = "mermaid-error";
-  p.textContent = error;
+  // mermaid's own message doesn't always say a diagram failed: "Cannot read
+  // properties of null (reading 'class')" was all a reader heard.
+  p.textContent = `Diagram didn't draw: ${error}`;
   // Tied to the block, so a screen reader on it hears why, not only the code
   // (Orca and Narrator reached the reason only after the code, measured).
   p.id = `diagram-error-${++diagramErrors}`;

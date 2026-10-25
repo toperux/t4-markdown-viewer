@@ -45,7 +45,7 @@ section, so this file lists only what is still to do. Finished plans and reviews
   the work, and this is not observed in practice. Reopen when a real diagram is found to freeze
   a window on any platform.
 - [ ] **F5 doesn't retry a timed-out diagram** (added 2026-09-28, final review of
-  `archive/plans/mermaid-follow-ups.md`). "The diagram took too long to draw." is cached, and
+  `archive/plans/mermaid-follow-ups.md`). "Diagram didn't draw: It took too long." is cached, and
   survives F5, reopening and an unchanged save; only a restart, a theme or font change, or LRU
   eviction clears it. Measured 2026-09-28: minimised WebView2 doesn't throttle (rAF kept
   running, the 30 s timer fired at 30,002 ms, diagrams drew while minimised), so minimising
