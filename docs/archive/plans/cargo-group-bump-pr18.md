@@ -9,7 +9,7 @@
 > walk's own picker helper needed a second Return once (helper timing, not the app; the owner
 > ruled no entry). Windows' launch console showed the long-standing `ipc.localhost` CSP errors
 > (no `connect-src`, so IPC falls back to postMessage). Not from this bump; the owner ruled it
-> fixed separately, in `ipc-connect-src.md`.
+> fixed separately, in `archive/plans/ipc-connect-src.md`.
 
 **Goal:** land Dependabot PR #18's bumps on `main` (tauri 2.12.2 → 2.12.5, comrak 0.56 → 0.57,
 tauri-build 2.7.3 → 2.7.4) so the next release ships with them.
