@@ -587,7 +587,7 @@ function loadRenderer() {
       removeEventListener("message", onMessage);
       frame.remove();
       if (rendererLoad === load) rendererLoad = null;
-      for (const settle of waiting.values()) settle({ error: "It took too long." });
+      for (const settle of waiting.values()) settle({ error: TIMED_OUT });
       waiting.clear();
     };
     setTimeout(fail, 15000);
@@ -685,6 +685,8 @@ const MERMAID_BLOCK = "pre > code.language-mermaid";
  */
 const diagrams = new Map();
 const DIAGRAMS_KEPT = 200;
+/** The reason cached for a diagram the frame never answered for; `refresh` lets F5 try it again. */
+const TIMED_OUT = "It took too long.";
 /** The smallest a diagram shrinks to on the page: mermaid's 16 px labels then read at about 10 px. */
 const DIAGRAM_FLOOR = 0.6;
 let diagramId = 0;
@@ -3499,6 +3501,13 @@ async function refresh() {
   // in their own right, so nothing else needs invalidating here — refetching
   // them would leave the page short of their height when the scroll is restored.
   if (isImage(entry.path)) bumpAsset(entry.path);
+  // A diagram that took too long is cached as failed, so a reload alone would
+  // show the same reason; F5 is the reader asking for another try.
+  const look = diagramLook();
+  for (const code of els.content.querySelectorAll(MERMAID_BLOCK)) {
+    const key = diagramKey(look, code.textContent);
+    if (diagrams.get(key)?.error === TIMED_OUT) diagrams.delete(key);
+  }
   await showActive();
 }
 
