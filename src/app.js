@@ -4688,7 +4688,12 @@ async function onDragEnd(event) {
   }
 
   const tab = tabs.find((t) => t.id === d.id);
-  if (!tab) return;
+  if (!tab) {
+    // Closed mid-drag: nothing to drop, but another window may still show
+    // the caret the probes lit.
+    d.ipc = d.ipc.then(() => invoke("drag_cancel")).catch(() => {});
+    return;
+  }
   // Never bail for want of an origin: the tab has already been lifted out of the
   // strip, so giving up here would strand it. An inexact origin sends
   // `screenPoint` down its fallback, which is good enough to place a new window.
