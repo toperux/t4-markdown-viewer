@@ -546,10 +546,13 @@ function holdHyphens(text) {
  * drawing live in its document before handing back the string, so the
  * unsanitised drawing is never in the app's page, and nothing it runs can
  * reach the page or Tauri. The frame must be laid out, not hidden, for mermaid
- * to measure text.
+ * to measure text. A frame that failed to load is not tried again for every
+ * document, each waiting out the grace; the next look change tries once more.
  */
 let rendererLoad = null;
+let rendererFailed = false;
 function loadRenderer() {
+  if (rendererFailed) return Promise.reject(new Error("The diagram renderer did not load."));
   if (rendererLoad) return rendererLoad;
   const load = new Promise((resolve, reject) => {
     const frame = document.createElement("iframe");
@@ -571,9 +574,10 @@ function loadRenderer() {
     const fail = () => {
       if (settled) return;
       settled = true;
+      rendererFailed = true;
       removeEventListener("message", onMessage);
       frame.remove();
-      if (rendererLoad === load) rendererLoad = null; // the next document tries again
+      if (rendererLoad === load) rendererLoad = null; // the next look change builds a fresh one
       reject(new Error("The diagram renderer did not load."));
     };
     // A frame that stopped answering — lost, or stuck in a render — would
@@ -1427,6 +1431,8 @@ async function redrawDiagrams() {
     ...figs.map((f) => diagramBlocks.get(f).pre.textContent),
     ...blocks.map((c) => c.textContent),
   ]);
+  // A new look is the one moment a renderer that failed to load is tried again.
+  rendererFailed = false;
   await warmSources(sources, stale);
   if (stale()) return;
   // Blocks that had failed are drawn afresh, before any figure below turns
