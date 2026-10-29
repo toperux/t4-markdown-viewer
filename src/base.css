@@ -2111,6 +2111,16 @@ html.diagram-open {
   overflow-wrap: normal;
 }
 
+/* A column's `:-:` or `-:` comes through as the cell's align attribute, which the rule above
+   would otherwise beat. */
+.markdown-body :is(th, td)[align="center"] {
+  text-align: center;
+}
+
+.markdown-body :is(th, td)[align="right"] {
+  text-align: right;
+}
+
 .markdown-body th {
   font-weight: 600;
 }
