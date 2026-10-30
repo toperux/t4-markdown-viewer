@@ -29,7 +29,6 @@ pub const TOO_MUCH: &str =
 /// those lines read as text — see `table_cost` and `details`. About a third of
 /// a second each at the limit.
 const MAX_TABLE_PADDING: usize = 500_000;
-const MAX_TABLE_WORK: usize = 1_000_000_000;
 const MAX_DETAILS: usize = 5_000;
 
 /// The options every parse of `md` uses — the render, `toggle_task` and
@@ -38,8 +37,7 @@ const MAX_DETAILS: usize = 5_000;
 fn options(md: &str) -> Options<'static> {
     let mut o = Options::default();
 
-    let (padding, work) = table_cost(md);
-    o.extension.table = padding <= MAX_TABLE_PADDING && work <= MAX_TABLE_WORK;
+    o.extension.table = table_cost(md) <= MAX_TABLE_PADDING;
     o.extension.strikethrough = true;
     o.extension.tasklist = true;
     o.extension.autolink = true;
@@ -72,14 +70,13 @@ fn lines(md: &str) -> impl Iterator<Item = &str> {
 }
 
 /// What comrak's tables would cost, at most: the empty cells it pads short
-/// rows out with, and the square of each row's width, since it finds every
-/// cell's column by walking the row from its start. A table runs from its
-/// delimiter row to the next blank line and is as wide as that row, so each
-/// line is charged the widest delimiter row seen since the last blank line.
-/// Quote markers and indentation come off first; a line of `-|: ` that is not
-/// a delimiter row only overcharges, never under.
-fn table_cost(md: &str) -> (usize, usize) {
-    let (mut padding, mut work, mut width) = (0usize, 0usize, 0usize);
+/// rows out with. A table runs from its delimiter row to the next blank line
+/// and is as wide as that row, so each line is charged the widest delimiter
+/// row seen since the last blank line. Quote markers and indentation come off
+/// first; a line of `-|: ` that is not a delimiter row only overcharges, never
+/// under.
+fn table_cost(md: &str) -> usize {
+    let (mut padding, mut width) = (0usize, 0usize);
     for line in lines(md) {
         if line.bytes().all(|b| matches!(b, b' ' | b'\t')) {
             width = 0;
@@ -95,9 +92,8 @@ fn table_cost(md: &str) -> (usize, usize) {
             width = width.max(cells);
         }
         padding += width.saturating_sub(cells);
-        work += width * width;
     }
-    (padding, work)
+    padding
 }
 
 /// The fewest cells a table row makes of `line`: one after each `|` but a
@@ -1158,9 +1154,9 @@ fn main() {}
     }
 
     /// A wide header over short rows made comrak pad every row out to it —
-    /// 20,000 × 20,000 (140 KB) asked for 61 GB and aborted the app — and a
-    /// wide row costs the square of its width to render. Past either limit the
-    /// lines read as text, and the task and section lookups use that same parse.
+    /// 20,000 × 20,000 (140 KB) asked for 61 GB and aborted the app. Past the
+    /// limit the lines read as text, and the task and section lookups use that
+    /// same parse.
     #[test]
     fn tables_comrak_cannot_afford_read_as_text() {
         let bomb = |cols: usize, rows: usize| {
@@ -1179,18 +1175,18 @@ fn main() {}
             md.replace("- [ ] t", "- [x] t")
         );
         assert_eq!(section(&md, line + 2).unwrap(), "# H\n");
-        // Under the limits it is a table.
+        // Under the limit it is a table.
         assert!(render(&bomb(3, 2)).contains("<table"));
-        assert!(table_cost(&bomb(1_000, 499)).0 <= MAX_TABLE_PADDING);
-        assert!(table_cost(&bomb(1_000, 501)).0 > MAX_TABLE_PADDING);
-        // Wide but full: nothing padded, yet 30,000 columns is 30,000² steps a row.
+        assert!(table_cost(&bomb(1_000, 499)) <= MAX_TABLE_PADDING);
+        assert!(table_cost(&bomb(1_000, 501)) > MAX_TABLE_PADDING);
+        // Wide but full: nothing padded, so width alone is no reason to refuse.
         let wide = format!(
             "{}|\n{}|\n{}|\n",
             "|a".repeat(30_000),
             "|-".repeat(30_000),
             "|x".repeat(30_000)
         );
-        assert!(!render(&wide).contains("<table"));
+        assert!(render(&wide).contains("<table"));
     }
 
     /// The estimate may overcharge, never undercharge: each of these tables
@@ -1219,13 +1215,13 @@ fn main() {}
                 .count();
             assert!(padded > 0, "{md:?} is not a padded table");
             assert!(
-                table_cost(md).0 >= padded,
+                table_cost(md) >= padded,
                 "{md:?}: {padded} padded, charged {}",
-                table_cost(md).0
+                table_cost(md)
             );
         }
         // An ordinary full table costs no padding at all.
-        assert_eq!(table_cost("| a | b |\n|---|---|\n| 1 | 2 |\n").0, 0);
+        assert_eq!(table_cost("| a | b |\n|---|---|\n| 1 | 2 |\n"), 0);
     }
 
     /// Repeated headings get comrak's own ids — `a`, `a-1`, stepping past an
