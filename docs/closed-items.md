@@ -830,6 +830,39 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   *Fixed 2026-10-25 (`archive/plans/real-deferred-items.md`, Part C): a diagram shrinks to at
   most 0.6 of its size, past which it keeps that width and scrolls sideways in its box; the zoom
   view still fits it whole. Walked at 700 px on all three.*
+- [x] **F5 doesn't retry a timed-out diagram** (added 2026-09-28, final review of
+  `archive/plans/mermaid-follow-ups.md`). "Diagram didn't draw: It took too long." is cached, and
+  survives F5, reopening and an unchanged save; only a restart, a theme or font change, or LRU
+  eviction clears it. Measured 2026-09-28: minimised WebView2 doesn't throttle (rAF kept
+  running, the 30 s timer fired at 30,002 ms, diagrams drew while minimised), so minimising
+  alone won't cause one. On Windows the frame shares the page's process, so a render that
+  finishes past 30 s may race the timer and cache the message anyway. Fix: have `refresh()`
+  evict timeout entries for the active document. Reopen when someone hits a timed-out diagram
+  they expected F5 to retry.
+  *Fixed 2026-10-30 (`archive/plans/deps-and-three-fixes.md`, a5bb89c): before it shows a document,
+  `refresh()` drops every cached "It took too long." for that document's diagrams, so F5
+  draws them again. Walked on all three: with a timeout cached, F5 showed the message and
+  the next F5 drew the diagram.*
+- [x] **A renderer that fails to load is tried again for every document** (added 2026-09-28,
+  the Linux run). A load failure is not cached, so while the frame cannot load, each document
+  with a diagram waits out `loadRenderer`'s 15 s before showing its blocks as code. Fix: keep
+  the failure for the window, cleared when a theme or font change redraws. Reopen when the
+  frame is found failing to load anywhere in real use.
+  *Fixed 2026-10-30 (`archive/plans/deps-and-three-fixes.md`, 98c31d0): the failure is kept for the
+  window, so the next document with a diagram shows its blocks as code at once; a theme or
+  font redraw clears it and tries again. Walked on Windows: no new frame for the second
+  document, and a look change recovered.*
+- [x] **Closing the dragged tab mid-drag may leave another window's drop caret lit** (added
+  2026-10-20, the tab drag plan's review, `archive/plans/tab-drag-half-pitch.md`). Reasoned from
+  the code, never seen. Ctrl+W during a drag closes the active tab; if that leaves one tab, the
+  strip hides and the drag counts as detached. Released still detached, `onDragEnd` finds no tab
+  (`app.js:4508-4509`) and returns without `drag_cancel`, so on Windows (`crossWindowDrag`) a
+  caret another window lit from earlier `drag_over` probes may stay lit. Likely fix: send
+  `drag_cancel` on that early return. Reopen on a report of a drop caret left showing.
+  *Fixed 2026-10-30 (`archive/plans/deps-and-three-fixes.md`, 705149a): `onDragEnd` sends
+  `drag_cancel` when the dragged tab is gone. Walked on Windows, which also showed the item
+  was reachable: Ctrl+W does close the dragged tab mid-drag, and the caret stayed lit
+  before the fix and cleared after.*
 
 ## Needs a Mac, a Dependabot run, or an older build
 

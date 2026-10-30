@@ -44,15 +44,6 @@ section, so this file lists only what is still to do. Finished plans and reviews
   cause makes mermaid spin rather than error or hang quietly — `maxTextSize`/`maxEdges` bound
   the work, and this is not observed in practice. Reopen when a real diagram is found to freeze
   a window on any platform.
-- [ ] **F5 doesn't retry a timed-out diagram** (added 2026-09-28, final review of
-  `archive/plans/mermaid-follow-ups.md`). "Diagram didn't draw: It took too long." is cached, and
-  survives F5, reopening and an unchanged save; only a restart, a theme or font change, or LRU
-  eviction clears it. Measured 2026-09-28: minimised WebView2 doesn't throttle (rAF kept
-  running, the 30 s timer fired at 30,002 ms, diagrams drew while minimised), so minimising
-  alone won't cause one. On Windows the frame shares the page's process, so a render that
-  finishes past 30 s may race the timer and cache the message anyway. Fix: have `refresh()`
-  evict timeout entries for the active document. Reopen when someone hits a timed-out diagram
-  they expected F5 to retry.
 - [ ] **A document with a diagram has its HTML parsed twice** (added 2026-09-26, third
   review). `warmDiagrams` parses the whole rendered HTML into a `<template>` to find the
   sources, and `renderDocument` parses it again for the page. Documents without a Mermaid
@@ -64,11 +55,6 @@ section, so this file lists only what is still to do. Finished plans and reviews
   in `bindFunctions`, called on the SVG mermaid draws into the page — and, since Task 4 of
   `archive/plans/mermaid-pipeline.md`, a diagram draws inside its own frame and reaches the page
   only as an SVG string, so nothing ever calls it. Reopen when someone uses one.
-- [ ] **A renderer that fails to load is tried again for every document** (added 2026-09-28,
-  the Linux run). A load failure is not cached, so while the frame cannot load, each document
-  with a diagram waits out `loadRenderer`'s 15 s before showing its blocks as code. Fix: keep
-  the failure for the window, cleared when a theme or font change redraws. Reopen when the
-  frame is found failing to load anywhere in real use.
 - [ ] **A subframe navigating to the app's own page runs `stay`'s reload branch** (added
   2026-09-28, the Linux run). On WebKitGTK wry hands subframe navigations to `stay` with no
   way to tell them from the page's own (wry #1593; on macOS they reach the new-window handler
@@ -182,13 +168,6 @@ The next two came out of the session-restore walks (`archive/plans/session-resto
   Not the XWayland freeze, which still shows a first paint. Cause unknown; the second launch's
   own output wasn't captured. Next Linux walks log the app's output and process state for every
   launch. Reopen on a report of the app not opening on Linux, or a third sighting in a walk.
-- [ ] **Closing the dragged tab mid-drag may leave another window's drop caret lit** (added
-  2026-10-20, the tab drag plan's review, `archive/plans/tab-drag-half-pitch.md`). Reasoned from
-  the code, never seen. Ctrl+W during a drag closes the active tab; if that leaves one tab, the
-  strip hides and the drag counts as detached. Released still detached, `onDragEnd` finds no tab
-  (`app.js:4508-4509`) and returns without `drag_cancel`, so on Windows (`crossWindowDrag`) a
-  caret another window lit from earlier `drag_over` probes may stay lit. Likely fix: send
-  `drag_cancel` on that early return. Reopen on a report of a drop caret left showing.
 
 - [ ] **On GNOME, a torn-off window opens with the pointer on its title bar, not its tabs**
   (added 2026-10-25, `archive/plans/real-deferred-items.md`, triage). The new window's outer
