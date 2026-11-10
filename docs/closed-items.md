@@ -289,6 +289,14 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   untouched; a second on `second.md` opened it. The AppImage's own runtime is the one path not
   run; it is under *First runs* in `open-items.md`. Remove the workaround once
   `tauri-plugin-single-instance` reads `args_os()` — check on each bump.*
+  *Workaround removed 2026-11-10, 9761b62 (`archive/plans/drop-unicode-args-workaround.md`): the
+  plugin has read `args_os()` and converted each argument lossily since 2.5.3 (in 1.8.6), on
+  all three platforms. Walked on the Linux VM with 2.5.5: a first launch on `caf\xe9.md` opened
+  the empty start screen, with the raw byte still in `/proc/<pid>/cmdline` (no re-exec) and no
+  panic; a second on it exited 0 in 0.1 s with the first window untouched; a second on
+  `second.md` opened it. Such a file is still ignored without a message, as before (#25). The
+  AppImage was not run again: the re-exec inside its mounted image was why it needed its own
+  check, and that is gone (the owner ruled no first run).*
 
 - [x] **A diagram's `themeVariables`/`themeCSS` could style the whole app, not just its own
   drawing** (found in this plan's review; live since Mermaid diagrams shipped, 1.7.0). mermaid
@@ -1260,6 +1268,8 @@ tooling; listed so nobody rediscovers them.
   *Kept 2026-09-26: no file manager on either can produce it, Windows has no `exec` to
   re-launch with, and it goes away with the Linux workaround once the plugin reads
   `args_os()`.*
+  *Gone 2026-11-10: the plugin reads `args_os()` on Windows and macOS too since 2.5.3 (read in
+  2.5.5's `windows.rs:126` and `macos.rs:89`). Not walked on either.*
 - [x] **A second launch from a folder whose name is not Unicode loses its working directory**
   (found planning 009d8c8). `tauri-plugin-single-instance` sends
   `current_dir().to_str().unwrap_or_default()`, so the running app receives an empty cwd and
