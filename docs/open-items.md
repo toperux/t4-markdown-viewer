@@ -185,6 +185,35 @@ The next two came out of the session-restore walks (`archive/plans/session-resto
   participant, database, queue or collections works. Not checked: newer mermaid, or an upstream
   report. Reopen at the next mermaid update, to recheck.
 
+- [ ] **Several files opened at once on a cold start get a window each** (added 2026-11-10,
+  `archive/plans/cargo-group-bump-pr23.md`, triage). Selecting four documents in Explorer and
+  pressing Enter with the app not running starts four processes: the first becomes the app, and
+  the other three hand their file over and exit. Each handed-over file opens in a window of its
+  own, so four windows with one tab each (Windows VM: five runs on 793f82a's tree, three on
+  1.8.10; one app process and no file lost every time). A booting window holds one waiting
+  payload and the first file has it, so `open_path` (`main.rs:1520-1556`) gives a later file a
+  new window: the rule `a_file_opened_while_main_boots_with_a_payload_gets_a_new_window` tests,
+  written for a restored session or a torn-off tab. Reasoned, not measured: with the app
+  already up, the same files open as tabs in the running window (`open_mode` other than
+  `window`); and macOS and Linux do the same on a cold start. A fix lets a booting window hold
+  a list of payloads, and the page open them all. Reopen on a report, or at the next change to
+  how a booting window receives its documents.
+
+## First runs after the single-instance 2.5.5 bump
+
+- [ ] **The restart after an update finds no single-instance lock** (added 2026-11-10,
+  `archive/plans/cargo-group-bump-pr23.md`, triage). tauri-plugin-single-instance 2.5.5
+  releases its lock in Tauri's `cleanup_before_exit`, no longer in its own `RunEvent::Exit`
+  handler. After an update installs, the app restarts itself (`update.rs:197`); a lock still
+  held then would make the new process hand over to the dying one and exit, and the app would
+  not come back. Read in Tauri 2.12.5 (`app.rs:1449-1455`): the cleanup runs before the
+  restart. It can't be walked without a newer release to install. Windows isn't in it: its
+  updater exits the process itself (`updater.rs:1050`), and the mutex goes with the process.
+  - [ ] *macOS*: the first in-app update **from** a build carrying the bump (the release after
+    the first one with it, since the outgoing version does the restart). The app comes back by
+    itself.
+  - [ ] *The Linux AppImage*: the same.
+
 ## Accepted limits
 
 Not bugs to fix; here so nobody rediscovers them. The three the 2026-09-12 review parked were

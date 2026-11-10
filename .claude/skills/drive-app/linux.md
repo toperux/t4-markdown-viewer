@@ -172,6 +172,10 @@ node .claude/skills/drive-app/scripts/wd.mjs click "#open-btn"
 - The file dialog closes after one call.
 - The **folder picker needs two**: the first only completes the typed path in
   the location box, the second (`""`) selects it.
+- A folder with a **single subfolder** is picked wrong: GTK completes the typed
+  path into the subfolder, so `examples` became `examples/img` (PR #23's walk).
+  Answer that one by hand, with Delete before Return to drop the completion:
+  `xdotool key ctrl+l`, `xdotool type <path>`, `xdotool key Delete Return`.
 - `--cancel` presses Escape. `--dump` lists the app's visible windows.
 - A screenshot of a dialog: `import -window $(DISPLAY=:99 xdotool
   search --onlyvisible --name '^Select Folder$') out.png`.
