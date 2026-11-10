@@ -1876,30 +1876,6 @@ fn own_page(url: &Url) -> bool {
     own && matches!(url.path(), "" | "/")
 }
 
-/// A second launch hands its arguments to the running app through
-/// `tauri-plugin-single-instance`, which reads them with `std::env::args()`
-/// (2.4.5, `platform_impl/linux.rs`). That panics on one that is not Unicode —
-/// a Latin-1 file name from a file manager — and with `panic = "abort"` the
-/// launch dies before any of our code could catch it. The arguments cannot be
-/// changed in place, so start over as the same process with them made Unicode,
-/// lossily, which is how `setup` reads them anyway. `exec` returns only if it
-/// failed, and then this launch goes on exactly as before. Delete this once the
-/// plugin reads `args_os()`.
-#[cfg(target_os = "linux")]
-fn exec_with_unicode_args() {
-    use std::os::unix::process::CommandExt;
-    let Some(args) = lossy_args(std::env::args_os()) else {
-        return;
-    };
-    let Ok(exe) = std::env::current_exe() else {
-        return;
-    };
-    let _ = std::process::Command::new(exe)
-        .arg0(&args[0])
-        .args(&args[1..])
-        .exec();
-}
-
 /// The `GDK_BACKEND` to force: `x11` inside an AppImage, whatever the variable
 /// held, else none. linuxdeploy's gtk hook used to export it (tauri#8541, a
 /// crash on Wayland), and native Wayland ignores the app's window positions —
@@ -1929,20 +1905,6 @@ fn disable_dmabuf(
     !user_set && x11 && wayland
 }
 
-/// Every argument made Unicode, or `None` when they all are already.
-#[cfg(target_os = "linux")]
-fn lossy_args(args: impl IntoIterator<Item = std::ffi::OsString>) -> Option<Vec<String>> {
-    let args: Vec<_> = args.into_iter().collect();
-    if args.iter().all(|a| a.to_str().is_some()) {
-        return None;
-    }
-    Some(
-        args.iter()
-            .map(|a| a.to_string_lossy().into_owned())
-            .collect(),
-    )
-}
-
 fn main() {
     // Before anything starts a thread: `set_var` must not race another
     // thread's read. A block, since `#[cfg]` can't sit on an `if`.
@@ -1961,7 +1923,6 @@ fn main() {
         ) {
             std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
         }
-        exec_with_unicode_args();
     }
     let builder = tauri::Builder::default()
         // Must be registered first: plugins run in registration order, and this
@@ -2210,39 +2171,6 @@ mod tests {
         assert!(!disable_dmabuf(Some("x11"), false, Some("x11"), false));
         assert!(disable_dmabuf(Some("x11"), false, Some("wayland"), false));
         assert!(!disable_dmabuf(Some("x11"), true, Some("wayland"), true));
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn lossy_args_leaves_unicode_alone() {
-        let args = ["/usr/bin/t4-markdown-viewer", "a.md"].map(std::ffi::OsString::from);
-        assert_eq!(lossy_args(args), None);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn lossy_args_mends_a_latin1_name() {
-        use std::os::unix::ffi::OsStringExt;
-        let exe = "/usr/bin/t4-markdown-viewer";
-        let args = vec![
-            std::ffi::OsString::from(exe),
-            std::ffi::OsString::from("x"),
-            std::ffi::OsString::from_vec(b"caf\xe9.md".to_vec()),
-        ];
-        assert_eq!(
-            lossy_args(args),
-            Some(vec![
-                exe.to_string(),
-                "x".to_string(),
-                "caf\u{FFFD}.md".to_string()
-            ])
-        );
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn lossy_args_of_nothing() {
-        assert_eq!(lossy_args(Vec::new()), None);
     }
 
     /// A torn-off window stays inside the work area, each axis on its own, and
