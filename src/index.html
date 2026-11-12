@@ -272,6 +272,18 @@
                    spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" />
             <p id="doc-font-note" class="hint" role="status"></p>
           </fieldset>
+
+          <fieldset>
+            <legend>Document zoom</legend>
+            <p class="hint">Makes every document bigger or smaller, in every window.</p>
+            <!-- type="button": a plain button in the dialog's form would close it. -->
+            <p id="doc-zoom-row">
+              <button class="minor" type="button" data-step="-1" aria-label="Zoom out">−</button>
+              <span id="doc-zoom-level" role="status"></span>
+              <button class="minor" type="button" data-step="1" aria-label="Zoom in">+</button>
+              <button class="minor" type="button" data-step="0">Reset</button>
+            </p>
+          </fieldset>
         </div>
 
         <div id="settings-actions"><button value="close">Done</button></div>

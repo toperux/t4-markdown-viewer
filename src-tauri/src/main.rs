@@ -1356,6 +1356,17 @@ fn set_doc_font(app: AppHandle, font: String) {
     let _ = app.emit("doc-font-changed", font);
 }
 
+/// Broadcast, like the document font, and stepped from the saved level so
+/// windows stepping at once all end on the last save.
+#[tauri::command]
+fn step_doc_zoom(app: AppHandle, dir: i32) -> u32 {
+    let mut cfg = config::load();
+    cfg.doc_zoom = config::doc_zoom_step(cfg.doc_zoom, dir);
+    config::save(&cfg);
+    let _ = app.emit("doc-zoom-changed", cfg.doc_zoom);
+    cfg.doc_zoom
+}
+
 /// Not broadcast, unlike the open mode: this one is only ever read at boot, so
 /// two open Settings dialogs disagreeing about it until one of them is
 /// reopened costs nothing.
@@ -1967,6 +1978,7 @@ fn main() {
             set_open_mode,
             set_diagram_colours,
             set_doc_font,
+            step_doc_zoom,
             set_reopen,
             restore_offered_session,
             picker_dir,

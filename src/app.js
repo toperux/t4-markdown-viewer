@@ -49,6 +49,8 @@ const els = {
   diagramColourRadios: document.querySelectorAll('#settings-dialog input[name="diagram-colours"]'),
   docFont: document.getElementById("doc-font"),
   docFontNote: document.getElementById("doc-font-note"),
+  docZoomRow: document.getElementById("doc-zoom-row"),
+  docZoomLevel: document.getElementById("doc-zoom-level"),
   fileManager: document.getElementById("file-manager"),
   autoUpdate: document.getElementById("auto-update"),
   checkNow: document.getElementById("check-now"),
@@ -69,6 +71,7 @@ const els = {
   emptyFolderBtn: document.getElementById("empty-folder-btn"),
   emptyReopenBtn: document.getElementById("empty-reopen-btn"),
   emptyReopenLabel: document.getElementById("empty-reopen-label"),
+  main: document.querySelector("main"),
   content: document.getElementById("content"),
   empty: document.getElementById("empty"),
   image: document.getElementById("image"),
@@ -132,6 +135,8 @@ const state = {
    * Starts empty, so the boot call always applies the saved one.
    */
   docFont: "",
+  /** The document zoom in percent, one level for every window; Rust keeps the ladder. */
+  docZoom: 100,
 };
 
 // What opens as a document, by kind. The Open dialog's filters are built
@@ -2188,6 +2193,8 @@ async function showImage(asset, entry, token) {
  */
 function onResize() {
   measureBar();
+  zoomPoint = null; // it may be outside the window now
+
   announceSidebarWidth(); // a narrower window can clamp the sidebar too
   if (zoomed) zoomDiagram(zoomed.scale);
   if (!els.switcher.hidden) renderSwitcher(true); // its folder lines cut to fit
@@ -3752,7 +3759,8 @@ function scrollToHit(hit) {
   const box = hit.startContainer.parentElement?.closest("pre, .table-scroll");
   if (box) {
     const r = hitRect(hit), b = box.getBoundingClientRect();
-    if (r.left < b.left || r.right > b.right) box.scrollLeft += (r.left + r.right - b.left - b.right) / 2;
+    // `scrollLeft` is in the document's own px, the rectangles in the window's.
+    if (r.left < b.left || r.right > b.right) box.scrollLeft += (r.left + r.right - b.left - b.right) / 2 / (state.docZoom / 100);
   }
   const rect = hitRect(hit);
   const findBottom = els.find.getBoundingClientRect().bottom;
@@ -4302,6 +4310,184 @@ function showDocFontNote(raw) {
   // A live region announces even an unchanged text (measured on WebView2): a
   // save and the typing's pending note would say it twice.
   if (els.docFontNote.textContent !== note) els.docFontNote.textContent = note;
+}
+
+/* ---------------- document zoom ---------------- */
+
+/** Whether `cqw` scales inside a zoomed element; probed the first time a level needs it. */
+let cqwScales;
+
+/**
+ * The pointer of this window's last wheel step, which a level applied here
+ * anchors on. Kept until a key or Settings step, not used once: a turn's steps
+ * overlap, each applied when Rust answers, and all of them are at the pointer.
+ */
+let zoomPoint = null;
+
+/**
+ * The line of text the last step held: `top`, where its top was aimed, in
+ * window px; `y` and `h`, the page's offset and the document's height as the
+ * step left them. The aim stands only while both are unchanged: another
+ * document, a scroll or a new layout drops it. Null when the last step held
+ * no text.
+ */
+let zoomHeld = null;
+
+/**
+ * Whether `cqw` scales inside a zoomed element. It does on WebView2 and the
+ * Mac's WebKit and doesn't on WebKitGTK (measured); an older WebKit may answer
+ * otherwise, so it is asked, not picked by platform. The box has a width of
+ * its own, so a window not yet shown should answer the same.
+ */
+function probeCqw() {
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:absolute;visibility:hidden;width:100px;container-type:inline-size";
+  probe.innerHTML = '<div style="zoom:2"><div style="width:100cqw"></div></div>';
+  document.body.append(probe);
+  const width = probe.firstChild.firstChild.getBoundingClientRect().width;
+  probe.remove();
+  return width > 150;
+}
+
+/**
+ * What the reader is looking at, at a point in the window: a function that
+ * says, after a change of level, how far it has moved since. Null when there
+ * is nothing to hold on to.
+ */
+function zoomAnchor(x, y) {
+  // The text at the point holds to the px (measured). A heading's button or a
+  // table's white space has no caret: its rectangle is all zeros.
+  const range = document.caretRangeFromPoint(x, y);
+  if (range && els.content.contains(range.startContainer)) {
+    const r = range.getBoundingClientRect();
+    if (r.x || r.y || r.width || r.height) {
+      // A line the last step left within 2 px of its aim is taken to be that
+      // line again, and goes back to the aim, not to where it ended: a step
+      // ends up to 1.2 px off on WebKit, the same way each time, and a turn
+      // of eight added up to 5.5 px (measured, macOS).
+      const again =
+        zoomHeld?.y === window.scrollY &&
+        zoomHeld.h === els.content.getBoundingClientRect().height &&
+        Math.abs(r.top - zoomHeld.top) < 2;
+      const top = again ? zoomHeld.top : r.top;
+      zoomHeld = { top }; // `y` and `h` once the step has scrolled
+      return () => range.getBoundingClientRect().top - top;
+    }
+  }
+  zoomHeld = null; // no text held, so no aim for the next step
+  // Else the innermost element across the point, read off the layout: a hit
+  // test can't reach the document under Settings or the tab switcher. A line
+  // or two off, as the text re-wraps.
+  let el = [...els.content.children].find((c) => c.getBoundingClientRect().bottom > y);
+  if (!el) return null;
+  for (;;) {
+    const inner = [...el.children].find((c) => {
+      const r = c.getBoundingClientRect();
+      return r.top <= y && y < r.bottom;
+    });
+    if (!inner) break;
+    el = inner;
+  }
+  const r = el.getBoundingClientRect();
+  const frac = r.height ? (y - r.top) / r.height : 0;
+  const at = (rect) => rect.top + frac * rect.height;
+  return () => at(el.getBoundingClientRect()) - at(r);
+}
+
+/**
+ * Apply a level: at boot, and from the broadcast every step ends in, so every
+ * window ends on the last save. Three properties on #content (base.css), all
+ * gone at 100% so a reader who never zooms has today's layout untouched. The
+ * reader's place is kept: on screen by what was at one point, elsewhere by
+ * scaling the banked offsets.
+ */
+function showDocZoom(percent) {
+  els.docZoomLevel.textContent = `${percent}%`;
+  if (percent === state.docZoom) return;
+  const ratio = percent / state.docZoom;
+  const z = percent / 100;
+  // The page padding in window px: the root's `--content-pad` is in rem.
+  const root = getComputedStyle(document.documentElement);
+  const pad = parseFloat(root.getPropertyValue("--content-pad")) * parseFloat(root.fontSize);
+  const shown = !els.content.hidden;
+  const scrollY = window.scrollY;
+  let anchor = null;
+  if (shown) {
+    // A wheel step's pointer; else the top of the view, below the bar or the
+    // find bar, whichever is lower.
+    const m = els.main.getBoundingClientRect();
+    const top = Math.max(els.bar.getBoundingClientRect().bottom, els.find.getBoundingClientRect().bottom) + pad;
+    anchor = zoomPoint ? zoomAnchor(zoomPoint.x, zoomPoint.y) : zoomAnchor((m.left + m.right) / 2, top);
+  }
+  state.docZoom = percent;
+  const style = els.content.style;
+  if (percent === 100) for (const p of ["--doc-zoom", "--content-pad", "--cq-zoom"]) style.removeProperty(p);
+  else {
+    cqwScales ??= probeCqw();
+    style.setProperty("--doc-zoom", z);
+    // In px, which scales on every engine, so the padding comes out the same on screen.
+    style.setProperty("--content-pad", `${pad / z}px`);
+    style.setProperty("--cq-zoom", cqwScales ? z : 1);
+  }
+  // Documents not on screen aren't laid out, so their offsets are scaled,
+  // which drifts a little (measured). A null waits to jump to its heading.
+  for (const tab of [...tabs, ...closedTabs])
+    for (const entry of tab.entries)
+      if (typeof entry.scrollY === "number" && !(shown && entry === shownEntry)) entry.scrollY *= ratio;
+  if (shown) {
+    // A restore's hold would pull the page back to its old offset.
+    scrollHold?.hold.abort();
+    if (anchor) window.scrollBy(0, anchor());
+    else window.scrollTo(0, scrollY * ratio);
+    // The scroll may fire no event of its own.
+    rememberScroll();
+    if (zoomHeld) {
+      zoomHeld.y = window.scrollY;
+      zoomHeld.h = els.content.getBoundingClientRect().height;
+    }
+  }
+  // With no tab open there is nothing to report.
+  if (tabs.length) scheduleReport();
+}
+
+/**
+ * Ask for a step: 1 up the ladder, -1 down, 0 back to 100%. Rust saves it and
+ * tells every window, this one too, which is when it's applied. `point` is a
+ * wheel step's pointer, for the place to be kept under it. Resolves to the
+ * new level.
+ */
+function stepDocZoom(dir, point = null) {
+  zoomPoint = point;
+  return invoke("step_doc_zoom", { dir });
+}
+
+/** A wheel's px for one step of the document's zoom; a pinch on the Mac comes in smaller turns. */
+const DOC_WHEEL_STEP = isMac ? 20 : 40;
+let docWheelSum = 0;
+let docWheelAt = 0;
+
+/**
+ * A zoom wheel over a document: one step per `DOC_WHEEL_STEP` px either way,
+ * so one notch is one step whatever its size (40 to 100 px measured), and a
+ * touchpad's stream of small turns adds up. Only over the pane, the empty
+ * space below a short document, or the toast a step leaves over the pane; by
+ * the target, since under a dialog the target is the dialog.
+ */
+function onDocWheel(event) {
+  if (!isZoomWheel(event) || els.content.hidden) return;
+  const t = event.target;
+  if (!els.main.contains(t) && t !== els.toast && t.id !== "body-row" && t !== document.body && t !== document.documentElement) return;
+  event.preventDefault();
+  const dy = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+  const now = performance.now();
+  // A turn the other way, or after a pause, starts again.
+  if (now - docWheelAt > 300 || dy * docWheelSum < 0) docWheelSum = 0;
+  docWheelAt = now;
+  docWheelSum += dy;
+  if (Math.abs(docWheelSum) < DOC_WHEEL_STEP) return;
+  const dir = docWheelSum < 0 ? 1 : -1; // up, or the fingers spreading, zooms in
+  docWheelSum = 0;
+  stepDocZoom(dir, { x: event.clientX, y: event.clientY }).then((p) => toast(`Zoom ${p}%`), toast);
 }
 
 /* ---------------- reopening ---------------- */
@@ -5102,8 +5288,12 @@ function onLinkClick(event) {
       const top = panel.y.baseVal.value;
       const height = panel.height.baseVal.value;
       const svg = menu.ownerSVGElement;
-      const { y } = new DOMPoint(event.clientX, event.clientY).matrixTransform(svg.getScreenCTM().inverse());
       const box = svg.viewBox.baseVal;
+      // By the drawing's rectangle, not `getScreenCTM()`: WebKit's leaves out
+      // the document's zoom (measured, WebKitGTK), and the rectangle is in
+      // window px on every engine.
+      const rect = svg.getBoundingClientRect();
+      const y = box.y + ((event.clientY - rect.top) / rect.height) * box.height;
       let dy = Math.max(0, y + GAP - top);
       if (top + dy + height > box.y + box.height) dy = y - GAP - height - top;
       if (dy) menu.setAttribute("transform", `translate(0, ${dy})`);
@@ -5377,7 +5567,8 @@ const imagePan = dragPan(els.imageView, () => picture, rememberImage);
 
 /**
  * Plain and Shift wheel are left alone: the scroll box already handles them,
- * vertically and horizontally. Ctrl is the zoom, as everywhere else.
+ * vertically and horizontally. Ctrl is the zoom, as everywhere else; on the
+ * Mac, a pinch (`isZoomWheel`).
  */
 function onImageWheel(event) {
   if (!picture || !isZoomWheel(event)) return;
@@ -5651,6 +5842,13 @@ async function onKeydown(event) {
   if (picture && event.key === "0") {
     event.preventDefault();
     fitImage();
+    return;
+  }
+  // With no picture, at the document; nothing on the empty and error panels.
+  const docStep = { "+": 1, "=": 1, "-": -1, 0: 0 }[event.key];
+  if (docStep !== undefined && !els.content.hidden) {
+    event.preventDefault();
+    toast(`Zoom ${await stepDocZoom(docStep)}%`);
     return;
   }
 
@@ -6012,6 +6210,11 @@ async function main() {
     e.preventDefault(); // the form would submit and close Settings
     saveDocFont().catch(toast);
   });
+  // No toast from here: the row says the level.
+  els.docZoomRow.addEventListener("click", (e) => {
+    const step = e.target.closest("button")?.dataset.step;
+    if (step !== undefined) stepDocZoom(Number(step)).catch(console.error);
+  });
   for (const radio of els.reopenRadios) {
     radio.addEventListener("change", () => {
       if (!radio.checked) return;
@@ -6121,6 +6324,8 @@ async function main() {
   // Only WebKit on the Mac sends these; they tell a pinch from Control+wheel (isZoomWheel).
   for (const type of ["gesturestart", "gesturechange", "gestureend"])
     window.addEventListener(type, () => (lastGesture = performance.now()));
+  // Not passive, for the picture's reason: a zoom turn must not scroll the page too.
+  window.addEventListener("wheel", onDocWheel, { passive: false });
 
   els.tabs.addEventListener("pointerdown", onTabPointerDown);
   els.docName.addEventListener("pointerdown", onDocNamePointerDown);
@@ -6227,6 +6432,9 @@ async function main() {
   // stylesheet changes (measured), so they load once the theme's is in, still
   // before the first document renders.
   await showDocFont(settings.doc_font ?? "");
+  // Rust has cleaned it. No tab is open yet, so no offset is scaled: a
+  // restored session's were banked at this level.
+  showDocZoom(settings.doc_zoom ?? 100);
 
   /*
    * Addressed to this window only. `listen()` defaults to the `Any` target,
@@ -6270,6 +6478,7 @@ async function main() {
   await listen("open-mode-changed", (e) => showOpenMode(e.payload));
   await listen("diagram-colours-changed", (e) => showDiagramColours(e.payload));
   await listen("doc-font-changed", (e) => showDocFont(e.payload).catch(console.error));
+  await listen("doc-zoom-changed", (e) => showDocZoom(e.payload));
   // Broadcast on purpose: one install is happening to the whole app, so every
   // window's dialog should count along with it.
   await listen("update-progress", (e) => {

@@ -1105,7 +1105,8 @@ select option {
 }
 
 /* Not a .hint: a row with a live control in it should not be dimmed. */
-#update-check-row {
+#update-check-row,
+#doc-zoom-row {
   display: flex;
   align-items: center;
   gap: 0.625rem;
@@ -1689,6 +1690,12 @@ html.diagram-open {
 
 /* ---------- document metrics ---------- */
 
+/* The reader's document zoom, from `showDocZoom`; it sets `--content-pad` here as well, so the
+   padding stays the same on screen at every level. */
+#content {
+  zoom: var(--doc-zoom, 1);
+}
+
 .markdown-body {
   padding: var(--content-pad);
   padding-bottom: 6rem;
@@ -1702,11 +1709,15 @@ html.diagram-open {
   /* Once the margins together would pass the measure, the column widens to this. */
   --measure-wide: 100ch;
   /* The reading column, centred in the pane: the sides take what the measure leaves. The middle
-     term of the clamp jumps from below one measure to above the other within 0.025ch. */
+     term of the clamp jumps from below one measure to above the other within 0.025ch. The pane
+     is `100cqw` rather than `100%`: zoomed, the Mac's WebKit centred `%` and `ch` mixed in one
+     `calc()` wrongly (measured). `--cq-zoom` undoes the zoom where `cqw` scales with it. */
   padding-inline: max(
     var(--content-pad),
-    calc((100% - clamp(var(--measure), (100% - 2 * var(--measure)) * 1000 + var(--measure),
-                       var(--measure-wide))) / 2)
+    calc((100cqw / var(--cq-zoom, 1) - clamp(
+      var(--measure),
+      (100cqw / var(--cq-zoom, 1) - 2 * var(--measure)) * 1000 + var(--measure),
+      var(--measure-wide))) / 2)
   );
   /* The page never scrolls sideways: wide content nested in a list can pass the pane by a few
      px, which is cut; `clip`, unlike `hidden`, makes no scroll container. */
@@ -1723,7 +1734,7 @@ html.diagram-open {
 .markdown-body div.mermaid-diagram,
 .markdown-body img.block {
   width: max-content;
-  max-width: calc(100cqw - 2 * var(--content-pad));
+  max-width: calc(100cqw / var(--cq-zoom, 1) - 2 * var(--content-pad));
   margin-left: 50%;
   translate: -50%;
 }
@@ -2175,5 +2186,5 @@ html.diagram-open {
    of hiding behind them. `--bar-h` comes from measureBar(), since the bar
    grows when the tab strip shows. */
 .markdown-body :target {
-  scroll-margin-top: calc(var(--bar-h, 3rem) + var(--content-pad));
+  scroll-margin-top: calc(var(--bar-h, 3rem) / var(--doc-zoom, 1) + var(--content-pad));
 }

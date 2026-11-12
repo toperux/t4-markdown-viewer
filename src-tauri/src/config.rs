@@ -70,6 +70,30 @@ pub fn doc_font(raw: &str) -> String {
         .to_string()
 }
 
+/// The document zoom levels, in percent: the only ones a step lands on.
+pub const ZOOM_LADDER: [u32; 13] = [50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300];
+
+/// The document zoom as a level on the ladder, for the same reason as
+/// `reopen_mode`: the file is the user's to edit. Anything else is 100.
+pub fn doc_zoom(raw: u32) -> u32 {
+    if ZOOM_LADDER.contains(&raw) {
+        raw
+    } else {
+        100
+    }
+}
+
+/// One rung from `current`: up for `dir` above 0, down below it, staying put
+/// at either end. `dir` 0 is back to 100.
+pub fn doc_zoom_step(current: u32, dir: i32) -> u32 {
+    let mut ladder = ZOOM_LADDER.into_iter();
+    match dir.signum() {
+        0 => 100,
+        1 => ladder.find(|&z| z > current).unwrap_or(current),
+        _ => ladder.rev().find(|&z| z < current).unwrap_or(current),
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct Config {
@@ -97,6 +121,8 @@ pub struct Config {
     /// The font for the document's text, over every theme's; empty for the
     /// theme's own. See `DEFAULT_DOC_FONT` and `doc_font`.
     pub doc_font: String,
+    /// The document zoom in percent, one of `ZOOM_LADDER`. See `doc_zoom`.
+    pub doc_zoom: u32,
 }
 
 impl Default for Config {
@@ -111,6 +137,7 @@ impl Default for Config {
             sidebar_width: 0,
             diagram_colours: DEFAULT_DIAGRAM_COLOURS.to_string(),
             doc_font: DEFAULT_DOC_FONT.to_string(),
+            doc_zoom: 100,
         }
     }
 }
@@ -178,6 +205,7 @@ pub fn load() -> Config {
     cfg.folder_sort = folder_sort(&cfg.folder_sort).to_string();
     cfg.diagram_colours = diagram_colours(&cfg.diagram_colours).to_string();
     cfg.doc_font = doc_font(&cfg.doc_font);
+    cfg.doc_zoom = doc_zoom(cfg.doc_zoom);
     cfg
 }
 
@@ -372,6 +400,31 @@ mod tests {
         assert_eq!(old.doc_font, "Libron");
         let cleared: Config = serde_json::from_str(r#"{"doc_font":""}"#).unwrap();
         assert_eq!(cleared.doc_font, "");
+    }
+
+    /// Every config written before the setting existed starts at 100%, and so
+    /// does a hand-edited level off the ladder; a level on it is kept.
+    #[test]
+    fn doc_zoom_defaults_to_100_and_keeps_only_ladder_levels() {
+        let old: Config = serde_json::from_str(r#"{"theme":"dracula"}"#).unwrap();
+        assert_eq!(doc_zoom(old.doc_zoom), 100);
+        let off: Config = serde_json::from_str(r#"{"doc_zoom":137}"#).unwrap();
+        assert_eq!(doc_zoom(off.doc_zoom), 100);
+        for z in ZOOM_LADDER {
+            assert_eq!(doc_zoom(z), z);
+        }
+    }
+
+    #[test]
+    fn doc_zoom_step_moves_one_rung_and_stops_at_the_ends() {
+        assert_eq!(doc_zoom_step(100, 1), 110);
+        assert_eq!(doc_zoom_step(100, -1), 90);
+        assert_eq!(doc_zoom_step(67, -1), 50);
+        assert_eq!(doc_zoom_step(50, -1), 50);
+        assert_eq!(doc_zoom_step(250, 1), 300);
+        assert_eq!(doc_zoom_step(300, 1), 300);
+        assert_eq!(doc_zoom_step(250, 0), 100);
+        assert_eq!(doc_zoom_step(50, 0), 100);
     }
 
     /// A hand-edited `"Ask"` used to fall through every comparison and restore,

@@ -26,7 +26,20 @@ else {
     document.body.style.width = `${width}px`;
     try {
       mermaid.initialize(config);
-      const { svg, diagramType } = await mermaid.render(id, source);
+      const { svg: drawn, diagramType } = await mermaid.render(id, source);
+      // WebKit leaves an `em` in a label's position unscaled in a zoomed
+      // document, so the label slides off its box (measured). The same length
+      // in px, taken here where nothing is zoomed, zooms with the rest. Parsed
+      // as HTML, as the page does, and attached so the font sizes are computed.
+      const box = document.createElement("div");
+      document.body.append(box);
+      box.innerHTML = drawn;
+      for (const el of box.querySelectorAll("text, tspan"))
+        for (const name of ["x", "y", "dx", "dy"])
+          if (/^\s*-?[\d.]+em\s*$/.test(el.getAttribute(name)))
+            el.setAttribute(name, parseFloat(el.getAttribute(name)) * parseFloat(getComputedStyle(el).fontSize));
+      const svg = box.innerHTML;
+      box.remove();
       // A gantt's `click … href` links are not in its drawing: mermaid wires
       // them to the page it drew in, which is gone by the time the app has the
       // drawing. Its own map of them — URLs already made safe — goes back too.

@@ -53,6 +53,9 @@ Electron build starts around 150 MB.
 - **Reads like a page.** Text sits in a centred column about 90 characters wide,
   about 120 in a wide window; tables, diagrams and raster pictures spread wider
   when they need to, SVG pictures fit the column, and long shell commands wrap.
+- **Zoom.** `Ctrl++`, `Ctrl+-` and `Ctrl`+wheel, or a pinch on macOS, make
+  every document bigger or smaller, from 50% to 300%; `Ctrl+0` goes back to
+  100%.
 - **Live reload.** Edit in another editor; the view updates on save and keeps
   your scroll position.
 - **Tick task lists.** Click a checkbox and the `[ ]` in the file flips with it.
@@ -256,12 +259,15 @@ does).
 | `F8` | Next theme (`Shift+F8` for previous) |
 | `Ctrl+,` | Settings |
 | `Ctrl+Q` | Quit — every window, each sending where it stands first |
-| `Ctrl++` / `Ctrl+-` / `Ctrl+0` | Zoom in / out / fit — while a picture or a diagram is open |
+| `Ctrl++` / `Ctrl+-` / `Ctrl+0` | Zoom a document in / out / back to 100%; in / out / fit while a picture or a diagram is open |
 | `Enter` / `Space` | Open the focused diagram (full window) or picture (its own tab) |
 
 Mouse thumb buttons work for back/forward, and middle-click closes a tab. In
 the sidebar the same modifiers work as in a browser: `Ctrl`+click or
 middle-click for a new tab, `Shift`+click for a new window.
+
+Over a document, `Ctrl`+wheel zooms it a step at a time and keeps what is
+under the pointer in place.
 
 In a picture tab, `Ctrl`+wheel zooms about the cursor, dragging pans, and
 double-clicking zooms in on what you pointed at and then back out. Plain and
@@ -447,6 +453,20 @@ document. **Settings → Appearance → Document font** changes it for every win
 - Clear the field for each theme's own font.
 - On Windows, a font the app has used can be uninstalled only once the app is
   closed: the webview keeps its files open.
+
+### Document zoom
+
+`Ctrl++` and `Ctrl+-` make a document bigger or smaller, text, pictures and
+diagrams together, in steps from 50% to 300%; `Ctrl+0` goes back to 100%.
+`Ctrl`+wheel over a document does the same. On macOS the keys are `Cmd++`,
+`Cmd+-` and `Cmd+0`, and a pinch takes the wheel's place: `Control`+wheel
+scrolls there. The bar, the sidebar and the dialogs stay their size.
+
+- There is one level, for every document and every window, and it is kept
+  across restarts.
+- **Settings → Appearance → Document zoom** shows the level and changes it.
+- A picture in its own tab and a diagram opened full window keep their own
+  zoom.
 
 ## Building
 
