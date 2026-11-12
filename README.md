@@ -235,7 +235,8 @@ Repeat per extension if you want `.markdown`, `.mdown`, `.mkd`, `.mdtext`,
 
 On macOS, read `Cmd` for every `Ctrl` below, except `Ctrl+Tab`, which is
 `Control+Tab` there as in Safari (`Cmd+Tab` belongs to macOS), and
-`Ctrl`+wheel, which is `Control`+wheel or a pinch.
+`Ctrl`+wheel, which is a pinch (`Control`+wheel scrolls, as a plain wheel
+does).
 
 | Key | Action |
 | --- | --- |

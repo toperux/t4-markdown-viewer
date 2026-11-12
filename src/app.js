@@ -291,6 +291,19 @@ function cmdKey(event) {
   return isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey || event.metaKey;
 }
 
+/** When the last gesture event came, on the Mac: a pinch's wheel events each follow one. */
+let lastGesture = -Infinity;
+
+/** A wheel that zooms. On the Mac only a pinch, which WebKit sends as Ctrl+wheel; a real
+ *  Control+wheel has no gesture beside it and scrolls. A time, not a flag, so a lost
+ *  gestureend leaves nothing stuck. */
+function isZoomWheel(event) {
+  return event.ctrlKey && (!isMac || performance.now() - lastGesture <= 100);
+}
+
+/** Wheel zoom's rate per px of deltaY: a pinch on the Mac follows the fingers. */
+const WHEEL_ZOOM_RATE = isMac ? 0.01 : 0.002;
+
 /** On the Mac, Option+Left/Right in a text box move by a word, not Back/Forward. */
 function macWordKeys(event) {
   return (
@@ -1645,10 +1658,10 @@ function onDiagramClose() {
 }
 
 function onDiagramWheel(event) {
-  if (!zoomed || !event.ctrlKey) return;
+  if (!zoomed || !isZoomWheel(event)) return;
   event.preventDefault();
   const dy = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
-  zoomDiagram(zoomed.scale * Math.exp(-dy * 0.002), event.clientX, event.clientY);
+  zoomDiagram(zoomed.scale * Math.exp(-dy * WHEEL_ZOOM_RATE), event.clientX, event.clientY);
 }
 
 function onDiagramDblClick(event) {
@@ -5367,11 +5380,11 @@ const imagePan = dragPan(els.imageView, () => picture, rememberImage);
  * vertically and horizontally. Ctrl is the zoom, as everywhere else.
  */
 function onImageWheel(event) {
-  if (!picture || !event.ctrlKey) return;
+  if (!picture || !isZoomWheel(event)) return;
   event.preventDefault();
   // Some wheels report lines rather than pixels; scale them to the same feel.
   const dy = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
-  zoomBy(Math.exp(-dy * 0.002), event.clientX, event.clientY);
+  zoomBy(Math.exp(-dy * WHEEL_ZOOM_RATE), event.clientX, event.clientY);
 }
 
 /** The usual image-viewer double-click: in on what you pointed at, then back. */
@@ -6105,6 +6118,9 @@ async function main() {
   els.diagramDialog.addEventListener("keydown", onDiagramKeydown);
   els.diagramDialog.addEventListener("close", onDiagramClose);
   window.addEventListener("resize", onResize);
+  // Only WebKit on the Mac sends these; they tell a pinch from Control+wheel (isZoomWheel).
+  for (const type of ["gesturestart", "gesturechange", "gestureend"])
+    window.addEventListener(type, () => (lastGesture = performance.now()));
 
   els.tabs.addEventListener("pointerdown", onTabPointerDown);
   els.docName.addEventListener("pointerdown", onDocNamePointerDown);
