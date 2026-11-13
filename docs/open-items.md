@@ -76,6 +76,11 @@ section, so this file lists only what is still to do. Finished plans and reviews
   window opens. Reopen on a report from a macOS 13 user, before any
   mermaid bump (the release skill already holds 12.x back for this check), or when a macOS 13
   machine or VM is at hand.
+  *Added 2026-11-13 (`archive/plans/document-zoom.md`, triage): document zoom is unmeasured
+  there too. It rests on CSS `zoom` on the document, on `cqw` inside it (asked of the engine
+  at run time, `probeCqw`), and on `caretRangeFromPoint`; all were measured on macOS 26 only.
+  The same check covers it: zoom `examples/kitchen-sink.md` to 50% and 300% with the keys and
+  see the column stay centred and the top line stay put.*
 - [ ] **`.jsonc` isn't associated with the app on macOS** (added 2026-09-28, the Mac run,
   measured on the installed 1.7.1). Finder's *Open With* on a `.jsonc` doesn't list the app, and
   macOS offers no app for it at all. The bundle's `T4MarkdownViewer.Json` type lists `json` and
@@ -123,6 +128,10 @@ The next two came out of the session-restore walks (`archive/plans/session-resto
   window), so a size change keeps the line length and moves the edge with it.
   *Kept deferred by the owner 2026-10-24 (`archive/plans/real-deferred-items.md`, Q-E1): no one
   has asked, and all three walkers found it readable.*
+  *Kept deferred by the owner 2026-11-13 (`archive/plans/document-zoom.md`, triage): document
+  zoom now lets a reader make everything bigger or smaller, in every document and theme at
+  once, so a reader's own taste is covered. What is left here is a correction of one font
+  against one theme. Same trigger.*
 - [ ] **The JSON viewer's memory and layout cost per chunk** (added 2026-10-10, the find walks,
   `archive/plans/find-in-document.md` Q5). Each 512 KB chunk costs 400-500 MB of webview memory on
   Windows, with find open or closed; 17 chunks of a 9.75 MB file reached 9.7 GB on an 8 GB VM,
@@ -135,6 +144,12 @@ The next two came out of the session-restore walks (`archive/plans/session-resto
   rule behind the fold's `…` stopped style sharing; with it gone and commas and colons bare, 4
   chunks take 27 % less memory on Windows (−47 % style objects). Fold time is unchanged. Kept
   open by the owner for the rest of the memory cost and the fold time, same trigger.*
+  *Added 2026-11-13 (`archive/plans/document-zoom.md`, triage): a change of the document's
+  zoom re-lays the whole page out, so on a large JSON tab one step takes 1.1 s at 151 000
+  nodes and 2.3 s at 302 000 (Linux, measured); a wheel turn or a pinch of several steps
+  queues that much per step. Leaving such a tab after its level changed blocked the page
+  about 2.3 s at 302 000 nodes, against 0.65 s on 1.8.11 at 377 000 with no zoom (Linux,
+  measured; the cause, tearing down the zoomed tree, is reasoned). Same trigger.*
 - [ ] **On the Mac, find doesn't paint one match in a list item holding a nested list** (added
   2026-10-11, the Mac's reading-width walk). In `walk.md`'s "A long item: lorem…", which holds
   a nested list, the match is counted and stepped to ("1 of 8"), and the page scrolls to it,
@@ -198,6 +213,18 @@ The next two came out of the session-restore walks (`archive/plans/session-resto
   `window`); and macOS and Linux do the same on a cold start. A fix lets a booting window hold
   a list of payloads, and the page open them all. Reopen on a report, or at the next change to
   how a booting window receives its documents.
+
+- [ ] **On macOS, a pinch zooms a document in steps, not smoothly** (added 2026-11-13,
+  `archive/plans/document-zoom.md`, the walk). A pinch walks the same 13 levels as the keys,
+  one per 20 px of the pinch's wheel, each a full re-layout: 16 pinches by the owner's hand
+  moved 3 to 6 levels each (100% to 150%, 110% to 300%), about one step fewer than the
+  fingers asked for, and the owner found it "chunky or not smooth". Shipped as built by the
+  owner's ruling, with a smooth pinch to follow the release. A way to start from: scale the
+  page with the fingers during the pinch (a transform, no re-layout) and settle on a level
+  when it ends. Unmeasured: blur or stutter on a large document, and the snap at the end
+  unless a level off the ladder may be saved. The place-keeping of a wheel step
+  (`zoomAnchor`) is replaced on that path, and with it the creep on empty space (*Accepted
+  limits*). Reopen as the next change after the document-zoom release.
 
 ## First runs after the single-instance 2.5.5 bump
 
@@ -322,6 +349,9 @@ as it is found.
   indent and shifts it back, again on resize.
   *Accepted 2026-10-11. Reopen on a report of nested wide content looking off-centre or cut, or
   with the next layout work.*
+  *Added 2026-11-13 (`archive/plans/document-zoom.md`, triage): zoomed to 300% in a 700 px
+  window with the sidebar open, a table nested in a list passed the pane's edge by 2 px and
+  was cut the same way (Linux, measured). Same trigger.*
 - [ ] **A command in an unlabelled code block scrolls instead of wrapping** (added 2026-10-11,
   `archive/plans/reading-width-centred.md` M2). Only blocks in a shell language (`sh`, `bash`, `shell`,
   `zsh`, `fish`, `console`, `shellsession`, `powershell`, `ps1`, `pwsh`, `cmd`, `bat`, `batch`)
@@ -451,3 +481,73 @@ as it is found.
   the two-monitor walk: `innerWidth`×`innerHeight` changed while its outer rect stayed 1116×899.
   Nothing in the tear-off change touches the source window; cause not traced.
   *Accepted 2026-10-25. Reopen on a report of a window changing size by itself.*
+- [ ] **A zoom step with no text to hold lands a line or two off** (added 2026-11-13,
+  `archive/plans/document-zoom.md`, triage). A change of the document's zoom keeps the line
+  of text at the pointer (a wheel step) or at the top of the view (a key) where it was, to
+  under 1 px (measured on all three). Where that point has no text, the page holds a point of
+  the element there instead, and text re-wrapping around it moves the view: a step made from
+  Settings (up to 4.2 px), under the tab switcher (up to 10.1 px over a tall table), on a
+  heading's *Copy section* button (up to 6.6 px) or in a table's white space on Linux (up to
+  6.4 px), all measured. The plan's bound is two lines of text.
+  *Accepted 2026-11-13. Reopen on a report of the page jumping on a zoom step.*
+- [ ] **On macOS and Linux, a burst of zoom steps on empty space creeps a few px** (added
+  2026-11-13, `archive/plans/document-zoom.md`, the re-walk). With the pointer where there is
+  no text (beside a heading's text, on its button), each step leaves the page about 0.4 px
+  lower, always the same way: after four steps in and four out the heading ended 3 px
+  (Linux) and 4 px (macOS) from its start, after eight and eight 2 to 5 px and 6 px; Windows
+  ends at 0.00 (all measured). On text the same loss is made up by the next step (`zoomHeld`;
+  worst 0.89 px over eight steps). Reasoned, not measured: WebKit rounds the page's scroll
+  offset down, WebView2 to the nearest px. A fix to start from: round the scroll on that path.
+  *Accepted 2026-11-13. Reopen with the smooth pinch on macOS (*Deferred*), or on a report.*
+- [ ] **A tab not on screen comes back near its place, not on it, after a change of zoom**
+  (added 2026-11-13, `archive/plans/document-zoom.md`, triage). A document that isn't shown
+  isn't laid out, so its saved offset is multiplied by the ratio of the two levels, and text
+  that re-wraps moves under it: 32 to 35 px in the walk (a hidden tab, a tab reopened with
+  `Ctrl+Shift+T`, a document left for a picture tab), 16 to 254 px in the trials on long
+  documents (measured).
+  *Accepted 2026-11-13. Reopen on a report of a tab coming back at the wrong place after
+  zooming.*
+- [ ] **A change of zoom just as a document is shown can land it off** (added 2026-11-13,
+  `archive/plans/document-zoom.md`, triage). A level that changes in the frame or two between
+  a document being drawn and its place being restored restores the old level's offset: 24 ms
+  after a tab switch the line ended 28.5 px off (Windows, measured); at 146 ms and later it
+  held to 0.5 px (macOS). It needs a step from another window, or a key within a frame of the
+  switch. Seen beside it, on Windows: switching back to a document with pictures at a zoomed
+  level, the page read 891 px off at 23 ms and was exact from 102 ms on, about once in three
+  runs, on the build before the walk's fixes too and not at 100%; whether it shows on screen
+  is unmeasured.
+  *Accepted 2026-11-13. Reopen on a report of a document landing off, or flashing another
+  place, after a tab switch while zoomed.*
+- [ ] **A session offered on the empty panel keeps the old zoom's places** (added 2026-11-13,
+  `archive/plans/document-zoom.md`, triage; reasoned, not walked). The tabs behind *Reopen*
+  are not open in any window, so a change of level before the offer is taken doesn't scale
+  their saved offsets, and they come back as far off as the two levels differ.
+  *Accepted 2026-11-13. Reopen on a report of reopened tabs landing off after zooming.*
+- [ ] **On Linux, a tab reopened after zoom steps once read as at its top** (added 2026-11-13,
+  `archive/plans/document-zoom.md`, the walk). In the first walk, 3 of 7 tries of
+  `Ctrl+Shift+T` after three steps, with a 3 MB JSON tab on screen, read scroll offset 0
+  with the saved offset untouched; 0 of 91 tries since, on 1.8.11 and on the walk's build.
+  Shown since: after the key the page is blocked while the JSON tab is torn down (2.3 s at
+  302 000 nodes), the restore comes one frame later, and a reading taken at 2.0 s falls just
+  before it, 10 of 10; a second later the page is on its line. Not explained: the first
+  walk's tab had 151 000 nodes, where the block is 0.45 s.
+  *Accepted 2026-11-13. Reopen on a report of a reopened tab at its top.*
+- [ ] **Document zoom is unwalked with some real input devices** (added 2026-11-13,
+  `archive/plans/document-zoom.md`, triage). Not tried: a real mouse wheel on a scaled
+  Windows display; a touchpad pinch on Windows and Linux, which zooms wherever the webview
+  reports it as `Ctrl`+wheel; and on macOS, by hand, a pinch in the full-window diagram view
+  and `Control`+wheel (both pass with scripted events; the owner's hand tried the document
+  and a picture).
+  *Accepted 2026-11-13. Reopen on a report, or when the hardware is at hand.*
+- [ ] **A reader's own theme that turns the reading width off may get a limit back when
+  zoomed out** (added 2026-11-13, `archive/plans/document-zoom.md`, triage; reasoned, not
+  run). `themes/README.md` turns the measure off with `100vw`; on Windows and macOS `vw`
+  scales inside the zoomed document, so below 100% the column may stop short of the pane. No
+  bundled theme sets a measure.
+  *Accepted 2026-11-13. Reopen on a report from someone with a theme of their own.*
+- [ ] **A few diagram labels sit a little off at 300%** (added 2026-11-13,
+  `archive/plans/document-zoom.md`, Task 1c and the walk). A label anchored at its left edge
+  sits up to 7.5 px left of its place on Linux and 2 px on Windows; a pie's label 1.3 px up
+  or down on Windows, others about 1 px on Linux (measured). At 100% every label is where
+  1.8.11 put it.
+  *Accepted 2026-11-13. Reopen at the next mermaid update, or on a report.*

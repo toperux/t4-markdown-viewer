@@ -1652,3 +1652,46 @@ tooling; listed so nobody rediscovers them.
   through a diagram with a note, where mermaid puts the note in the drawing; the reorder leaves
   it there.
   *Kept 2026-10-25: moving it would change what's drawn on top, and it reads as it did.*
+- [x] **On macOS at 300%, find's next match in a wide table can sit up to 3 px off the box's
+  centre** (2026-11-13, `archive/plans/document-zoom.md`, the walk). 2.7 px in a wide table
+  at 700 px and 300%, against the plan's 2 px; 0.7 to 1.9 px in the other cases, and Windows
+  and Linux pass (measured). Reasoned: the Mac's WebKit keeps a box's sideways scroll in
+  whole document px, and one is 3 window px at 300%.
+  *Kept 2026-11-13: the match is in view and the difference can't be seen; rounding the
+  scroll would make Windows, exact today, up to 1.5 px off.*
+- [x] **WebKit doesn't draw body text smaller than 9 px** (2026-11-13,
+  `archive/plans/document-zoom.md`, Task 1). At 50% zoom the text stops shrinking at 9 px on
+  Linux (measured) while the layout goes on to half size.
+  *Kept 2026-11-13: the engine's own floor, and only at the two lowest levels.*
+- [x] **On Linux at 150%, a box that steps out of the reading column scrolls 1 px sideways**
+  (2026-11-13, `archive/plans/document-zoom.md`, Task 1b and the walk). A wide table, diagram
+  or picture; measured.
+  *Kept 2026-11-13: one px of rounding in the engine, with nothing cut off.*
+- [x] **A diagram wider than the pane starts at the pane's width when zoomed, then scrolls in
+  its box** (2026-11-13, `archive/plans/document-zoom.md`, Task 1c). Zoomed in, it grows past
+  the pane and its own box scrolls, as a wide table's does.
+  *Kept 2026-11-13: the whole drawing stays reachable, and the full-window view is one click
+  away.*
+- [x] **The full-window diagram view and a picture keep their own zoom** (2026-11-13,
+  `archive/plans/document-zoom.md`, ruling 4). The document's level doesn't reach them, and
+  the same keys there zoom the picture or the diagram, as before.
+  *Kept 2026-11-13: by design; each has a zoom of its own that fits it to the window.*
+- [x] **A zoom step holds the top of the line under the pointer, not the point itself**
+  (2026-11-13, `archive/plans/document-zoom.md`, the walk). Within the line the text grows
+  around its top, so the pointer ends a little lower in the same line. And the step that
+  makes up what the last one lost (`zoomHeld`) can take another line for the held one when a
+  different document or a re-wrap has exactly the same height at the same scroll offset, or
+  when the pointer moved sideways onto text of another size on the same row: that line is
+  moved up to about 3 px, once (reasoned by the review, not measured).
+  *Kept 2026-11-13: by design, and the two mix-ups need a coincidence and don't add up.*
+- [x] **A few diagrams differ from 1.8.11 in anti-aliasing** (2026-11-13,
+  `archive/plans/document-zoom.md`, the walk). A drawing's `em` lengths are rewritten to px
+  when it is drawn, so its labels keep their places under zoom. Every label sits where it
+  did, within 0.5 px, but a class diagram on Windows and the state and gantt drawings in the
+  Mac's full-window view differ in a few hundred edge pixels (measured).
+  *Kept 2026-11-13: not visible by eye.*
+- [x] **Three small choices in document zoom** (2026-11-13, `archive/plans/document-zoom.md`,
+  the build). A step asked for at 50% or 300% shows the toast again with the same level. A
+  window with no tab sends no session report on a change of level. `Ctrl`+wheel over the bar
+  or the sidebar scrolls as before; only the document's pane takes it as zoom.
+  *Kept 2026-11-13: each is the simplest behaviour that tells the reader what happened.*
