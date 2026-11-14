@@ -13,9 +13,15 @@ mod watch;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+#[cfg(target_os = "linux")]
+use std::ffi::{OsStr, OsString};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "linux")]
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+#[cfg(target_os = "linux")]
+use std::sync::OnceLock;
 use std::sync::{Condvar, Mutex};
 use std::time::Duration;
 use tauri::{
@@ -1891,8 +1897,8 @@ fn own_page(url: &Url) -> bool {
 /// held, else none. linuxdeploy's gtk hook used to export it (tauri#8541, a
 /// crash on Wayland), and native Wayland ignores the app's window positions —
 /// a restored frame, a torn-off tab's window; the hook embedded in
-/// tauri-bundler 2.10 no longer does. The programs the app starts inherit it,
-/// as they did under the old hook.
+/// tauri-bundler 2.10 no longer does. A program the app starts gets back what
+/// the variable held before — see `as_host`.
 #[cfg(target_os = "linux")]
 fn gdk_backend(in_appimage: bool) -> Option<&'static str> {
     in_appimage.then_some("x11")
@@ -1916,12 +1922,88 @@ fn disable_dmabuf(
     !user_set && x11 && wayland
 }
 
+/// What `main` overwrote in the app's own environment at startup, each name
+/// with what it held just before, so a program the app starts gets it back.
+#[cfg(target_os = "linux")]
+static OVERWRITTEN: OnceLock<Vec<(&str, Option<OsString>)>> = OnceLock::new();
+
+/// `value`, a `:`-separated list, without the entries under `appdir`: `None`
+/// when it has none (leave the variable alone), `Some(None)` when nothing else
+/// is left (unset it). Empty entries go too: the launcher's own trailing `:`
+/// would otherwise mean "the current folder".
+#[cfg(target_os = "linux")]
+fn outside(appdir: &Path, value: &OsStr) -> Option<Option<OsString>> {
+    let entries: Vec<_> = std::env::split_paths(value).collect();
+    if !entries.iter().any(|p| p.starts_with(appdir)) {
+        return None;
+    }
+    let kept: Vec<_> = entries
+        .into_iter()
+        .filter(|p| !p.as_os_str().is_empty() && !p.starts_with(appdir))
+        .collect();
+    Some(if kept.is_empty() {
+        None
+    } else {
+        std::env::join_paths(kept).ok()
+    })
+}
+
+/// What to change in `vars`, the environment an AppImage gave this app, to
+/// hand a program the host's: each name with its new value, `None` to unset.
+/// `own` is what the app itself overwrote at startup, with what each held.
+/// `APPIMAGE`, `ARGV0` and `OWD` name no mount path but tell the program it is
+/// this AppImage, and the launcher forces `GTK_THEME`, so those four go.
+#[cfg(target_os = "linux")]
+fn host_env(
+    appdir: &Path,
+    vars: impl Iterator<Item = (OsString, OsString)>,
+    own: &[(&str, Option<OsString>)],
+) -> Vec<(OsString, Option<OsString>)> {
+    let mut changes: Vec<_> = vars
+        .filter_map(|(name, value)| {
+            if ["GTK_THEME", "APPIMAGE", "ARGV0", "OWD"].contains(&name.to_str().unwrap_or("")) {
+                Some((name, None))
+            } else {
+                outside(appdir, &value).map(|v| (name, v))
+            }
+        })
+        .collect();
+    changes.extend(own.iter().map(|(name, value)| (name.into(), value.clone())));
+    changes
+}
+
+/// Give `cmd` the host's environment and a folder outside the mount to run in,
+/// inside an AppImage; else leave it. The app runs in `<mount>/usr`, and a
+/// program left there would be in a folder that goes when the app does.
+#[cfg(target_os = "linux")]
+fn as_host(cmd: &mut Command) {
+    let Some(appdir) = std::env::var_os("APPDIR") else {
+        return;
+    };
+    let own = OVERWRITTEN.get().map(Vec::as_slice).unwrap_or_default();
+    for (name, value) in host_env(Path::new(&appdir), std::env::vars_os(), own) {
+        match value {
+            Some(value) => cmd.env(name, value),
+            None => cmd.env_remove(name),
+        };
+    }
+    let dir = [std::env::var_os("OWD"), std::env::var_os("HOME")]
+        .into_iter()
+        .flatten()
+        .map(PathBuf::from)
+        .find(|d| d.is_dir())
+        .unwrap_or_else(|| PathBuf::from("/"));
+    cmd.current_dir(dir);
+}
+
 fn main() {
     // Before anything starts a thread: `set_var` must not race another
     // thread's read. A block, since `#[cfg]` can't sit on an `if`.
     #[cfg(target_os = "linux")]
     {
+        let mut overwritten = Vec::new();
         if let Some(backend) = gdk_backend(std::env::var_os("APPIMAGE").is_some()) {
+            overwritten.push(("GDK_BACKEND", std::env::var_os("GDK_BACKEND")));
             std::env::set_var("GDK_BACKEND", backend);
         }
         let backend = std::env::var("GDK_BACKEND").ok();
@@ -1932,8 +2014,13 @@ fn main() {
             session_type.as_deref(),
             std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_some(),
         ) {
+            overwritten.push((
+                "WEBKIT_DISABLE_DMABUF_RENDERER",
+                std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER"),
+            ));
             std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
         }
+        let _ = OVERWRITTEN.set(overwritten);
     }
     let builder = tauri::Builder::default()
         // Must be registered first: plugins run in registration order, and this
@@ -2158,6 +2245,26 @@ fn main() {
                     }
                 }
             }
+            // An update restart inside an AppImage: Tauri's own would start the
+            // new image with this one's environment, whose library path names
+            // the old mount, and on Ubuntu 26.04 the new image's launcher then
+            // fails before the app starts. So the app does it itself, as Tauri
+            // would next (`app.rs`, `process::restart`), with the host's.
+            #[cfg(target_os = "linux")]
+            if matches!(_event, tauri::RunEvent::Exit) && update::RESTARTING.load(Ordering::SeqCst)
+            {
+                let env = _app.env();
+                if let Some(appimage) = env.appimage {
+                    _app.cleanup_before_exit();
+                    let mut cmd = Command::new(appimage);
+                    cmd.args(env.args_os.into_iter().skip(1));
+                    as_host(&mut cmd);
+                    if let Err(e) = cmd.spawn() {
+                        eprintln!("failed to restart into the update: {e}");
+                    }
+                    std::process::exit(0);
+                }
+            }
         });
 }
 
@@ -2183,6 +2290,73 @@ mod tests {
         assert!(!disable_dmabuf(Some("x11"), false, Some("x11"), false));
         assert!(disable_dmabuf(Some("x11"), false, Some("wayland"), false));
         assert!(!disable_dmabuf(Some("x11"), true, Some("wayland"), true));
+    }
+
+    /// Entries under the mount go, by whole components, and empty ones with
+    /// them; a value with none under it is left alone, not split and joined.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn outside_drops_only_the_entries_under_the_mount() {
+        let mount = Path::new("/tmp/.mount_t4abc");
+        let out = |v: &str| outside(mount, OsStr::new(v));
+        assert_eq!(
+            out("/tmp/.mount_t4abc/usr/lib/:/opt/userlib:/tmp/.mount_t4abc//usr/lib:/tmp/.mount_t4abc-other/lib"),
+            Some(Some(OsString::from("/opt/userlib:/tmp/.mount_t4abc-other/lib")))
+        );
+        // The launcher's own list, with nothing of the user's after it.
+        assert_eq!(
+            out("/tmp/.mount_t4abc/usr/lib/:/tmp/.mount_t4abc/usr/lib/x86_64-linux-gnu/:"),
+            Some(None)
+        );
+        assert_eq!(out("/usr/bin::/bin"), None);
+        assert_eq!(out(""), None);
+        assert_eq!(out("unix:path=/run/user/1000/bus"), None);
+    }
+
+    /// The measured AppImage environment in small: what names the mount goes,
+    /// the four names the launcher adds go, the app's own two go back to what
+    /// they were, and nothing else is touched.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn host_env_gives_back_the_hosts_environment() {
+        let m = "/tmp/.mount_t4abc";
+        let vars = [
+            ("APPDIR", m.to_string()),
+            ("PYTHONHOME", format!("{m}/usr/")),
+            ("PATH", format!("{m}/usr/bin/:/usr/local/bin:/usr/bin")),
+            ("XDG_DATA_DIRS", format!("{m}/usr/share/:/usr/share")),
+            ("GTK_THEME", "Adwaita:dark".to_string()),
+            ("APPIMAGE", "/home/u/T4.AppImage".to_string()),
+            ("ARGV0", "./T4.AppImage".to_string()),
+            ("OWD", "/home/u".to_string()),
+            ("HOME", "/home/u".to_string()),
+            ("EMPTY", String::new()),
+            ("GDK_BACKEND", "x11".to_string()),
+            ("WEBKIT_DISABLE_DMABUF_RENDERER", "1".to_string()),
+        ]
+        .map(|(n, v)| (OsString::from(n), OsString::from(v)));
+        let own = [
+            ("GDK_BACKEND", Some(OsString::from("wayland"))),
+            ("WEBKIT_DISABLE_DMABUF_RENDERER", None),
+        ];
+        let changes = host_env(Path::new(m), vars.into_iter(), &own);
+        let to = |v: &str| Some(OsString::from(v));
+        let expected: HashMap<OsString, Option<OsString>> = [
+            ("APPDIR", None),
+            ("PYTHONHOME", None),
+            ("PATH", to("/usr/local/bin:/usr/bin")),
+            ("XDG_DATA_DIRS", to("/usr/share")),
+            ("GTK_THEME", None),
+            ("APPIMAGE", None),
+            ("ARGV0", None),
+            ("OWD", None),
+            ("GDK_BACKEND", to("wayland")),
+            ("WEBKIT_DISABLE_DMABUF_RENDERER", None),
+        ]
+        .into_iter()
+        .map(|(n, v)| (OsString::from(n), v))
+        .collect();
+        assert_eq!(changes.into_iter().collect::<HashMap<_, _>>(), expected);
     }
 
     /// A torn-off window stays inside the work area, each axis on its own, and
