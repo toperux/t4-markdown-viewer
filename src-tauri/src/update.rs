@@ -116,6 +116,11 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
 
 static INSTALLING: AtomicBool = AtomicBool::new(false);
 
+/// Set just before the restart into an installed update, for `main`'s `.run`
+/// callback: inside an AppImage the app starts the new process itself, with
+/// the host's environment, in place of Tauri's restart.
+pub(crate) static RESTARTING: AtomicBool = AtomicBool::new(false);
+
 /// The updater, with a limit on how long any one wait may take. Per read, not
 /// in total: a stalled check or download fails instead of holding the update
 /// lock — and every later check — for good, while a slow link that keeps
@@ -194,6 +199,7 @@ async fn install(app: AppHandle) -> Result<(), String> {
         e.to_string()
     })?;
 
+    RESTARTING.store(true, Ordering::SeqCst);
     app.restart()
 }
 
