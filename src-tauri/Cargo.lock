@@ -4278,6 +4278,7 @@ dependencies = [
  "dirs",
  "gtk",
  "notify",
+ "open",
  "serde",
  "serde_json",
  "tauri",

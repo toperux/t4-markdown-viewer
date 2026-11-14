@@ -3,7 +3,6 @@
 const { invoke, convertFileSrc } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 const { open: openNativeDialog } = window.__TAURI__.dialog;
-const { openUrl } = window.__TAURI__.opener;
 const appWindow = window.__TAURI__.window.getCurrentWindow();
 
 const els = {
@@ -4605,7 +4604,7 @@ async function runUpdate() {
   if (!info) return;
 
   if (!info.installable) {
-    openUrl(info.release_url).catch(toast);
+    invoke("open_url", { url: info.release_url }).catch(toast);
     return;
   }
 
@@ -5355,7 +5354,7 @@ function onLinkClick(event) {
     return;
   }
 
-  openUrl(href).catch(toast);
+  invoke("open_url", { url: href }).catch(toast);
 }
 
 /**
@@ -6256,7 +6255,7 @@ async function main() {
   });
   els.updateNow.addEventListener("click", runUpdate);
   els.updateNotesBtn.addEventListener("click", () => {
-    if (state.update) openUrl(state.update.release_url).catch(toast);
+    if (state.update) invoke("open_url", { url: state.update.release_url }).catch(toast);
   });
 
   // The picker's value is a family, not a theme: keep the side you chose.

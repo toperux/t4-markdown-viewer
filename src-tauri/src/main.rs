@@ -1505,6 +1505,53 @@ fn reveal_path(app: AppHandle, path: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// The links `open_url` opens: the four the opener plugin's default scope
+/// allowed, matched as it did, by prefix and with case.
+fn opens(url: &str) -> bool {
+    ["http://", "https://", "mailto:", "tel:"]
+        .into_iter()
+        .any(|p| url.starts_with(p))
+}
+
+/// Open a web or mail link in the system's program for it. The app's own, not
+/// the opener plugin's: inside an AppImage the program has to be started with
+/// the host's environment (`as_host`), and the plugin's cannot be given one.
+/// There, the program that starts is waited for, so it does not stay behind
+/// defunct, and has a process group of its own, so a `Ctrl+C` meant for the
+/// app in its terminal does not reach the browser.
+#[tauri::command(async)]
+fn open_url(app: AppHandle, url: String) -> Result<(), String> {
+    if !opens(&url) {
+        return Err(format!("Not a web or mail link: {url}"));
+    }
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("APPDIR").is_some() {
+        use std::os::unix::process::CommandExt;
+        use std::process::Stdio;
+        let mut last = String::new();
+        for mut cmd in open::commands(&url) {
+            as_host(&mut cmd);
+            cmd.stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .process_group(0);
+            match cmd.spawn() {
+                Ok(mut child) => {
+                    std::thread::spawn(move || {
+                        let _ = child.wait();
+                    });
+                    return Ok(());
+                }
+                Err(e) => last = e.to_string(),
+            }
+        }
+        return Err(last);
+    }
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
 /* ---------------- app ---------------- */
 
 /// Show a file. Every way a document can arrive — argv at startup, a second
@@ -2073,6 +2120,7 @@ fn main() {
             set_sidebar_width,
             set_last_folder,
             reveal_path,
+            open_url,
             quit_app,
             update::check_for_update,
             update::install_update,
@@ -2357,6 +2405,18 @@ mod tests {
         .map(|(n, v)| (OsString::from(n), v))
         .collect();
         assert_eq!(changes.into_iter().collect::<HashMap<_, _>>(), expected);
+    }
+
+    /// Only the four the plugin allowed, as written: nothing a launcher could
+    /// read as an option, and nothing that runs or reads a file.
+    #[test]
+    fn opens_only_web_and_mail_links() {
+        for url in ["http://x", "https://x", "mailto:a@b", "tel:+1"] {
+            assert!(opens(url), "{url}");
+        }
+        for url in ["HTTP://x", "file:///x", "javascript:x", "ftp://x", "-x", ""] {
+            assert!(!opens(url), "{url}");
+        }
     }
 
     /// A torn-off window stays inside the work area, each axis on its own, and

@@ -45,6 +45,10 @@ windows-sys = { version = "0.61", features = [
 # through tauri; this only makes it direct.
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
+# The launchers a link is opened with, started by hand inside an AppImage —
+# see `open_url`. Already in the tree through the opener plugin; this only
+# makes it direct.
+open = "5"
 
 [profile.release]
 opt-level = "s"
