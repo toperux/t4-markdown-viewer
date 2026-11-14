@@ -1,7 +1,7 @@
 # AppImage Child Environment Plan
 
-> **Status (2026-11-14):** plan review done: six passes, the sixth found nothing to change. The
-> owner's four rulings are in. Not approved; nothing is built.
+> **Status (2026-11-14):** built on the owner's go (`1e50240`, `455d473`), change-reviewed (one
+> pass, no findings) and walked (*Walk results*). Triage is next; nothing is pushed to `main`.
 
 **Goal:** on the Linux AppImage, the two programs the app starts get the host's environment, not
 the bundle's, so that:
@@ -391,6 +391,61 @@ Before every update run, a fresh copy of the walk image: the update overwrites t
 | V11 | Linux | The walk image started with `PATH=<folder>`, a scratch folder of symlinks to everything in `/usr/bin` except `xdg-open` (the image needs `bash` and its hook's tools from `PATH` to start at all, and `xdg-open` and `gio` share a folder); the stub's desktop file names it by full path; click an `https` link. | The handler gets the URL, through `gio open`; no variable in its environment names the mount. |
 | V12 | Linux | As V11, the folder also without `gio`, `gnome-open` and `kde-open`; click an `https` link. | A toast with the error; nothing is started. |
 | V9 | Windows, macOS | A debug build: an `https` link and a `mailto` link. | The browser and the mail program open, as on 1.9.1. |
+
+## Walk results (2026-11-14)
+
+The walk image: run 43580778154 on `ubuntu-22.04`, the first compile of the Linux-only code
+(format, clippy, 222 tests). Linux: Ubuntu 26.04.1 under Xvfb. macOS 26.7.1. Windows 11.
+
+| Check | Result |
+| --- | --- |
+| Gates | Linux: pass at `1e50240` (221 tests) and at `455d473` (222). macOS: pass (218). |
+| V0 | Pass, all five: 1.9.0; `#! /usr/bin/env bash`; `LIBSYSTEMD_252`; `env true` exits 1 with "version LIBSYSTEMD_254 not found"; no `libwayland-client`. |
+| V1 | Pass, 3 of 3: back after 8.1, 6.3 and 5.1 s from the click, download included; one process; the file is 1.9.1; the tab is back (through the restart's arguments, the reopen setting being "Ask"); nothing names the old mount; `APPIMAGE` and `OWD` as expected. |
+| V1 by hand | By the owner on the VM's GNOME desktop, added after V4's control did not hold. Released 1.8.11: the app closed and did not come back; the terminal shows `/usr/bin/env: <mount>/usr/lib/libsystemd.so.0: version 'LIBSYSTEMD_254' not found`; no process left, the file is 1.9.1. The walk image: it came back; one process; `APPIMAGE` the image file, `OWD` the terminal's folder; nothing names the old mount. |
+| V2 | Pass, 3 of 3 (6.1, 5.1, 6.7 s): the new mount's entries followed by `/opt/userlib`. |
+| V3 | Pass but for one difference not written down beforehand: `XDG_DATA_DIRS` (below). The dummy `WAYLAND_DISPLAY` rendered. Both links reached the stub; working folder as the control's; `python3` exit 0; no defunct child; no variable names a mount; the six variables absent. The same with `GDK_BACKEND=wayland,x11` and `/opt/userlib`, both equal to the control's. |
+| V4 | Not walkable from the VM's session: snap Firefox refuses to start outside the desktop session's cgroup, with or without the app. Walked by the owner by hand on the VM's GNOME desktop (Firefox snap 158.0-2): the walk image opened example.com; the new Firefox process has no value naming a mount, and `APPIMAGE`, `APPDIR`, `ARGV0`, `OWD` and `GTK_THEME` are absent. **The control did not hold: the released 1.9.1 opened Firefox too** (below). |
+| V5 | Pass: the stub got `…/releases/latest`. |
+| V6 | Pass: the toast as written; nothing started. |
+| V7 | Pass. One defunct `tokio-rt-worker` child is left; a debug build of 1.9.1 (`c55db94`) leaves the same, so it is not from this change. |
+| V8 | Yes: the click sends `FileManager1.ShowItems` with the `file://` URI, and D-Bus started Nautilus. |
+| V9 | Windows: `https` opened Edge; `mailto` reached Windows' app chooser, new Outlook listed; `ftp` gave the toast. macOS: `https` opened Safari, `mailto` a Mail draft, both seen by the owner; `ftp` gave the toast. The release-notes button was run on neither (no update offered in a debug build). |
+| V10 | Pass, both ways: the app ended, the handler kept running in its own process group. |
+| V11 | Pass: the stub got the URL through `gio open`; nothing names the mount. |
+| V12 | Pass: toast "No such file or directory (os error 2)"; nothing started. |
+
+Found by the walk:
+
+- **On the owner's real desktop, 1.9.1 opens a link in snap Firefox**, against *Fault 2* above,
+  which was measured under Xvfb with isolated XDG folders and a stub handler. There Firefox was
+  started by `xdg-open` itself and got 14 values naming the mount, with `APPIMAGE`, `ARGV0`,
+  `OWD` and `GTK_THEME=Adwaita:dark`; the snap wrapper rewrites `LD_LIBRARY_PATH`. So "a link
+  opens nothing" does not hold for a stock Ubuntu 26.04 desktop. Traced (`sh -x` on `xdg-open`,
+  1.9.1, the real session's desktop variables, a stub as the default handler):
+  - `gio help open` fails on the bundled glib, so `xdg-open` goes to its generic path;
+  - there `xdg-mime query default x-scheme-handler/https` comes back empty, `tr`, `basename`,
+    `cut` and `head` all failing on `LIBSYSTEMD_254`. The user's default handler is never looked
+    up; the stub got nothing;
+  - `xdg-open` then tries its built-in list, `x-www-browser`, `firefox`, … `w3m`. On a stock
+    install `x-www-browser` is the Firefox snap, which starts.
+  - So from 1.9.1 or older a link opens in `x-www-browser`, never in the chosen default, and
+    opens nothing where no name on that list can start. Under Xvfb none can: the snap refuses
+    that session (*reasoned* from `xdg-open`'s exit 3; not traced).
+  - *Reasoned:* a `mailto` link goes to that browser too, not the mail program; a default
+    browser that is a Flatpak, or a system with no `x-www-browser`, gets nothing.
+- **`XDG_DATA_DIRS` gets `/usr/share` in front of the shell's own value**, not only when the
+  shell had none: the launcher's hook adds it either way, and only the mount's entries are
+  taken out. The app cannot know what the value was. Whether the changed order matters to a
+  started program is not measured.
+- **The old mount stays until the new app exits** (6 of 6). The new image's FUSE process inherits
+  the old app's descriptors, among them the one the AppImage runtime keeps open on the mount
+  (fd 1023), so the old mount, its FUSE process and the deleted 1.9.0 file stay. A link's handler
+  had descriptors 0–2 only. Reasoned: Tauri's own restart would pass the same.
+- **A relative file name does not open from an AppImage**, measured on the walk image and on the
+  released 1.9.1: `<image> notes.md` shows the empty screen with no message; with the app
+  running, a second start exits 0 and the window does not change. An absolute path works in
+  both. Not from this change.
 
 ## Limits to put to the owner at triage
 

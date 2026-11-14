@@ -1138,6 +1138,30 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
     installed the `.app.tar.gz` (the same self-signed cert, `53effb03…`) and restarted on its own
     into 1.7.4 with both windows, the zoomed one still zoomed; no Gatekeeper or folder prompt.
     The AppImage was not walked.*
+- [x] **The restart after an update finds no single-instance lock** (added 2026-11-10,
+  `archive/plans/cargo-group-bump-pr23.md`, triage; moved from `open-items.md`'s *First runs
+  after the single-instance 2.5.5 bump*, 2026-11-14). tauri-plugin-single-instance 2.5.5
+  releases its lock in Tauri's `cleanup_before_exit`, no longer in its own `RunEvent::Exit`
+  handler. After an update installs, the app restarts itself (`update.rs:197`); a lock still
+  held then would make the new process hand over to the dying one and exit, and the app would
+  not come back. Read in Tauri 2.12.5 (`app.rs:1449-1455`): the cleanup runs before the
+  restart. It can't be walked without a newer release to install. Windows isn't in it: its
+  updater exits the process itself (`updater.rs:1050`), and the mutex goes with the process.
+  - [x] *macOS*: the first in-app update **from** a build carrying the bump (the release after
+    the first one with it, since the outgoing version does the restart). The app comes back by
+    itself. Walked 2026-11-13 on macOS 26.7.1, 1.8.11 → 1.9.1 (release run 43397401296): back
+    by itself in 3 of 3 runs, 2.5–5.1 s after *Update now*, one new process, the tab restored.
+    The lock's release was not observed, only that the new process stayed.
+  - [x] *The Linux AppImage*: the same. Walked 2026-11-13 on Ubuntu 26.04.1, 1.8.11 → 1.9.1:
+    not proven. The app did not come back in 3 of 3 runs, for another reason, so the new
+    process never reached the lock: the restart inherits the AppImage's `LD_LIBRARY_PATH`, and
+    the new image's launcher dies in `/usr/bin/env` (`plans/appimage-child-environment.md`).
+    *Walked again 2026-11-14 with a build carrying that fix and the bump, made as 1.9.0 (run
+    43580778154) and updated to the real 1.9.1: back by itself in 6 of 6 runs under Xvfb
+    (5.1–8.1 s), and once by the owner's hand on the GNOME desktop; one process each time, the
+    tab restored. Inside an AppImage the restart is now the app's own, which calls the same
+    `cleanup_before_exit`. The lock's release was not observed, only that the new process
+    stayed.*
 
 ## Housekeeping
 

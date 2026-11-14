@@ -226,27 +226,6 @@ The next two came out of the session-restore walks (`archive/plans/session-resto
   (`zoomAnchor`) is replaced on that path, and with it the creep on empty space (*Accepted
   limits*). Reopen as the next change after the document-zoom release.
 
-## First runs after the single-instance 2.5.5 bump
-
-- [ ] **The restart after an update finds no single-instance lock** (added 2026-11-10,
-  `archive/plans/cargo-group-bump-pr23.md`, triage). tauri-plugin-single-instance 2.5.5
-  releases its lock in Tauri's `cleanup_before_exit`, no longer in its own `RunEvent::Exit`
-  handler. After an update installs, the app restarts itself (`update.rs:197`); a lock still
-  held then would make the new process hand over to the dying one and exit, and the app would
-  not come back. Read in Tauri 2.12.5 (`app.rs:1449-1455`): the cleanup runs before the
-  restart. It can't be walked without a newer release to install. Windows isn't in it: its
-  updater exits the process itself (`updater.rs:1050`), and the mutex goes with the process.
-  - [x] *macOS*: the first in-app update **from** a build carrying the bump (the release after
-    the first one with it, since the outgoing version does the restart). The app comes back by
-    itself. Walked 2026-11-13 on macOS 26.7.1, 1.8.11 → 1.9.1 (release run 43397401296): back
-    by itself in 3 of 3 runs, 2.5–5.1 s after *Update now*, one new process, the tab restored.
-    The lock's release was not observed, only that the new process stayed.
-  - [ ] *The Linux AppImage*: the same. Walked 2026-11-13 on Ubuntu 26.04.1, 1.8.11 → 1.9.1:
-    not proven. The app did not come back in 3 of 3 runs, for another reason, so the new
-    process never reached the lock: the restart inherits the AppImage's `LD_LIBRARY_PATH`, and
-    the new image's launcher dies in `/usr/bin/env` (`plans/appimage-child-environment.md`). Walk
-    it again with the first update **from** a build carrying that fix.
-
 ## Accepted limits
 
 Not bugs to fix; here so nobody rediscovers them. The three the 2026-09-12 review parked were
