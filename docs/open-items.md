@@ -226,6 +226,16 @@ The next two came out of the session-restore walks (`archive/plans/session-resto
   (`zoomAnchor`) is replaced on that path, and with it the creep on empty space (*Accepted
   limits*). Reopen as the next change after the document-zoom release.
 
+- [ ] **A relative file name does not open from the Linux AppImage** (added 2026-11-16,
+  `archive/plans/appimage-child-environment.md`, the walk and triage). `<image> notes.md` in a
+  terminal shows the empty screen with no message; with the app already running, the second
+  start exits 0 and the window does not change. An absolute path works in both (measured on
+  the released 1.9.1 and on the walk image, Ubuntu 26.04; file managers pass absolute paths).
+  Older than the environment fix. Reasoned, not traced: the launcher starts the app in
+  `<mount>/usr`, so the name is resolved there and not in the folder the user was in, which
+  the launcher keeps in `OWD`. Needs a plan of its own. Reopen at the next change to how the
+  AppImage starts, or on a report.
+
 ## Accepted limits
 
 Not bugs to fix; here so nobody rediscovers them. The three the 2026-09-12 review parked were
@@ -536,3 +546,58 @@ as it is found.
   or down on Windows, others about 1 px on Linux (measured). At 100% every label is where
   1.8.11 put it.
   *Accepted 2026-11-13. Reopen at the next mermaid update, or on a report.*
+- [ ] **After an update, the old AppImage stays mounted until the new app exits** (added
+  2026-11-16, `archive/plans/appimage-child-environment.md`, the walk). The restarted app's FUSE
+  process inherits the descriptor the AppImage runtime keeps open on its mount (fd 1023), so
+  the old mount, its FUSE process and the deleted old image file stay for as long as the new
+  app runs: 6 of 6 update runs on Ubuntu 26.04 (measured). One old image per update, gone
+  when the app closes. Reasoned, not measured: Tauri's own restart passes the same
+  descriptors, so 1.9.1 and older did this too wherever their restart worked. A fix to start
+  from: close the inherited descriptors in the process the restart starts.
+  *Accepted 2026-11-14. Reopen on a report of leftover mounts or disk use after an update, or
+  at the next change to the restart code.*
+- [ ] **The AppImage's environment fix is walked on Ubuntu 26.04 only** (added 2026-11-16,
+  `archive/plans/appimage-child-environment.md`, triage). The restart after an update and a link's
+  start were walked on Ubuntu 26.04.1, under Xvfb and by the owner's hand on GNOME. Other
+  distros are reasoned. One step rests on Ubuntu's form of the launcher: a started program's
+  `XDG_DATA_DIRS` loses the `/usr/share` the launcher's hook puts right behind the mount's
+  entries, and another bundler version could put it elsewhere, leaving it in the list.
+  *Accepted 2026-11-16. Reopen on a report from another distro of the AppImage not coming
+  back after an update, or of a link not opening.*
+- [ ] **Inside an AppImage, the restart after an update is the app's own copy of Tauri's**
+  (added 2026-11-16, `archive/plans/appimage-child-environment.md`, triage). The
+  `RunEvent::Exit` arm in `main.rs` does what Tauri would do next (`cleanup_before_exit`,
+  start the image, exit),
+  with the host's environment. It copies six lines of Tauri 2.12.5 (`app.rs:1452-1454`,
+  `process.rs:83-88`). One path does not reach it: if `request_exit` fails, Tauri restarts
+  by itself with the AppImage's environment (`app.rs:623-627`), and the app does not come
+  back on Ubuntu 26.04, as before the fix (read, not seen).
+  *Accepted 2026-11-16. Reopen at every Tauri bump, to read the arm against Tauri's restart.*
+- [ ] **What a started program gains on Wayland from getting `GDK_BACKEND` back is reasoned**
+  (added 2026-11-16, `archive/plans/appimage-child-environment.md`, triage). Inside an AppImage the
+  app sets `GDK_BACKEND=x11`, and on a Wayland desktop `WEBKIT_DISABLE_DMABUF_RENDERER=1`,
+  for itself; a program it starts now gets both as they were before. The walk ran on X11 and
+  shows only that the program no longer has them (measured). That a GTK browser then runs on
+  Wayland itself, not under XWayland, is reasoned.
+  *Accepted 2026-11-16. Reopen on a report from a Wayland desktop of a browser opened by a
+  link looking or behaving wrong.*
+- [ ] **Three link launchers are unwalked on Linux** (added 2026-11-16,
+  `archive/plans/appimage-child-environment.md`, triage). A link tries `xdg-open`, `gio open`,
+  `gnome-open` and `kde-open` in turn, with `wslview` first under WSL. The first two are
+  walked. The other three get the same environment (reasoned) and were not run.
+  *Accepted 2026-11-16. Reopen on a report of a link not opening on a desktop without
+  `xdg-open` and `gio`.*
+- [ ] **A `GTK_THEME` of the user's own does not reach a program the AppImage starts** (added
+  2026-11-16, `archive/plans/appimage-child-environment.md`, triage). The launcher's hook overwrites
+  the variable and keeps no record of what it held, so the app drops it for a started
+  program, which then takes the desktop's theme. Only someone who sets `GTK_THEME` in the
+  shell and starts the AppImage from it would see a link's browser in the desktop's theme,
+  not theirs (reasoned).
+  *Accepted 2026-11-16. Reopen on a report.*
+- [ ] **Links from a `.deb` or `.rpm` install are walked on a debug build only** (added
+  2026-11-16, `archive/plans/appimage-child-environment.md`, triage). Every Linux install now starts
+  the link's launcher itself and waits for it; outside an AppImage the environment is passed
+  on untouched. A debug build stands in for the two packages, and neither was installed for
+  the walk.
+  *Accepted 2026-11-16. Reopen on a report of a link not opening from a `.deb` or `.rpm`
+  install.*

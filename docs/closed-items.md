@@ -1155,7 +1155,7 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   - [x] *The Linux AppImage*: the same. Walked 2026-11-13 on Ubuntu 26.04.1, 1.8.11 → 1.9.1:
     not proven. The app did not come back in 3 of 3 runs, for another reason, so the new
     process never reached the lock: the restart inherits the AppImage's `LD_LIBRARY_PATH`, and
-    the new image's launcher dies in `/usr/bin/env` (`plans/appimage-child-environment.md`).
+    the new image's launcher dies in `/usr/bin/env` (`archive/plans/appimage-child-environment.md`).
     *Walked again 2026-11-14 with a build carrying that fix and the bump, made as 1.9.0 (run
     43580778154) and updated to the real 1.9.1: back by itself in 6 of 6 runs under Xvfb
     (5.1–8.1 s), and once by the owner's hand on the GNOME desktop; one process each time, the
@@ -1719,3 +1719,42 @@ tooling; listed so nobody rediscovers them.
   window with no tab sends no session report on a change of level. `Ctrl`+wheel over the bar
   or the sidebar scrolls as before; only the document's pane takes it as zoom.
   *Kept 2026-11-13: each is the simplest behaviour that tells the reader what happened.*
+- [x] **On Ubuntu 26.04, the update from 1.9.1 or older still does not come back by itself**
+  (2026-11-16, `archive/plans/appimage-child-environment.md`, triage). The version being replaced
+  does the restart, and those are already out. The AppImage closes, the file on disk is the
+  new version, and it has to be started by hand once (measured, 1.8.11 to 1.9.1). The first
+  update that comes back is the one from the release carrying the fix.
+  *Kept 2026-11-16, owner's call, no trigger: nothing can change a version already
+  installed.*
+- [x] **On Ubuntu 26.04, a link from an AppImage of 1.9.1 or older opens in the fallback
+  browser, not the default** (2026-11-16, `archive/plans/appimage-child-environment.md`, the walk).
+  `xdg-open` cannot look up the default with the AppImage's libraries and falls back to
+  `x-www-browser`, the Firefox snap on a stock install (traced). Reasoned: a mail link goes
+  to that browser too, and nothing opens where no fallback browser can start.
+  *Kept 2026-11-16, owner's call, no trigger: fixed by updating.*
+- [x] **`PYTHONDONTWRITEBYTECODE=1` still reaches a program the AppImage starts**
+  (2026-11-16, `archive/plans/appimage-child-environment.md`). The launcher sets it and it names no
+  path in the mount, so the cleaning leaves it; a Python program started by a link writes no
+  `.pyc` files. Not seen to change anything else.
+  *Kept 2026-11-16, owner's call, no trigger.*
+- [x] **A start folder inside another AppImage's mount is not recognised** (2026-11-16,
+  `archive/plans/appimage-child-environment.md`, plan review pass 5). The AppImage started from a
+  program that itself runs in its own AppImage's mount has that mount as its start folder,
+  so a link's program, or the restarted app, runs in a folder that goes when that other
+  program exits (reasoned, not walked).
+  *Kept 2026-11-16, owner's call, no trigger: rare, and telling such a folder apart would be
+  a guess at other mounts' names.*
+- [x] **A program the AppImage starts is not told it came from an AppImage** (2026-11-14,
+  `archive/plans/appimage-child-environment.md`, triage). `APPIMAGE`, `ARGV0` and `OWD` are removed
+  for a link's program and for the restarted app, which gets its own from its launcher
+  (`APPIMAGE` and `OWD` measured). A program that reads them would otherwise take itself for
+  this AppImage: a Tauri app started later from that browser would restart into this image
+  (read in Tauri's source).
+  *Kept 2026-11-14, owner's call, no trigger: by design.*
+- [x] **Two link checks were not run in the AppImage environment walk** (2026-11-16,
+  `archive/plans/appimage-child-environment.md`, the walk). The update dialog's release-notes button
+  on Windows and macOS: a debug build is offered no update; the Linux walk clicked it, and
+  it calls the same command as a link in a document, which was clicked on both. A mail link
+  on a real Linux desktop: the hidden session's stub handler got it, and by hand only an
+  `https` link was clicked.
+  *Kept 2026-11-16, owner's call, no trigger.*

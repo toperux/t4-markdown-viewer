@@ -1,7 +1,9 @@
 # AppImage Child Environment Plan
 
-> **Status (2026-11-14):** built on the owner's go (`1e50240`, `455d473`), change-reviewed (one
-> pass, no findings) and walked (*Walk results*). Triage is next; nothing is pushed to `main`.
+> **Filed (2026-11-16):** built on the owner's go, change-reviewed (one pass, no findings),
+> walked on all three VMs (*Walk results*) and triaged (*Triage*). The two fixes that came out
+> of the triage were reviewed and walked again on Linux (*Re-walk of the triage fixes*). The
+> commit hashes below are the ones the work had before it was squashed for the push.
 
 **Goal:** on the Linux AppImage, the two programs the app starts get the host's environment, not
 the bundle's, so that:
@@ -149,7 +151,8 @@ variable is unset. A variable with no entry under `$APPDIR` is not touched at al
 
 On top of the rule, by name: `GTK_THEME`, `APPIMAGE`, `ARGV0` and `OWD` are dropped, and the two
 the app sets itself at startup, `GDK_BACKEND` and `WEBKIT_DISABLE_DMABUF_RENDERER`, go back to
-what they held before it did.
+what they held before it did. And `XDG_DATA_DIRS` also loses the `/usr/share` the launcher's hook
+puts right behind the mount's entries (added at triage; `data_dirs`).
 
 The app's own environment is never changed. The cleaned environment is put on the `Command` that
 starts the other program, in both places: the restart and a link. Outside an AppImage (`APPDIR`
@@ -194,8 +197,8 @@ fn as_host(cmd: &mut Command)
 ```
 
 - `host_env` gives, for each variable: `None` for `GTK_THEME`, `APPIMAGE`, `ARGV0` and `OWD`;
-  `outside`'s answer where it has one; and for each name in `own`, the value it held before, or
-  `None`.
+  `outside`'s answer where it has one (`data_dirs`' for `XDG_DATA_DIRS`, since the triage); and
+  for each name in `own`, the value it held before, or `None`.
 - `as_host` reads `APPDIR`, `std::env::vars_os()` and the startup record, and calls `cmd.env` or
   `cmd.env_remove` for each change.
 - **The working folder.** The app runs in `<mount>/usr` (measured; *Why not clean the
@@ -266,7 +269,8 @@ fn open_url(app: AppHandle, url: String) -> Result<(), String>
   (prefix, case-sensitive): `http://`, `https://`, `mailto:`, `tel:`. Anything else is refused
   with the error `Not a web or mail link: <url>`, which the page shows as a toast, where the
   plugin's refusal has its own wording today. A pure function, `opens(url) -> bool`.
-- **Inside an AppImage** (`APPDIR` is set; behind `#[cfg(target_os = "linux")]`): each of
+- **On Linux** (behind `#[cfg(target_os = "linux")]`; every install since the triage fix, where
+  it was built for the AppImage alone; outside an AppImage `as_host` changes nothing): each of
   `open::commands(&url)` in turn, the list the plugin itself walks (`xdg-open`, `gio open`,
   `gnome-open`, `kde-open`; `wslview` first under WSL; `open-5.4.1/src/unix.rs:23-50`). For each:
   `as_host`, all three stdio handles null, `process_group(0)`, `spawn`. The first that starts is
@@ -279,8 +283,7 @@ fn open_url(app: AppHandle, url: String) -> Result<(), String>
     browser's lifetime.
   - The launcher is looked up on the cleaned `PATH`. The mount's `usr/bin` holds only the app
     (measured), so nothing is lost by that.
-- **Everywhere else** (Windows, macOS, a `.deb` or `.rpm` install, a debug build):
-  `app.opener().open_url(url, None::<&str>)`, which is exactly what the plugin's command calls
+- **On Windows and macOS:** `app.opener().open_url(url, None::<&str>)`, which is exactly what the plugin's command calls
   after its scope check.
 - `Cargo.toml`: `open = "5"` under `[target.'cfg(target_os = "linux")'.dependencies]`, beside
   `gtk`, with a note that it is in the tree already through the opener plugin and this only makes
@@ -301,9 +304,6 @@ The URL cannot be read as an option by a launcher: it starts with one of the fou
   was not seen to change anything.
 - A `GTK_THEME` the user had set before starting the AppImage is not put back; the launcher keeps
   no record of it. The program gets the desktop's theme.
-- `XDG_DATA_DIRS` is left as the launcher's list minus the mount, which starts with a
-  `/usr/share` the launcher added. If the user had none set, that is the value the program gets,
-  where an unset one would have meant `/usr/local/share:/usr/share`.
 - Outside an AppImage nothing is cleaned. One case exists there: a `.deb` or `.rpm` install
   started with the user's own `GDK_BACKEND=x11` on a Wayland desktop sets
   `WEBKIT_DISABLE_DMABUF_RENDERER=1`, and a link's program inherits it, as today.
@@ -408,7 +408,7 @@ The walk image: run 43580778154 on `ubuntu-22.04`, the first compile of the Linu
 | V4 | Not walkable from the VM's session: snap Firefox refuses to start outside the desktop session's cgroup, with or without the app. Walked by the owner by hand on the VM's GNOME desktop (Firefox snap 158.0-2): the walk image opened example.com; the new Firefox process has no value naming a mount, and `APPIMAGE`, `APPDIR`, `ARGV0`, `OWD` and `GTK_THEME` are absent. **The control did not hold: the released 1.9.1 opened Firefox too** (below). |
 | V5 | Pass: the stub got `…/releases/latest`. |
 | V6 | Pass: the toast as written; nothing started. |
-| V7 | Pass. One defunct `tokio-rt-worker` child is left; a debug build of 1.9.1 (`c55db94`) leaves the same, so it is not from this change. |
+| V7 | Pass. One defunct `tokio-rt-worker` child is left; a debug build of 1.9.1 (`c55db94`) leaves the same, so it is not from this change. Fixed at triage (item 4). |
 | V8 | Yes: the click sends `FileManager1.ShowItems` with the `file://` URI, and D-Bus started Nautilus. |
 | V9 | Windows: `https` opened Edge; `mailto` reached Windows' app chooser, new Outlook listed; `ftp` gave the toast. macOS: `https` opened Safari, `mailto` a Mail draft, both seen by the owner; `ftp` gave the toast. The release-notes button was run on neither (no update offered in a debug build). |
 | V10 | Pass, both ways: the app ended, the handler kept running in its own process group. |
@@ -437,7 +437,7 @@ Found by the walk:
 - **`XDG_DATA_DIRS` gets `/usr/share` in front of the shell's own value**, not only when the
   shell had none: the launcher's hook adds it either way, and only the mount's entries are
   taken out. The app cannot know what the value was. Whether the changed order matters to a
-  started program is not measured.
+  started program is not measured. Fixed at triage (item 2).
 - **The old mount stays until the new app exits** (6 of 6). The new image's FUSE process inherits
   the old app's descriptors, among them the one the AppImage runtime keeps open on the mount
   (fd 1023), so the old mount, its FUSE process and the deleted 1.9.0 file stay. A link's handler
@@ -448,6 +448,8 @@ Found by the walk:
   both. Not from this change.
 
 ## Limits to put to the owner at triage
+
+As listed before the walk; *Triage* below has what became of each.
 
 - **The update from 1.9.1 still does not come back on Ubuntu 26.04.** The outgoing version does
   the restart, and 1.9.1 is already out. The first update that comes back is the one **from** the
@@ -464,9 +466,74 @@ Found by the walk:
   not taken): the image started from a program that itself runs inside its own AppImage mount
   gives an `OWD` there, and a link's program, or the restarted app, would run in a folder that
   dies with that other program. Rare; the check would be a guess at other mounts' names.
-- **The four under *Not in this change***: `PYTHONDONTWRITEBYTECODE`, a `GTK_THEME` of the
+- **The four then under *Not in this change***: `PYTHONDONTWRITEBYTECODE`, a `GTK_THEME` of the
   user's own, `XDG_DATA_DIRS` when the user had none, and installs that are not an AppImage.
 - **The real browser is not walked** unless the owner allows it on the VM (V4).
+
+## Triage (the owner, 2026-11-14 and 2026-11-16)
+
+Six decisions, one at a time (2026-11-14):
+
+1. **The old image stays mounted after an update.** Accepted, with a reopen trigger
+   (`open-items.md`, *Accepted limits*).
+2. **`/usr/share` in front of the shell's `XDG_DATA_DIRS`.** Fixed: `data_dirs` takes out the
+   `/usr/share` that sits right behind a mount entry, then the mount's entries (`f6126b1`). A
+   shell that had no value gives an unset variable again.
+3. **A relative file name does not open from an AppImage.** Deferred, with a plan of its own to
+   come (`open-items.md`, *Deferred*).
+4. **One defunct child per link outside an AppImage.** Fixed: every Linux install starts the
+   launcher itself and waits for it, where only the AppImage did (`e04a237`). Outside an
+   AppImage the environment is passed on untouched.
+5. **`APPIMAGE`, `ARGV0` and `OWD` removed for a started program** (*Chosen without asking*).
+   Kept as built.
+6. **The link fix's release-note line.** `On Ubuntu 26.04, the AppImage opens links in your
+   default browser`, since on a stock desktop 1.9.1 does open a link, in the fallback browser
+   (*Walk results*). Task 2's commit takes it as its subject at packaging.
+
+The two fixes were reviewed in one pass by a fresh reviewer: no finding in the code, and two
+notes on stale text. The first, the note above `open` in `Cargo.toml`, is fixed (`1f1700f`); the
+second is this plan's text, corrected with this section. Not shown by reading: that the
+Linux-only code compiles, which the re-walk's build shows.
+
+Twelve plain limits, in one batch (2026-11-16), all as proposed:
+
+- **Accepted with no trigger** (`closed-items.md`, *Accepted limits*): the update from 1.9.1 or
+  older still does not come back; links from an AppImage of 1.9.1 or older go to the fallback
+  browser; `PYTHONDONTWRITEBYTECODE=1` still reaches a started program; a start folder inside
+  another AppImage's mount is not recognised; the release-notes button was clicked on neither
+  Windows nor macOS; a mail link was not clicked on a real Linux desktop.
+- **Accepted with a trigger** (`open-items.md`, *Accepted limits*): only Ubuntu 26.04 is walked;
+  the restart inside an AppImage is the app's own copy of Tauri's; the gain on Wayland from
+  giving back `GDK_BACKEND` is reasoned; `gnome-open`, `kde-open` and `wslview` are unwalked; a
+  `GTK_THEME` of the user's own is lost for a started program; a `.deb` or `.rpm` install is
+  walked on a debug build only.
+- **No longer limits:** the real browser, walked by the owner's hand (V4); `XDG_DATA_DIRS` when
+  the shell had none, fixed (item 2).
+
+## Re-walk of the triage fixes (2026-11-16)
+
+The walk branch at `bfd9b4b`, the image from run 43827083906 on `ubuntu-22.04` (the first
+compile of the two fixes: format, clippy, 223 tests). Linux only, Ubuntu 26.04.1 under Xvfb,
+with the stub handler and a control started by `xdg-open` from the same shell. All measured.
+
+| Check | Result |
+| --- | --- |
+| Gates | Pass on the VM too: format, clippy, 223 tests. |
+| `XDG_DATA_DIRS` (item 2), the walk image | Pass, three starts. Shell with none: the handler has none, as the control. Shell with `/opt/x/share:/usr/local/share:/usr/share`: the handler has exactly that. Shell with the session's own `/usr/local/share/:/usr/share/:/var/lib/snapd/desktop`: exactly that. The rest of the environment differs from the control's only in `PYTHONDONTWRITEBYTECODE=1`, `SHLVL`, `_` and the per-start `GIO_LAUNCHED_DESKTOP_FILE_PID`; no variable names a mount. |
+| The update restart, once | Pass: back by itself after about 8 s, one process, the file is 1.9.1. The new process's list is `<mount>/usr/share/:<mount>/usr/share:/usr/share:/opt/x/share:/usr/local/share:/usr/share`, the same layout as a first start from that shell, so a restart no longer adds a `/usr/share`. The old mount stayed until the new app exited, as before. |
+| Links on a debug build (item 4) | Pass: the stub got the `https` and the `mailto` URL; 3 s after each, the app's only children were WebKit's two, none defunct; the stub's environment equals the control's but for `SHLVL`, `_` and the per-start value. `ftp://example.com/x` gave the toast as written and started nothing. |
+| `Ctrl+C` on a debug build | Pass: the app ended, the handler kept running in a process group of its own (20096 against the app's 19998). |
+| No launcher on `PATH`, a debug build | Pass: the toast reads `No such file or directory (os error 2)`; nothing started. The wording does not say what is missing. |
+
+The launcher's hook sets the list in one line, `apprun-hooks/linuxdeploy-plugin-gtk.sh:18`:
+`export XDG_DATA_DIRS="$APPDIR/usr/share:/usr/share:$XDG_DATA_DIRS"`. The entry in front of
+it, with the trailing slash, is not from the hooks or the `AppRun` script; *reasoned:* from
+`AppRun.wrapped`.
+
+Ruled by the owner on the last row (2026-11-16): fixed. With no launcher that starts, the toast
+now reads `No program to open links could be started: <the system's error>`. A change of
+wording only (`4dfbf4e`), compiled by a further run of the walk branch (43832136332: format,
+clippy, tests and the bundle pass) and not walked again.
 
 ## Rulings (the owner, 2026-11-14)
 
