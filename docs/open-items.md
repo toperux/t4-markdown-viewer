@@ -601,3 +601,37 @@ as it is found.
   the walk.
   *Accepted 2026-11-16. Reopen on a report of a link not opening from a `.deb` or `.rpm`
   install.*
+- [ ] **On Windows, a Ctrl- or Shift-click on a "back to top" link does nothing** (added
+  2026-11-16, `archive/plans/dependabot-prs-24-26.md`, the walk). A `#` or `#top` link in a
+  document with no heading of that name is left to the webview, and a plain click scrolls to
+  the top. With Ctrl or Shift held, the opener plugin's page script takes it for a web link
+  (the page's address is `http://tauri.localhost`), cancels it and calls a command the page
+  has had no permission for since the link fix (`2458584`): nothing visible, and an uncaught
+  "opener.open_url not allowed" in the console (measured). On 1.9.1 the same click opened a
+  browser tab at `http://tauri.localhost/#top`, a page that does not exist (measured). macOS
+  and Linux use `tauri://localhost`, which the script ignores (read). Ways to start from:
+  the app scrolls to the top itself for that link, or the script is turned off
+  (`open_js_links_on_click(false)`; what the webview then does with the click is unknown).
+  *Accepted 2026-11-16. Reopen on a report, or at the next change to link handling.*
+- [ ] **On macOS, a link the system cannot open shows a raw error** (added 2026-11-16,
+  `archive/plans/dependabot-prs-24-26.md`, triage). Since `open` 5.4.5 the app waits for
+  `/usr/bin/open` and shows its failure as a toast, `Launcher "/usr/bin/open" "--" "<url>"
+  failed with ExitStatus(unix_wait_status(256))`, where it showed nothing (worked out from
+  the crate's source, not seen). It needs a web, mail or phone link with no program to take
+  it; on the owner's Mac each has one (Skype takes `tel:`), so the walk could not reach it.
+  *Accepted 2026-11-16. Reopen on a report of that message.*
+- [ ] **The Linux AppImage is unwalked with `open` 5.4.5** (added 2026-11-16,
+  `archive/plans/dependabot-prs-24-26.md`, triage). The bump was walked on a debug build: a
+  link runs the same code there, the three launchers the AppImage walk used are built exactly
+  as before, and the two new ones (`kde-open6`, `kde-open5`) come after them (read in the
+  source). An AppImage of its own would have needed a build from a `walk/*` branch.
+  *Accepted 2026-11-16. Reopen on a report of a link not opening from the AppImage.*
+- [ ] **notify 8.2.2's deadlock fix on Windows is out of a walk's reach** (added 2026-11-16,
+  `archive/plans/dependabot-prs-24-26.md`, triage). The fix is in how a watch is stopped
+  (notify #1051); upstream needed twelve threads in a tight loop for 20 to 50 s to hit the
+  race. The walk showed the ordinary path: twenty rounds of folders expanded, tabs opened,
+  links followed and closed, every step shown within 67 ms, live reload in about 0.2 s, and
+  the process at 23 threads and 536 to 538 handles at all five readings (measured). The
+  deadlock would show as a folder that never lists or a document that never loads.
+  *Accepted 2026-11-16. Reopen on a report from Windows of a folder that never lists or a
+  document that never loads.*
