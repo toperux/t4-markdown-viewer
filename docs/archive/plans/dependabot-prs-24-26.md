@@ -3,9 +3,10 @@
 > **Filed (2026-11-16):** executed in full on the owner's go. PR #26 walked on all three VMs
 > (*Walk results*), then rebase-merged as `59d1bc7`, its tree identical to the walked `889628d`.
 > PR #24 rebase-merged as `5346f6b`. The `checks.yml` runs on both passed on all three legs.
-> The dry run 43843298027 passed: three legs built and signed, seventeen files uploaded to the
+> The dry run 43843298027 passed: three legs built and signed, sixteen files uploaded to the
 > draft by the new action, the draft checked and deleted. Triaged (*Triage*): four accepted
-> limits with reopen triggers, in `open-items.md`.
+> limits with reopen triggers, in `open-items.md`. The tagged publish path then ran for real in
+> the 1.9.2 release (run 43860956762): sixteen files on the release page.
 
 **Goal:** land the two open Dependabot pull requests on `main`, so the next release ships with
 them:
