@@ -871,6 +871,23 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   `drag_cancel` when the dragged tab is gone. Walked on Windows, which also showed the item
   was reachable: Ctrl+W does close the dragged tab mid-drag, and the caret stayed lit
   before the fix and cleared after.*
+- [x] **On macOS, a pinch zooms a document in steps, not smoothly** (added 2026-11-13,
+  `archive/plans/document-zoom.md`, the walk). A pinch walks the same 13 levels as the keys,
+  one per 20 px of the pinch's wheel, each a full re-layout: 16 pinches by the owner's hand
+  moved 3 to 6 levels each (100% to 150%, 110% to 300%), about one step fewer than the
+  fingers asked for, and the owner found it "chunky or not smooth". Shipped as built by the
+  owner's ruling, with a smooth pinch to follow the release. A way to start from: scale the
+  page with the fingers during the pinch (a transform, no re-layout) and settle on a level
+  when it ends. Unmeasured: blur or stutter on a large document, and the snap at the end
+  unless a level off the ladder may be saved. The place-keeping of a wheel step
+  (`zoomAnchor`) is replaced on that path, and with it the creep on empty space (*Accepted
+  limits*). Reopen as the next change after the document-zoom release.
+  *Fixed 2026-11-17 (`archive/plans/smooth-pinch-macos.md`): a pinch follows the fingers and
+  stops on any whole percent from 50 to 300, saved once, with one toast. A document of up to
+  2 600 elements, about three READMEs, gets the real zoom on every frame, so nothing changes
+  when the fingers lift; a larger one is scaled as a picture and laid out once at the end.
+  Walked on the owner's Mac, whose hand called the README "Smooth, nothing changes" and set
+  that limit. What is left is in `open-items.md`, under *Accepted limits* and *Deferred*.*
 
 ## Needs a Mac, a Dependabot run, or an older build
 
@@ -1758,3 +1775,14 @@ tooling; listed so nobody rediscovers them.
   on a real Linux desktop: the hidden session's stub handler got it, and by hand only an
   `https` link was clicked.
   *Kept 2026-11-16, owner's call, no trigger.*
+- [x] **A zoom level off the ladder reads as 100% in 1.9.2 and older** (2026-11-17,
+  `archive/plans/smooth-pinch-macos.md`, triage). Since the smooth pinch a saved level may be
+  any whole percent from 50 to 300 (137%, say), where it was one of thirteen. A copy of 1.9.2
+  or older that reads the same `config.json` takes such a level for 100%, as it took any
+  hand-edited one. It matters only to someone who goes back to an older copy.
+  *Kept 2026-11-17, owner's call, no trigger.*
+- [x] **On macOS a pinch moves at 60 frames a second at most, on a 120 Hz display too**
+  (2026-11-17, `archive/plans/smooth-pinch-macos.md`, the trial). The page's
+  `requestAnimationFrame` runs every 16.66 ms on the owner's MacBook Pro, whose display is
+  120 Hz (measured). It is how the webview renders, not something the app sets.
+  *Kept 2026-11-17, owner's call, no trigger.*

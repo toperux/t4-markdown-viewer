@@ -214,18 +214,6 @@ The next two came out of the session-restore walks (`archive/plans/session-resto
   a list of payloads, and the page open them all. Reopen on a report, or at the next change to
   how a booting window receives its documents.
 
-- [ ] **On macOS, a pinch zooms a document in steps, not smoothly** (added 2026-11-13,
-  `archive/plans/document-zoom.md`, the walk). A pinch walks the same 13 levels as the keys,
-  one per 20 px of the pinch's wheel, each a full re-layout: 16 pinches by the owner's hand
-  moved 3 to 6 levels each (100% to 150%, 110% to 300%), about one step fewer than the
-  fingers asked for, and the owner found it "chunky or not smooth". Shipped as built by the
-  owner's ruling, with a smooth pinch to follow the release. A way to start from: scale the
-  page with the fingers during the pinch (a transform, no re-layout) and settle on a level
-  when it ends. Unmeasured: blur or stutter on a large document, and the snap at the end
-  unless a level off the ladder may be saved. The place-keeping of a wheel step
-  (`zoomAnchor`) is replaced on that path, and with it the creep on empty space (*Accepted
-  limits*). Reopen as the next change after the document-zoom release.
-
 - [ ] **A relative file name does not open from the Linux AppImage** (added 2026-11-16,
   `archive/plans/appimage-child-environment.md`, the walk and triage). `<image> notes.md` in a
   terminal shows the empty screen with no message; with the app already running, the second
@@ -235,6 +223,28 @@ The next two came out of the session-restore walks (`archive/plans/session-resto
   `<mount>/usr`, so the name is resolved there and not in the folder the user was in, which
   the launcher keeps in `OWD`. Needs a plan of its own. Reopen at the next change to how the
   AppImage starts, or on a report.
+
+- [ ] **A tab not on screen loses its place after a change of zoom** (added 2026-11-13,
+  `archive/plans/document-zoom.md`, triage, as an accepted limit; deferred 2026-11-17,
+  `archive/plans/smooth-pinch-macos.md`, triage). A document that isn't shown isn't laid out,
+  so its saved offset is multiplied by the ratio of the two levels, and what does not scale
+  with the level moves under it. Recorded at first as 32 to 35 px in the walk and 16 to
+  254 px in the trials. Measured on the README in 2026-11: 449 to 450 px after a pinch or a
+  step from 100% to 165%, and 966 px after 100% to 150% with the keys' three steps or a
+  pinch alike; a tab switched to in the middle of a change landed 219 to 448 px off. The
+  README's blocks that keep their size (a blocked badge picture, what the pane limits) add up
+  over a long page. A way to start from: remember the line at the top of the view, as a step
+  holds one on screen, not a number of px. Needs a plan of its own. Reopen at the next change
+  to the document zoom or to how a tab keeps its place.
+
+- [ ] **On macOS, text stops shrinking below about 64% zoom** (added 2026-11-17,
+  `archive/plans/smooth-pinch-macos.md`, the walk and triage). WebKit draws no text under
+  9 px on screen: body text (14 px) keeps that size from 64% down and code (12.25 px) from
+  73% down, while pictures, spacing and the column go on shrinking, so at 50% the letters are
+  1.29 times what the level says (measured, the keys and a pinch alike; since the document
+  zoom's release). Not looked into: where WebKit sets that floor, whether the app can lift
+  it, and whether WebView2 or WebKitGTK has one. Reopen at the next change to the document
+  zoom.
 
 ## Accepted limits
 
@@ -485,7 +495,7 @@ as it is found.
   heading's *Copy section* button (up to 6.6 px) or in a table's white space on Linux (up to
   6.4 px), all measured. The plan's bound is two lines of text.
   *Accepted 2026-11-13. Reopen on a report of the page jumping on a zoom step.*
-- [ ] **On macOS and Linux, a burst of zoom steps on empty space creeps a few px** (added
+- [ ] **On Linux, a burst of zoom steps on empty space creeps a few px** (added
   2026-11-13, `archive/plans/document-zoom.md`, the re-walk). With the pointer where there is
   no text (beside a heading's text, on its button), each step leaves the page about 0.4 px
   lower, always the same way: after four steps in and four out the heading ended 3 px
@@ -493,15 +503,9 @@ as it is found.
   ends at 0.00 (all measured). On text the same loss is made up by the next step (`zoomHeld`;
   worst 0.89 px over eight steps). Reasoned, not measured: WebKit rounds the page's scroll
   offset down, WebView2 to the nearest px. A fix to start from: round the scroll on that path.
-  *Accepted 2026-11-13. Reopen with the smooth pinch on macOS (*Deferred*), or on a report.*
-- [ ] **A tab not on screen comes back near its place, not on it, after a change of zoom**
-  (added 2026-11-13, `archive/plans/document-zoom.md`, triage). A document that isn't shown
-  isn't laid out, so its saved offset is multiplied by the ratio of the two levels, and text
-  that re-wraps moves under it: 32 to 35 px in the walk (a hidden tab, a tab reopened with
-  `Ctrl+Shift+T`, a document left for a picture tab), 16 to 254 px in the trials on long
-  documents (measured).
-  *Accepted 2026-11-13. Reopen on a report of a tab coming back at the wrong place after
-  zooming.*
+  *Accepted 2026-11-13. Since the smooth pinch (2026-11-17,
+  `archive/plans/smooth-pinch-macos.md`) macOS has no steps under the pointer left: a pinch
+  there no longer steps, and a key holds the top of the view. Reopen on a report.*
 - [ ] **A change of zoom just as a document is shown can land it off** (added 2026-11-13,
   `archive/plans/document-zoom.md`, triage). A level that changes in the frame or two between
   a document being drawn and its place being restored restores the old level's offset: 24 ms
@@ -513,6 +517,14 @@ as it is found.
   is unmeasured.
   *Accepted 2026-11-13. Reopen on a report of a document landing off, or flashing another
   place, after a tab switch while zoomed.*
+  *Added 2026-11-17 (`archive/plans/smooth-pinch-macos.md`, the walk and triage): on macOS a
+  pinch on a document of up to about three READMEs changes the level on every frame, so a
+  save of the file in the middle of one reaches this each time: the top line landed 0.5 to
+  46 px off at 2000 px down and 18 to 58 px at 8000 px down, and further off as the pinch
+  went on, up to 346 px at 300% (measured). A fix to start from: scale the restored offset
+  by the change of level since the page was shown, two lines in `renderDocument`, which
+  every platform runs. Kept by the owner's ruling. Same trigger, and a report of a page
+  jumping when a file is saved during a pinch.*
 - [ ] **A session offered on the empty panel keeps the old zoom's places** (added 2026-11-13,
   `archive/plans/document-zoom.md`, triage; reasoned, not walked). The tabs behind *Reopen*
   are not open in any window, so a change of level before the offer is taken doesn't scale
@@ -635,3 +647,110 @@ as it is found.
   deadlock would show as a folder that never lists or a document that never loads.
   *Accepted 2026-11-16. Reopen on a report from Windows of a folder that never lists or a
   document that never loads.*
+- [ ] **On macOS, a pinch on a large document re-arranges the page when the fingers lift**
+  (added 2026-11-17, `archive/plans/smooth-pinch-macos.md`, the walks and triage). A document
+  of more than 2 600 elements, about three READMEs, is scaled as a picture while the fingers
+  move and laid out once when they lift. Outside a band of levels the picture is not what the
+  level lays out: the reading column switches between its two widths (at 86% in a 1100 px
+  window, at 119% in a 1512 px one), text stops shrinking under 9 px (*Deferred*), and from
+  about 160% the pane limits the column. One paragraph came out 1.33 to 1.87 times wider or
+  0.8 times narrower, with other line breaks, and the page stood still for 0.17 to 0.45 s
+  (measured). Smaller documents get the real zoom on every frame and do not change.
+  *Accepted 2026-11-17. Reopen on a report, or if it bothers the owner in use.*
+- [ ] **On macOS, a large document is a picture while it is pinched** (added 2026-11-17,
+  `archive/plans/smooth-pinch-macos.md`, triage). Until the fingers lift it keeps the line
+  breaks it had, is cut at the pane's sides on a spread, and has empty space around it on a
+  squeeze. The owner called it smooth and its text sharp; a still picture of it looks
+  slightly soft.
+  *Accepted 2026-11-17. Reopen on a report.*
+- [ ] **On macOS, at a large document's top or end the text under the fingers shifts when
+  they lift** (added 2026-11-17, `archive/plans/smooth-pinch-macos.md`, the walks). Where the
+  page cannot scroll far enough to hold the point (its top on a squeeze, its end, a document
+  shorter than the view), the picture is kept where the layout will leave the text, by an
+  estimate that takes everything to scale evenly. Where it doesn't, the text moves: 7 to
+  35 px at the top of the small documents, −9 and 36 px at the README's end, 13 to 71 px on
+  a squeeze from 300% to 50% a view or two down (measured, before small documents went
+  live); more is possible on a hard squeeze from a high level (reasoned). Before the
+  estimate the same pinches jumped 200 to 458 px.
+  *Accepted 2026-11-17. Reopen on a report of a page jumping at the end of a pinch.*
+- [ ] **On macOS, a live pinch is not always 60 frames a second** (added 2026-11-17,
+  `archive/plans/smooth-pinch-macos.md`, the walk). The real zoom on every frame costs a
+  layout: spreads on the README ran at a median frame of 17 ms, squeezes to 50% at 23 to
+  25 ms with 20 to 60% of frames within 25 ms, the worst frame 57 ms (measured). By the
+  owner's hand the README is "Smooth, nothing changes"; at two and three times its length a
+  live pinch is "Slightly rough", at four "Too rough", which set the limit of 2 600 elements.
+  *Accepted 2026-11-17. Reopen on a report, or if it bothers the owner in use.*
+- [ ] **On macOS, a document near the limit can go over to the picture in the middle of a
+  pinch** (added 2026-11-17, `archive/plans/smooth-pinch-macos.md`, the walk). A live frame
+  whose zoom takes over 33 ms twice in a row, or over 100 ms once, sends that pinch over to
+  the scaled page, which then re-arranges when the fingers lift. On the README three times
+  over, 6 of the owner's 37 pinches did; one frame of 196 ms was seen at the change on four
+  times over (measured). Nothing is remembered, so the next pinch starts live again.
+  *Accepted 2026-11-17. Reopen on a report of a pinch that stutters and then re-arranges.*
+- [ ] **On macOS, a pinch that slid at a page's end and then went over can jump when it
+  ends** (added 2026-11-17, `archive/plans/smooth-pinch-macos.md`, change review of the mix;
+  reasoned, not seen). A live pinch at a page's end cannot hold its point, which slides; if
+  that pinch then goes over to the scaled page and the fingers turn back, the picture scales
+  about the pointer's first height and the end puts the point back there. Likewise where a
+  reload or a switch of tabs lost the held point before the pinch went over.
+  *Accepted 2026-11-17. Reopen on a report of a jump at the end of a pinch near a page's
+  end.*
+- [ ] **On macOS, a pinch on a fully loaded 10 MB JSON file stalls** (added 2026-11-17,
+  `archive/plans/smooth-pinch-macos.md`, the trial). Over a second at its start (699 ms to
+  make the layer, 545 ms for the first frame) and 6.9 to 7.7 s at its end, as one zoom step
+  costs there (7.9 s, all measured). A real pinch may break into several, each with its own
+  end (reasoned).
+  *Accepted 2026-11-17. Same trigger as the cost of a zoom step on a large JSON tab
+  (*Deferred*).*
+- [ ] **On macOS, the last sliver of a pinch may be dropped** (added 2026-11-17,
+  `archive/plans/smooth-pinch-macos.md`, change review; reasoned). A pinch's last wheel event
+  comes after `gestureend`. If WebKit sends the two in separate tasks, a frame already asked
+  for can end the pinch between them, and that event (0.1 to 16 px of the fingers) is
+  dropped. In the walk's script both came in one task.
+  *Accepted 2026-11-17. Reopen on a report of a pinch ending short of the fingers.*
+- [ ] **A reader's own theme that changes the padding above the text misleads a pinch at a
+  page's ends** (added 2026-11-17, `archive/plans/smooth-pinch-macos.md`, change review;
+  reasoned). The estimate that keeps a scaled page where the layout will leave it reads the
+  root's `--content-pad`, as the zoom's own padding does. No bundled theme changes it.
+  *Accepted 2026-11-17. Reopen on a report from a reader with their own theme.*
+- [ ] **On macOS, a page heavy with diagrams is pinched as a picture sooner than it need be**
+  (added 2026-11-17, `archive/plans/smooth-pinch-macos.md`, review of the mix; reasoned). The
+  limit counts elements, and every node of a diagram's drawing is one, though it costs
+  little layout. A page of long paragraphs and few elements errs the other way, and the
+  33 ms rule is for that.
+  *Accepted 2026-11-17. Reopen on a report.*
+- [ ] **The memory a scaled page takes on the GPU's side was not measured** (added
+  2026-11-17, `archive/plans/smooth-pinch-macos.md`, the trial). The processes' own memory
+  showed no rise (the GPU process 55 to 59 MB, the page's 838 to 949 MB with no trend); what
+  the layer holds on the GPU's side cannot be read. The owner saw no blank areas on the
+  README thirty times over.
+  *Accepted 2026-11-17. Reopen on a report of blank areas or memory pressure while pinching
+  a large document.*
+- [ ] **The smooth pinch was measured on one Mac** (added 2026-11-17,
+  `archive/plans/smooth-pinch-macos.md`, triage). Every number, and the two limits that come
+  from them (2 600 elements, 33 ms), are from the owner's MacBookPro18,3. On a slower Mac
+  the 33 ms rule still answers, since it is timed as the pinch runs; a document under the
+  limit that does not keep up pays a few slow frames at the start of every pinch.
+  *Accepted 2026-11-17. Reopen on a report from another Mac, or when an older one is at
+  hand.*
+- [ ] **The release build's pinch is unwalked** (added 2026-11-17,
+  `archive/plans/smooth-pinch-macos.md`, triage). Every walk drove a debug build with the
+  `webdriver` feature; the release has no driver. The pinch's code is the same in both.
+  *Accepted 2026-11-17. Closes when the owner has pinched a document in the first release
+  that carries it.*
+- [ ] **Windows and Linux were not walked after the last change to the pinch** (added
+  2026-11-17, `archive/plans/smooth-pinch-macos.md`, triage). Both walked the first build:
+  a level off the ladder loads, the keys step from it, the wheel still steps (Windows beside
+  a build of 1.9.2, Linux not). The mix then added an argument and two lines to
+  `showDocZoom`, which every platform runs; both are inert with no pinch on (read by two
+  reviewers).
+  *Accepted 2026-11-17. Reopen on a report of the document zoom misbehaving on Windows or
+  Linux.*
+- [ ] **A reload in the middle of a pinch, with the pointer between two blocks, was not
+  reached** (added 2026-11-17, `archive/plans/smooth-pinch-macos.md`, the walk). The guard
+  that drops a pinch's held point when the page is rendered again is there for a held node
+  that is `#content` itself, which a reload does not remove. No point on the test documents
+  gives that node, so the guard is checked by reading only; the other reload and switch
+  cases were walked.
+  *Accepted 2026-11-17. Reopen on a report of a page running away during a pinch after a
+  save.*
