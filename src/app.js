@@ -297,6 +297,8 @@ function cmdKey(event) {
 
 /** When the last gesture event came, on the Mac: a pinch's wheel events each follow one. */
 let lastGesture = -Infinity;
+/** Whether that event was gestureend: a pinch's last wheel event comes just after it. */
+let gestureEnded = false;
 
 /** A wheel that zooms. On the Mac only a pinch, which WebKit sends as Ctrl+wheel; a real
  *  Control+wheel has no gesture beside it and scrolls. A time, not a flag, so a lost
@@ -4351,15 +4353,24 @@ function probeCqw() {
 /**
  * What the reader is looking at, at a point in the window: a function that
  * says, after a change of level, how far it has moved since. Null when there
- * is nothing to hold on to.
+ * is nothing to hold on to. With `point`, for a pinch, the point itself is
+ * held, and the function carries the node it measures as `node`.
  */
-function zoomAnchor(x, y) {
+function zoomAnchor(x, y, point = false) {
   // The text at the point holds to the px (measured). A heading's button or a
   // table's white space has no caret: its rectangle is all zeros.
   const range = document.caretRangeFromPoint(x, y);
   if (range && els.content.contains(range.startContainer)) {
     const r = range.getBoundingClientRect();
     if (r.x || r.y || r.width || r.height) {
+      // Under a pinch the fingers' point would slide down a line that grows if
+      // its top were held. A pinch is no step, so it leaves no aim.
+      if (point) {
+        zoomHeld = null;
+        const frac = r.height ? (y - r.top) / r.height : 0;
+        const at = (rect) => rect.top + frac * rect.height;
+        return Object.assign(() => at(range.getBoundingClientRect()) - at(r), { node: range.startContainer });
+      }
       // A line the last step left within 2 px of its aim is taken to be that
       // line again, and goes back to the aim, not to where it ended: a step
       // ends up to 1.2 px off on WebKit, the same way each time, and a turn
@@ -4390,33 +4401,47 @@ function zoomAnchor(x, y) {
   const r = el.getBoundingClientRect();
   const frac = r.height ? (y - r.top) / r.height : 0;
   const at = (rect) => rect.top + frac * rect.height;
-  return () => at(el.getBoundingClientRect()) - at(r);
+  return Object.assign(() => at(el.getBoundingClientRect()) - at(r), { node: el });
+}
+
+/** The page padding in window px: the root's `--content-pad` is in rem. */
+function contentPad() {
+  const root = getComputedStyle(document.documentElement);
+  return parseFloat(root.getPropertyValue("--content-pad")) * parseFloat(root.fontSize);
+}
+
+/** The point a step with no pointer holds: the top of the view, below the bar or the find bar, whichever is lower. */
+function viewTop() {
+  const m = els.main.getBoundingClientRect();
+  const top = Math.max(els.bar.getBoundingClientRect().bottom, els.find.getBoundingClientRect().bottom);
+  return [(m.left + m.right) / 2, top + contentPad()];
 }
 
 /**
- * Apply a level: at boot, and from the broadcast every step ends in, so every
- * window ends on the last save. Three properties on #content (base.css), all
- * gone at 100% so a reader who never zooms has today's layout untouched. The
- * reader's place is kept: on screen by what was at one point, elsewhere by
- * scaling the banked offsets.
+ * Apply a level: at boot, on every frame of a live pinch and at a pinch's end,
+ * and from the broadcast every step and every pinch ends in, so every window
+ * ends on the last save. Three properties on #content (base.css), all gone at
+ * 100% so a reader who never zooms has today's layout untouched. The reader's
+ * place is kept: on screen by what was at one point, elsewhere by scaling the
+ * banked offsets. `held` is a pinch's anchor, taken at its start; `own`, that
+ * the pinch itself is asking.
  */
-function showDocZoom(percent) {
+function showDocZoom(percent, held = null, own = false) {
   els.docZoomLevel.textContent = `${percent}%`;
-  if (percent === state.docZoom) return;
+  // A level from elsewhere stands over a pinch that is on, unless it is the
+  // level the pinch began at: a live pinch moves this window's level, and its
+  // own save, come back in the middle of the next pinch, would drop that one.
+  if (percent === (pinch && !own ? pinch.start : state.docZoom)) return;
+  if (!own) dropPinch();
   const ratio = percent / state.docZoom;
   const z = percent / 100;
-  // The page padding in window px: the root's `--content-pad` is in rem.
-  const root = getComputedStyle(document.documentElement);
-  const pad = parseFloat(root.getPropertyValue("--content-pad")) * parseFloat(root.fontSize);
+  const pad = contentPad();
   const shown = !els.content.hidden;
   const scrollY = window.scrollY;
   let anchor = null;
   if (shown) {
-    // A wheel step's pointer; else the top of the view, below the bar or the
-    // find bar, whichever is lower.
-    const m = els.main.getBoundingClientRect();
-    const top = Math.max(els.bar.getBoundingClientRect().bottom, els.find.getBoundingClientRect().bottom) + pad;
-    anchor = zoomPoint ? zoomAnchor(zoomPoint.x, zoomPoint.y) : zoomAnchor((m.left + m.right) / 2, top);
+    // A pinch's own anchor; else a wheel step's pointer; else the top of the view.
+    anchor = held ?? (zoomPoint ? zoomAnchor(zoomPoint.x, zoomPoint.y) : zoomAnchor(...viewTop()));
   }
   state.docZoom = percent;
   const style = els.content.style;
@@ -4460,8 +4485,8 @@ function stepDocZoom(dir, point = null) {
   return invoke("step_doc_zoom", { dir });
 }
 
-/** A wheel's px for one step of the document's zoom; a pinch on the Mac comes in smaller turns. */
-const DOC_WHEEL_STEP = isMac ? 20 : 40;
+/** A wheel's px for one step of the document's zoom. */
+const DOC_WHEEL_STEP = 40;
 let docWheelSum = 0;
 let docWheelAt = 0;
 
@@ -4470,12 +4495,13 @@ let docWheelAt = 0;
  * so one notch is one step whatever its size (40 to 100 px measured), and a
  * touchpad's stream of small turns adds up. Only over the pane, the empty
  * space below a short document, or the toast a step leaves over the pane; by
- * the target, since under a dialog the target is the dialog.
+ * the target, since under a dialog the target is the dialog. On the Mac it is
+ * a pinch, which follows the fingers instead (onPinchWheel).
  */
 function onDocWheel(event) {
   if (!isZoomWheel(event) || els.content.hidden) return;
-  const t = event.target;
-  if (!els.main.contains(t) && t !== els.toast && t.id !== "body-row" && t !== document.body && t !== document.documentElement) return;
+  if (isMac) return onPinchWheel(event);
+  if (!overDoc(event.target)) return;
   event.preventDefault();
   const dy = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
   const now = performance.now();
@@ -4487,6 +4513,173 @@ function onDocWheel(event) {
   const dir = docWheelSum < 0 ? 1 : -1; // up, or the fingers spreading, zooms in
   docWheelSum = 0;
   stepDocZoom(dir, { x: event.clientX, y: event.clientY }).then((p) => toast(`Zoom ${p}%`), toast);
+}
+
+/** Whether a zoom wheel's target is the document's: see onDocWheel. */
+function overDoc(t) {
+  return els.main.contains(t) || t === els.toast || t.id === "body-row" || t === document.body || t === document.documentElement;
+}
+
+/**
+ * The most elements a document may hold for a pinch to apply the real level
+ * on every frame. About three READMEs, set by the owner's hand: live there was
+ * "slightly rough" and as good as scaled, at four "too rough" (frames of 29 to
+ * 41 ms, where one README's run 17 ms, measured on the Mac). By its count, not
+ * its height: a height changes with the level and the window.
+ */
+const PINCH_LIVE_ELEMENTS = 2600;
+/** A live frame's call of showDocZoom this long is slow: a frame of about 43 ms (measured). */
+const PINCH_LIVE_MS = 33;
+
+/**
+ * A pinch on a document while it is on: `start`, the level it began at, the
+ * saved one; `level`, where the fingers are, unrounded; `shown`, the level
+ * laid out or painted; `live`, whether each frame lays out the real level;
+ * `slow`, a live pinch's slow frames in a row, from -1 so its first is left
+ * out; `y`, the height in the window it scales about; once scaled, `down`,
+ * how far that is below the top of the document's text, `tall`, the text's
+ * height, and `bottom`, where the document ends in the page; `held`,
+ * zoomAnchor's point there, or null, and `token`, the render it was taken on;
+ * `frame` and `timer`, its next frame and its end if no event comes.
+ */
+let pinch = null;
+/** Whether this gesture began off the document: its pinch is left alone to the end. */
+let gestureElsewhere = false;
+
+function onGesture(event) {
+  lastGesture = performance.now();
+  gestureEnded = event.type === "gestureend";
+  if (event.type !== "gesturechange") gestureElsewhere = false;
+  // The frame ends the pinch, the wheel event that follows taken in. The
+  // timer stays: a hidden window gets no frame.
+  if (gestureEnded && pinch) pinch.frame ||= requestAnimationFrame(onPinchFrame);
+}
+
+/**
+ * A pinch's wheel event. Each only adds up, and a frame paints the sum: the
+ * real level on a document of up to PINCH_LIVE_ELEMENTS, else the page scaled,
+ * not laid out, until the pinch ends (re-laying a large document every frame
+ * can't keep up, measured). A pinch belongs to where it starts: its later
+ * events count wherever the pointer drifts.
+ */
+function onPinchWheel(event) {
+  if (!pinch) {
+    // The wheel event after gestureend, come once the timer ended its pinch.
+    if (gestureEnded) return event.preventDefault();
+    if (gestureElsewhere) return;
+    if (!overDoc(event.target)) {
+      gestureElsewhere = true; // so it stays left alone over the document
+      return;
+    }
+    // A restore's hold would pull the page back at every change of height.
+    scrollHold?.hold.abort();
+    let y = event.clientY;
+    let held = zoomAnchor(event.clientX, y, true);
+    // Below a short document, what a key step holds, which the end holds too.
+    if (!held) {
+      const [x, top] = viewTop();
+      y = top;
+      held = zoomAnchor(x, y, true);
+    }
+    const live = els.content.getElementsByTagName("*").length <= PINCH_LIVE_ELEMENTS;
+    const z = state.docZoom;
+    pinch = { start: z, level: z, shown: z, live, slow: -1, y, held, token: shownToken, frame: 0, timer: 0 };
+  }
+  event.preventDefault();
+  const dy = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+  // Kept inside at every event, so a turn back from a stop answers at once.
+  pinch.level = Math.min(300, Math.max(50, pinch.level * Math.exp(-dy * WHEEL_ZOOM_RATE)));
+  clearTimeout(pinch.timer);
+  pinch.timer = setTimeout(endPinch, 200);
+  pinch.frame ||= requestAnimationFrame(onPinchFrame);
+}
+
+function onPinchFrame() {
+  pinch.frame = 0;
+  if (gestureEnded) return endPinch();
+  const level = Math.round(pinch.level);
+  if (level === pinch.shown) return;
+  pinch.shown = level;
+  if (pinch.live) {
+    // Timed around the call: the style and the layout, which the anchor's
+    // read forces. A first call runs long on every document (10 to 43 ms
+    // measured), so it is left out of the two in a row; one over 100 ms
+    // counts even then, as the timer would end the pinch before a second.
+    const t = performance.now();
+    showDocZoom(level, pinchHeld(), true);
+    const ms = performance.now() - t;
+    pinch.slow = ms > PINCH_LIVE_MS ? pinch.slow + 1 : 0;
+    // Over, the next change of level scales the page as it is laid out now.
+    if (ms > 100 || pinch.slow === 2) pinch.live = false;
+    return;
+  }
+  const style = els.content.style;
+  // The layer and the clip come with the first level the page is scaled to,
+  // so a pinch against a stop makes none. Without the clip a spread would scroll
+  // the page sideways and paint over the sidebar.
+  if (!style.willChange) {
+    style.willChange = "transform";
+    // The column's middle, where the real zoom keeps it; down, the held
+    // point, in #content's own px, which its zoom scales.
+    const r = els.content.getBoundingClientRect();
+    const pad = contentPad();
+    const down = pinch.y - r.top;
+    style.transformOrigin = `50% ${down / (state.docZoom / 100)}px`;
+    // Without the padding above the text, which the real zoom doesn't scale.
+    pinch.down = down - pad;
+    pinch.tall = r.height - pad;
+    pinch.bottom = window.scrollY + r.bottom;
+    els.main.style.overflowX = "clip";
+  }
+  // From the level the page is laid out at: the start's, or where a live
+  // pinch went over.
+  const scale = level / state.docZoom;
+  // Where the real zoom will want the page scrolled to hold the point, and
+  // how far it will be able to: not above the top, nor past the end of the
+  // document at its new height. What it can't scroll, the page is moved by
+  // here, so it stands where the pinch's end will leave it. Else a squeeze at
+  // the top hangs below a blank band, and a spread of a short document rises
+  // out of view, and each jumps back when the pinch ends (the second measured).
+  const want = window.scrollY + pinch.down * (scale - 1);
+  const most = Math.max(0, pinch.bottom + pinch.tall * (scale - 1) - window.innerHeight);
+  const off = want - Math.min(Math.max(want, 0), most);
+  style.transform = `translateY(${off / (state.docZoom / 100)}px) scale(${scale})`;
+}
+
+/** Take a pinch off, its styles with it: its end, or a level from elsewhere. */
+function dropPinch() {
+  if (!pinch) return;
+  cancelAnimationFrame(pinch.frame);
+  clearTimeout(pinch.timer);
+  pinch = null;
+  for (const p of ["transform", "transform-origin", "will-change"]) els.content.style.removeProperty(p);
+  els.main.style.removeProperty("overflow-x");
+}
+
+/**
+ * A pinch's held point while it still holds: on the page the pinch began on,
+ * which a render changes even where the node stays (#content itself, when the
+ * caret sat between two blocks), and its node still in the document, which
+ * the page can lose with no render (a redrawn diagram, a loaded chunk's
+ * button). A node gone measures as zeros. Else null: the top of the view.
+ */
+function pinchHeld() {
+  return pinch.token === shownToken && pinch.held?.node.isConnected ? pinch.held : null;
+}
+
+/**
+ * A pinch's end, once: the real level where the fingers left it, which a live
+ * pinch's last frame may already have laid out, one save and one toast.
+ */
+function endPinch() {
+  const { start, level } = pinch;
+  const held = pinchHeld();
+  dropPinch();
+  const percent = Math.round(level);
+  showDocZoom(percent, held);
+  if (percent !== start) invoke("set_doc_zoom", { percent }).catch(console.error);
+  // At a stop it says so, as a key does; a brush that changes nothing says nothing.
+  if (percent !== start || percent === 50 || percent === 300) toast(`Zoom ${percent}%`);
 }
 
 /* ---------------- reopening ---------------- */
@@ -6320,9 +6513,9 @@ async function main() {
   els.diagramDialog.addEventListener("keydown", onDiagramKeydown);
   els.diagramDialog.addEventListener("close", onDiagramClose);
   window.addEventListener("resize", onResize);
-  // Only WebKit on the Mac sends these; they tell a pinch from Control+wheel (isZoomWheel).
+  // Only WebKit on the Mac sends these; they tell a pinch from Control+wheel (isZoomWheel), and end it.
   for (const type of ["gesturestart", "gesturechange", "gestureend"])
-    window.addEventListener(type, () => (lastGesture = performance.now()));
+    window.addEventListener(type, onGesture);
   // Not passive, for the picture's reason: a zoom turn must not scroll the page too.
   window.addEventListener("wheel", onDocWheel, { passive: false });
 

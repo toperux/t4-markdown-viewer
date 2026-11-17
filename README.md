@@ -267,7 +267,7 @@ the sidebar the same modifiers work as in a browser: `Ctrl`+click or
 middle-click for a new tab, `Shift`+click for a new window.
 
 Over a document, `Ctrl`+wheel zooms it a step at a time and keeps what is
-under the pointer in place.
+under the pointer in place; on macOS a pinch follows your fingers.
 
 In a picture tab, `Ctrl`+wheel zooms about the cursor, dragging pans, and
 double-clicking zooms in on what you pointed at and then back out. Plain and
@@ -460,7 +460,9 @@ document. **Settings → Appearance → Document font** changes it for every win
 diagrams together, in steps from 50% to 300%; `Ctrl+0` goes back to 100%.
 `Ctrl`+wheel over a document does the same. On macOS the keys are `Cmd++`,
 `Cmd+-` and `Cmd+0`, and a pinch takes the wheel's place: `Control`+wheel
-scrolls there. The bar, the sidebar and the dialogs stay their size.
+scrolls there. A pinch is smooth and can stop on any level between 50% and
+300%; the keys step on from there. The bar, the sidebar and the dialogs stay
+their size.
 
 - There is one level, for every document and every window, and it is kept
   across restarts.

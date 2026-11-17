@@ -73,10 +73,11 @@ pub fn doc_font(raw: &str) -> String {
 /// The document zoom levels, in percent: the only ones a step lands on.
 pub const ZOOM_LADDER: [u32; 13] = [50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300];
 
-/// The document zoom as a level on the ladder, for the same reason as
-/// `reopen_mode`: the file is the user's to edit. Anything else is 100.
+/// The document zoom as a whole percent from the ladder's first rung to its
+/// last, where a pinch can leave it, for the same reason as `reopen_mode`: the
+/// file is the user's to edit. Anything else is 100.
 pub fn doc_zoom(raw: u32) -> u32 {
-    if ZOOM_LADDER.contains(&raw) {
+    if (ZOOM_LADDER[0]..=ZOOM_LADDER[ZOOM_LADDER.len() - 1]).contains(&raw) {
         raw
     } else {
         100
@@ -121,7 +122,7 @@ pub struct Config {
     /// The font for the document's text, over every theme's; empty for the
     /// theme's own. See `DEFAULT_DOC_FONT` and `doc_font`.
     pub doc_font: String,
-    /// The document zoom in percent, one of `ZOOM_LADDER`. See `doc_zoom`.
+    /// The document zoom in percent, within `ZOOM_LADDER`'s ends. See `doc_zoom`.
     pub doc_zoom: u32,
 }
 
@@ -403,13 +404,17 @@ mod tests {
     }
 
     /// Every config written before the setting existed starts at 100%, and so
-    /// does a hand-edited level off the ladder; a level on it is kept.
+    /// does a hand-edited level outside 50 to 300; a level within it is kept,
+    /// on the ladder or not.
     #[test]
-    fn doc_zoom_defaults_to_100_and_keeps_only_ladder_levels() {
+    fn doc_zoom_defaults_to_100_and_keeps_levels_within_the_ladder() {
         let old: Config = serde_json::from_str(r#"{"theme":"dracula"}"#).unwrap();
         assert_eq!(doc_zoom(old.doc_zoom), 100);
         let off: Config = serde_json::from_str(r#"{"doc_zoom":137}"#).unwrap();
-        assert_eq!(doc_zoom(off.doc_zoom), 100);
+        assert_eq!(doc_zoom(off.doc_zoom), 137);
+        for z in [49, 301, 0] {
+            assert_eq!(doc_zoom(z), 100);
+        }
         for z in ZOOM_LADDER {
             assert_eq!(doc_zoom(z), z);
         }
@@ -425,6 +430,9 @@ mod tests {
         assert_eq!(doc_zoom_step(300, 1), 300);
         assert_eq!(doc_zoom_step(250, 0), 100);
         assert_eq!(doc_zoom_step(50, 0), 100);
+        assert_eq!(doc_zoom_step(137, 1), 150);
+        assert_eq!(doc_zoom_step(137, -1), 125);
+        assert_eq!(doc_zoom_step(137, 0), 100);
     }
 
     /// A hand-edited `"Ask"` used to fall through every comparison and restore,

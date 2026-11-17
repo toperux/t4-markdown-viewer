@@ -1373,6 +1373,16 @@ fn step_doc_zoom(app: AppHandle, dir: i32) -> u32 {
     cfg.doc_zoom
 }
 
+/// Broadcast, like a step, for the level a pinch ends on. Nothing is
+/// returned: the page has applied it already.
+#[tauri::command]
+fn set_doc_zoom(app: AppHandle, percent: u32) {
+    let mut cfg = config::load();
+    cfg.doc_zoom = config::doc_zoom(percent);
+    config::save(&cfg);
+    let _ = app.emit("doc-zoom-changed", cfg.doc_zoom);
+}
+
 /// Not broadcast, unlike the open mode: this one is only ever read at boot, so
 /// two open Settings dialogs disagreeing about it until one of them is
 /// reopened costs nothing.
@@ -2131,6 +2141,7 @@ fn main() {
             set_diagram_colours,
             set_doc_font,
             step_doc_zoom,
+            set_doc_zoom,
             set_reopen,
             restore_offered_session,
             picker_dir,
