@@ -377,7 +377,7 @@ function makeTab(path) {
 }
 
 /** Snapshot the reading position so Back and tab switches return to the spot. */
-function rememberScroll() {
+function rememberScroll(leaving = false) {
   // On the entry whose page is on screen, not the active one: while a switch
   // loads, the active entry has moved on and the page being scrolled is still
   // the one being left, which keeps what the reader does to it. The empty and
@@ -388,8 +388,18 @@ function rememberScroll() {
   // zoom to keep.
   if (isImage(shownEntry.path)) rememberImage();
   // A restore still holding the page: where it's going, not where anchoring
-  // has it on the way (a reload, a switch or a report mid-restore).
-  else shownEntry.scrollY = scrollHold?.entry === shownEntry ? scrollHold.target : window.scrollY;
+  // has it on the way (a reload, a switch or a report mid-restore). And the
+  // place it was handed: the swap's own scroll may have cleared the entry's.
+  else if (scrollHold?.entry === shownEntry) {
+    shownEntry.scrollY = scrollHold.target;
+    shownEntry.at = scrollHold.at;
+  } else {
+    shownEntry.scrollY = window.scrollY;
+    // What is at the top of the view, for a level that changes while this page
+    // is away. Only as the page leaves or is drawn again: it costs a hit test, and
+    // a place kept through a scroll would be stale. The top of a page needs none.
+    shownEntry.at = leaving && window.scrollY > 0 ? placeAt() : undefined;
+  }
 }
 
 /* ---------------- rendering ---------------- */
@@ -1764,7 +1774,7 @@ function clearHash() {
   }
 }
 
-function renderDocument(doc, scrollY, hash) {
+function renderDocument(doc, scrollY, hash, at) {
   // A box ticked from the keyboard comes back as a new element when the
   // watcher re-renders; put focus back on it — but only if it is still the
   // same task, or the next Space ticks a neighbour. Only a keyboard focus
@@ -1853,8 +1863,12 @@ function renderDocument(doc, scrollY, hash) {
       bankLanding(hash);
       return;
     }
-    window.scrollTo(0, scrollY ?? 0);
-    if (scrollY > 0) holdScroll(scrollY, token, entry);
+    // The level changed while this page was away, so its offset was only scaled
+    // (`showDocZoom`): go by what was at the top of the view.
+    const place = at?.zoom !== state.docZoom ? at : null;
+    const y = (place && placeY(place)) ?? scrollY ?? 0;
+    window.scrollTo(0, y);
+    if (y > 0) holdScroll(y, token, entry, at);
   });
 }
 
@@ -1888,11 +1902,18 @@ function stripTakes(event) {
  * from anchoring's by the input that makes it, and failing that by the height:
  * anchoring moves the page only as it grows.
  */
-function holdScroll(target, token, entry) {
+function holdScroll(target, token, entry, at) {
   const hold = new AbortController();
   // So a jump to a find match can let go of it, and `rememberScroll` can bank
   // where it's going.
-  scrollHold = { hold, target, entry };
+  const me = (scrollHold = { hold, target, entry, at });
+  // After a change of level the page goes by its place's node, which the
+  // pictures above it move as they load.
+  const place = at?.zoom !== state.docZoom ? at : null;
+  const put = () => {
+    if (place) me.target = target = placeY(place) ?? target;
+    window.scrollTo(0, target);
+  };
   hold.signal.addEventListener("abort", () => {
     // A newer hold may have taken its place.
     if (scrollHold?.hold === hold) scrollHold = null;
@@ -1911,7 +1932,7 @@ function holdScroll(target, token, entry) {
   const observer = new ResizeObserver(() => {
     if (token !== shownToken || shownEntry !== entry) return hold.abort();
     height = els.content.offsetHeight;
-    window.scrollTo(0, target);
+    put();
     expected = window.scrollY;
     // Again a frame later, in case a compositor that scrolls on its own
     // thread has not yet learnt the new height and clamped the `scrollTo`
@@ -1920,7 +1941,7 @@ function holdScroll(target, token, entry) {
     // clamped one.
     requestAnimationFrame(() => {
       if (signal.aborted || token !== shownToken || shownEntry !== entry) return;
-      window.scrollTo(0, target);
+      put();
       expected = window.scrollY;
       if (settled()) hold.abort();
     });
@@ -1934,7 +1955,7 @@ function holdScroll(target, token, entry) {
     if (token !== shownToken || shownEntry !== entry) return hold.abort();
     if (els.content.offsetHeight === height) return;
     height = els.content.offsetHeight;
-    window.scrollTo(0, target);
+    put();
     expected = window.scrollY;
   }, 100);
   signal.addEventListener("abort", () => clearInterval(poll));
@@ -1949,9 +1970,9 @@ function holdScroll(target, token, entry) {
     if (!settled()) return;
     const again = () => !signal.aborted && token === shownToken && shownEntry === entry;
     requestAnimationFrame(() => {
-      if (again()) window.scrollTo(0, target);
+      if (again()) put();
       requestAnimationFrame(() => {
-        if (again()) window.scrollTo(0, target);
+        if (again()) put();
         hold.abort();
       });
     });
@@ -2276,7 +2297,7 @@ async function showActive(scrollY) {
       bumpAsset(asset.path);
       // The page being left, as it stands at the swap: a refresh restores
       // from this, and a switch leaves it on its own entry.
-      rememberScroll();
+      rememberScroll(true);
       // Its panel goes up before the picture decodes, and the page left is gone.
       shownEntry = entry;
       swapped = true;
@@ -2300,10 +2321,17 @@ async function showActive(scrollY) {
       // The page being left, as it stands at the swap — a scroll in the last
       // frame has not reached the listener yet. A refresh lands on this, and a
       // switch leaves it on its own entry.
-      rememberScroll();
+      rememberScroll(true);
       swapped = true;
       shownEntry = entry; // before the render, which ties its scroll restore to it
-      renderDocument(doc, scrollY ?? entry.scrollY, entry.hash);
+      // The place is read now: the swap's own scroll can clear it before the
+      // frame that puts the page back.
+      renderDocument(
+        doc,
+        scrollY ?? entry.scrollY,
+        entry.hash,
+        scrollY == null ? entry.at : undefined,
+      );
       // Only a rendered document has pictures the webview can be holding stale;
       // recording them here covers exactly those, and the list survives a tab
       // switch, so a document in the background stays watched.
@@ -2321,7 +2349,7 @@ async function showActive(scrollY) {
     // scroll in its last frame has not reached the listener yet: bank it before
     // the error panel collapses it. Past the swap the offset on screen is the
     // new, half-rendered page's, and the page left was banked at the swap.
-    if (!swapped) rememberScroll();
+    if (!swapped) rememberScroll(true);
     show("error");
   }
   shownToken = token;
@@ -2561,7 +2589,7 @@ async function removeTab(id) {
   const i = tabs.findIndex((t) => t.id === id);
   if (i < 0) return null;
   const wasActive = id === activeId;
-  if (wasActive) rememberScroll();
+  if (wasActive) rememberScroll(true);
   const [gone] = tabs.splice(i, 1);
   gone.closedAt = i; // where Ctrl+Shift+T puts it back
   if (wasActive) activeId = (tabs[i] ?? tabs[i - 1])?.id ?? null;
@@ -3388,7 +3416,7 @@ async function go(delta) {
   if (target < 0 || target >= tab.entries.length) return;
 
   const from = currentEntry(tab);
-  rememberScroll();
+  rememberScroll(true);
   tab.index = target;
   const to = currentEntry(tab);
 
@@ -3401,7 +3429,10 @@ async function go(delta) {
    */
   if (from && to && samePath(from.path, to.path) && shownToken === renderToken && shownEntry === from) {
     shownEntry = to;
-    window.scrollTo(0, to.scrollY ?? 0);
+    // As `renderDocument` puts a page back after a change of level.
+    const place = to.at?.zoom !== state.docZoom ? to.at : null;
+    const y = (place && placeY(place)) ?? to.scrollY ?? 0;
+    window.scrollTo(0, y);
     updateChrome();
     return;
   }
@@ -3486,7 +3517,7 @@ function pushAnchorEntry(id) {
   const entry = currentEntry(tab);
   if (!entry) return;
 
-  rememberScroll(); // the spot being left, captured before the browser moves
+  rememberScroll(true); // the spot being left, captured before the browser moves
   tab.entries.length = tab.index + 1; // drop the forward branch
   tab.entries.push({ path: entry.path, scrollY: null, hash: id });
   tab.index = tab.entries.length - 1;
@@ -3565,7 +3596,7 @@ let findTimer = 0; // the typing debounce
 let findRefreshTimer = 0; // the mutation debounce
 let findObserver = null; // watches #content while the bar is open
 let findReturn = null; // what had focus before the bar opened
-let scrollHold = null; // the running holdScroll: { hold, target, entry }
+let scrollHold = null; // the running holdScroll: { hold, target, entry, at }
 
 // The two highlights, registered once and then only cleared and refilled:
 // WebKit leaves a highlight painted after it is deleted or replaced in
@@ -4372,7 +4403,8 @@ function caretBox(range) {
  * What the reader is looking at, at a point in the window: a function that
  * says, after a change of level, how far it has moved since. Null when there
  * is nothing to hold on to. With `point`, for a pinch, the point itself is
- * held, and the function carries the node it measures as `node`.
+ * held, and the function carries the node it measures as `node`, and where in
+ * it the point is: `offset` and `down` on text, `frac` on an element.
  */
 function zoomAnchor(x, y, point = false) {
   // The text at the point holds to the px (measured). Where the hit test gives
@@ -4388,7 +4420,11 @@ function zoomAnchor(x, y, point = false) {
         zoomHeld = null;
         const frac = r.height ? (y - r.top) / r.height : 0;
         const at = (rect) => rect.top + frac * rect.height;
-        return Object.assign(() => at(caretBox(range)) - at(r), { node: range.startContainer });
+        return Object.assign(() => at(caretBox(range)) - at(r), {
+          node: range.startContainer,
+          offset: range.startOffset,
+          down: y - r.top,
+        });
       }
       // A line the last step left within 2 px of its aim is taken to be that
       // line again, and goes back to the aim, not to where it ended: a step
@@ -4420,7 +4456,7 @@ function zoomAnchor(x, y, point = false) {
   const r = el.getBoundingClientRect();
   const frac = r.height ? (y - r.top) / r.height : 0;
   const at = (rect) => rect.top + frac * rect.height;
-  return Object.assign(() => at(el.getBoundingClientRect()) - at(r), { node: el });
+  return Object.assign(() => at(el.getBoundingClientRect()) - at(r), { node: el, frac });
 }
 
 /** The page padding in window px: the root's `--content-pad` is in rem. */
@@ -4437,12 +4473,74 @@ function viewTop() {
 }
 
 /**
+ * Enough of a node to tell it from another that has taken its path. A picture
+ * is like its neighbours in name and children, so an element goes by the
+ * source lines of its block too. A text goes by a number worked out from its
+ * characters, not by the characters: a place is saved with the session, which
+ * holds no run of a document's text.
+ */
+function placeMark(node, offset) {
+  if (node.nodeType === 3) {
+    // Either side of the caret: one at its text's end has nothing after it.
+    let sum = 0;
+    for (const c of node.data.substr(Math.max(0, offset - 12), 24))
+      sum = (sum * 31 + c.codePointAt(0)) | 0;
+    return `${node.length}:${sum}`;
+  }
+  const lines = node.closest?.("[data-sourcepos]")?.dataset.sourcepos;
+  return `${node.nodeName}:${node.childNodes.length}:${lines}`;
+}
+
+/** What is at the top of the view, in a form that outlives the page; undefined when nothing is. */
+function placeAt() {
+  const aim = zoomHeld; // leaving is no step: a step's aim stands
+  const held = zoomAnchor(...viewTop(), true);
+  zoomHeld = aim;
+  if (!held) return undefined;
+  const path = [];
+  // Counted back through the siblings: a list of 350 000 children takes seconds
+  // to index the first time (measured, WebKitGTK, a large JSON document).
+  for (let n = held.node; n !== els.content; n = n.parentNode) {
+    let i = 0;
+    for (let s = n.previousSibling; s; s = s.previousSibling) i++;
+    path.unshift(i);
+  }
+  const { node, offset, down, frac } = held;
+  return { path, offset, down, frac, mark: placeMark(node, offset), zoom: state.docZoom };
+}
+
+/** Where a banked place is now, as a page offset; null when its node is gone or shows nothing. */
+function placeY(at) {
+  try {
+    let node = els.content;
+    for (const i of at.path) node = node.childNodes[i];
+    // Another node at that path: a diagram that drew this time, a file that
+    // changed while away.
+    if (placeMark(node, at.offset) !== at.mark) return null;
+    let r;
+    if (at.offset == null) r = node.getBoundingClientRect();
+    else {
+      const range = document.createRange();
+      range.setStart(node, at.offset);
+      r = caretBox(range);
+    }
+    const down = at.offset == null ? at.frac * r.height : at.down;
+    const y = window.scrollY + r.top + down - viewTop()[1];
+    return (r.x || r.y || r.width || r.height) && Number.isFinite(y) ? Math.max(0, y) : null;
+  } catch {
+    // No such path, or no place at all: a session file from elsewhere.
+    return null;
+  }
+}
+
+/**
  * Apply a level: at boot, on every frame of a live pinch and at a pinch's end,
  * and from the broadcast every step and every pinch ends in, so every window
  * ends on the last save. Three properties on #content (base.css), all gone at
  * 100% so a reader who never zooms has today's layout untouched. The reader's
- * place is kept: on screen by what was at one point, elsewhere by scaling the
- * banked offsets. `held` is a pinch's anchor, taken at its start; `own`, that
+ * place is kept: on screen by what was at one point, elsewhere by what was at
+ * the top of the view as the page left (`placeY`), else by scaling the banked
+ * offsets. `held` is a pinch's anchor, taken at its start; `own`, that
  * the pinch itself is asking.
  */
 function showDocZoom(percent, held = null, own = false) {
@@ -4473,7 +4571,9 @@ function showDocZoom(percent, held = null, own = false) {
     style.setProperty("--cq-zoom", cqwScales ? z : 1);
   }
   // Documents not on screen aren't laid out, so their offsets are scaled,
-  // which drifts a little (measured). A null waits to jump to its heading.
+  // which drifts (measured): only what a page falls back to when the place
+  // banked with it no longer resolves, or it has none. A null waits to jump to
+  // its heading.
   for (const tab of [...tabs, ...closedTabs])
     for (const entry of tab.entries)
       if (typeof entry.scrollY === "number" && !(shown && entry === shownEntry)) entry.scrollY *= ratio;
