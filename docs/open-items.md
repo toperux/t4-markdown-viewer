@@ -733,11 +733,6 @@ as it is found.
   limit that does not keep up pays a few slow frames at the start of every pinch.
   *Accepted 2026-11-17. Reopen on a report from another Mac, or when an older one is at
   hand.*
-- [ ] **The release build's pinch is unwalked** (added 2026-11-17,
-  `archive/plans/smooth-pinch-macos.md`, triage). Every walk drove a debug build with the
-  `webdriver` feature; the release has no driver. The pinch's code is the same in both.
-  *Accepted 2026-11-17. Closes when the owner has pinched a document in the first release
-  that carries it.*
 - [ ] **Windows and Linux were not walked after the last change to the pinch** (added
   2026-11-17, `archive/plans/smooth-pinch-macos.md`, triage). Both walked the first build:
   a level off the ladder loads, the keys step from it, the wheel still steps (Windows beside

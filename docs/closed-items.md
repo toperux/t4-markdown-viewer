@@ -1786,3 +1786,10 @@ tooling; listed so nobody rediscovers them.
   `requestAnimationFrame` runs every 16.66 ms on the owner's MacBook Pro, whose display is
   120 Hz (measured). It is how the webview renders, not something the app sets.
   *Kept 2026-11-17, owner's call, no trigger.*
+- [x] **The release build's pinch is unwalked** (added 2026-11-17,
+  `archive/plans/smooth-pinch-macos.md`, triage). Every walk drove a debug build with the
+  `webdriver` feature; the release has no driver. The pinch's code is the same in both.
+  *Accepted 2026-11-17. Closes when the owner has pinched a document in the first release
+  that carries it.*
+  *Closed 2026-11-17: the owner pinched a document in the released 1.9.3 on their Mac,
+  "looks good".*
