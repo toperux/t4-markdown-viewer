@@ -357,6 +357,21 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   refuses a second window with other options: `HRESULT(0x8007139F)`). Walked on the Windows VM
   at streak 6: the main window, a Ctrl+N window, a torn-off tab and a restored three-window
   session all draw; at streak 0 the app behaves as 1.7.4; 1.7.4 at streak 6 still fails.*
+- [x] **On macOS and Linux, a change of zoom could throw the page thousands of px where a
+  line wrapped at the text being held** (found 2026-11-17 by the walk of
+  `archive/plans/hidden-tab-place.md`; in every release since the document zoom, 1.9.1 to
+  1.9.3). The place is kept by the caret at one point, and WebKit gives a caret no box at
+  all where the new layout wraps the line exactly at it, before a space. The app read the
+  box of all zeros as a move. Measured on 1.9.3 at such places: a change in one go 306 to
+  72 570 px off on macOS and up to 74 485 px on Linux, a key's step 207 to 24 339 px, a live
+  pinch 5 407 px between two frames, a scaled pinch's end up to 391 586 px. The README has
+  170 to 820 such carets at a level; the one at the top of the view is among them in a few
+  places in a hundred. Windows did not show it.
+  *Fixed 2026-11-17 with the hidden tab's place (ruling 3 of its plan): where a caret has no
+  box, the box of the character before it is taken, which a trial on macOS measured to be
+  the caret's own to 0.0 px and to sit on the line that ends at the wrap. Walked at 50
+  places on macOS and 61 on Linux: within 1 px on screen, by a key, under a pinch and for a
+  tab that was away; unchanged on Windows, where the new branch never ran.*
 
 ## Deferred from the 2026-09-20 review
 
@@ -888,6 +903,27 @@ still to do. Same sections as there; a newly closed item goes at the end of its 
   when the fingers lift; a larger one is scaled as a picture and laid out once at the end.
   Walked on the owner's Mac, whose hand called the README "Smooth, nothing changes" and set
   that limit. What is left is in `open-items.md`, under *Accepted limits* and *Deferred*.*
+- [x] **A tab not on screen loses its place after a change of zoom** (added 2026-11-13,
+  `archive/plans/document-zoom.md`, triage, as an accepted limit; deferred 2026-11-17,
+  `archive/plans/smooth-pinch-macos.md`, triage). A document that isn't shown isn't laid out,
+  so its saved offset is multiplied by the ratio of the two levels, and what does not scale
+  with the level moves under it. Recorded at first as 32 to 35 px in the walk and 16 to
+  254 px in the trials. Measured on the README in 2026-11: 449 to 450 px after a pinch or a
+  step from 100% to 165%, and 966 px after 100% to 150% with the keys' three steps or a
+  pinch alike; a tab switched to in the middle of a change landed 219 to 448 px off. The
+  README's blocks that keep their size (a blocked badge picture, what the pane limits) add up
+  over a long page. A way to start from: remember the line at the top of the view, as a step
+  holds one on screen, not a number of px. Needs a plan of its own. Reopen at the next change
+  to the document zoom or to how a tab keeps its place.
+  *Fixed 2026-11-17 (`archive/plans/hidden-tab-place.md`): a page that leaves the screen
+  banks what is at the top of its view (the node, by its path from the document, and the
+  top of its line), and after a change of level is put back by that, as a zoom step holds a
+  line on screen. With the level unchanged it comes back by its offset as before. Walked on
+  all three platforms against 1.9.3, twenty places on the README and four changes of level:
+  within 0.5 px on Windows, 1.0 px on macOS and 0.98 px on Linux, where 1.9.3 was up to
+  45 443, 44 401 and 43 332 px off; a closed tab reopened, a picture in the same tab, Back,
+  and pictures still loading above the place the same. What is left is in `open-items.md`,
+  under *Accepted limits*.*
 
 ## Needs a Mac, a Dependabot run, or an older build
 
@@ -1797,3 +1833,16 @@ tooling; listed so nobody rediscovers them.
   that carries it.*
   *Closed 2026-11-17: the owner pinched a document in the released 1.9.3 on their Mac,
   "looks good".*
+- [x] **At a document's end, zooming out lands the page off** (2026-11-17,
+  `archive/plans/hidden-tab-place.md`, the walks). The page at a lower level is shorter, and
+  where the line held would need a scroll past its end, the page stops at its end: the last
+  one or two of twenty places moved 57 to 724 px on Windows, 212 to 551 px on Linux and 273
+  to 555 px on macOS, with the tab on screen and away alike, on 1.9.3 too (measured; on
+  Windows the page was read at exactly its scroll limit). The same at a document's top.
+  *Kept 2026-11-17, owner's call, no trigger: a page cannot scroll past its ends.*
+- [x] **A copy of 1.9.3 or older keeps a tab's banked place without knowing it** (2026-11-17,
+  `archive/plans/hidden-tab-place.md`, review; reasoned). It ignores the `at` of an entry in
+  `session.json` and writes it back unchanged, so after a step back to an old copy and
+  forward again a place can be older than the offset beside it. It is used only if the level
+  also changed in between.
+  *Kept 2026-11-17, owner's call, no trigger.*

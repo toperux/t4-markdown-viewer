@@ -224,19 +224,6 @@ The next two came out of the session-restore walks (`archive/plans/session-resto
   the launcher keeps in `OWD`. Needs a plan of its own. Reopen at the next change to how the
   AppImage starts, or on a report.
 
-- [ ] **A tab not on screen loses its place after a change of zoom** (added 2026-11-13,
-  `archive/plans/document-zoom.md`, triage, as an accepted limit; deferred 2026-11-17,
-  `archive/plans/smooth-pinch-macos.md`, triage). A document that isn't shown isn't laid out,
-  so its saved offset is multiplied by the ratio of the two levels, and what does not scale
-  with the level moves under it. Recorded at first as 32 to 35 px in the walk and 16 to
-  254 px in the trials. Measured on the README in 2026-11: 449 to 450 px after a pinch or a
-  step from 100% to 165%, and 966 px after 100% to 150% with the keys' three steps or a
-  pinch alike; a tab switched to in the middle of a change landed 219 to 448 px off. The
-  README's blocks that keep their size (a blocked badge picture, what the pane limits) add up
-  over a long page. A way to start from: remember the line at the top of the view, as a step
-  holds one on screen, not a number of px. Needs a plan of its own. Reopen at the next change
-  to the document zoom or to how a tab keeps its place.
-
 ## Accepted limits
 
 Not bugs to fix; here so nobody rediscovers them. The three the 2026-09-12 review parked were
@@ -508,19 +495,23 @@ as it is found.
   is unmeasured.
   *Accepted 2026-11-13. Reopen on a report of a document landing off, or flashing another
   place, after a tab switch while zoomed.*
-  *Added 2026-11-17 (`archive/plans/smooth-pinch-macos.md`, the walk and triage): on macOS a
-  pinch on a document of up to about three READMEs changes the level on every frame, so a
-  save of the file in the middle of one reaches this each time: the top line landed 0.5 to
-  46 px off at 2000 px down and 18 to 58 px at 8000 px down, and further off as the pinch
-  went on, up to 346 px at 300% (measured). A fix to start from: scale the restored offset
-  by the change of level since the page was shown, two lines in `renderDocument`, which
-  every platform runs. Kept by the owner's ruling. Same trigger, and a report of a page
-  jumping when a file is saved during a pinch.*
+  *2026-11-17 (`archive/plans/hidden-tab-place.md`, the walks): a page that leaves or is
+  drawn again now banks what was at the top of its view, and the frame that puts it back
+  goes by that when the level has changed since. Measured on macOS under a pinch, which
+  changes the level on every frame: a save of the file in the middle of one lands within
+  1.0 px (1.9.3: 32 to 267 px) and a switch of tabs within 1.4 px (93 to 640 px). The case
+  above, a step from another window or a key within a frame of the switch, should be mended
+  the same way (read in the code) and was not walked again; the 891 px reading on Windows
+  was not looked for. Same trigger.*
 - [ ] **A session offered on the empty panel keeps the old zoom's places** (added 2026-11-13,
   `archive/plans/document-zoom.md`, triage; reasoned, not walked). The tabs behind *Reopen*
   are not open in any window, so a change of level before the offer is taken doesn't scale
   their saved offsets, and they come back as far off as the two levels differ.
   *Accepted 2026-11-13. Reopen on a report of reopened tabs landing off after zooming.*
+  *2026-11-17 (`archive/plans/hidden-tab-place.md`, triage): a tab that was in the
+  background when its window last reported now carries the place it was left at in
+  `session.json`, and is put back by it when the level differs (read in the code, not
+  walked). The tab that was on screen then has none, and this limit stands for it.*
 - [ ] **On Linux, a tab reopened after zoom steps once read as at its top** (added 2026-11-13,
   `archive/plans/document-zoom.md`, the walk). In the first walk, 3 of 7 tries of
   `Ctrl+Shift+T` after three steps, with a 3 MB JSON tab on screen, read scroll offset 0
@@ -761,3 +752,80 @@ as it is found.
   or Safari on the owner's Mac, or WebKitGTK on the Linux VM, has had an update: measure one
   line of body text at 50% against its width at 100%, and close this if it is half. Or at
   the next change to the document zoom.*
+- [ ] **A file that changed while its tab was away comes back by the scaled offset** (added
+  2026-11-17, `archive/plans/hidden-tab-place.md`, the walks and triage). A tab that leaves
+  the screen banks what was at the top of its view and is put back by it after a change of
+  level. If the file was edited meanwhile, what is now at that place in the page does not
+  pass for what was banked, and the page lands where 1.9.3 puts it, the offset times the
+  ratio of the levels (measured on all three platforms: a paragraph added or removed above,
+  with the place on text and on a picture; no error).
+  *Accepted 2026-11-17. Reopen on a report of a tab landing off after its file changed and
+  the zoom with it.*
+- [ ] **A banked place can pass for another in two rare shapes of page** (added 2026-11-17,
+  `archive/plans/hidden-tab-place.md`, review and triage; reasoned, not seen). A place on an
+  element with no source lines above it, a diagram's figure and its drawing or a wide
+  table's scroll box, is told from another by its name and count of children alone. After
+  its file gains a paragraph above, two such blocks next to each other are taken one for the
+  other, and the page lands a block off. On a JSON page, which has no source lines at all,
+  the same holds for any element; a place on text there goes by the text.
+  *Accepted 2026-11-17. Reopen on a report of a tab landing on the wrong diagram or table
+  after its file changed.*
+- [ ] **Two rare JSON pages after *more* come back by the scaled offset** (added 2026-11-17,
+  `archive/plans/hidden-tab-place.md`, review; read in `json.rs`, not measured). One whose
+  cut fell after bare text (white space before a comma, a token the viewer does not know),
+  and one that a render at the larger extent no longer folds: there the page left and the
+  page drawn again are not the same tree. Every JSON page walked was followed to the px,
+  below the splice too.
+  *Accepted 2026-11-17. Reopen on a report of a JSON tab landing off after *more* and a
+  change of zoom.*
+- [ ] **A key's steps to a high level can end about a line off** (added 2026-11-17,
+  `archive/plans/hidden-tab-place.md`, the re-walk; the same on 1.9.3). Each rung takes a
+  fresh hit test at the top of the view, and a line that has changed height can hand over to
+  its neighbour: from 100% to 300%, six of six places ended 68 to 142 px off on Linux
+  (measured). One change in one go, and a tab that was away, hold the line.
+  *Accepted 2026-11-17. Reopen on a report of the page creeping when zooming in by the keys.*
+- [ ] **On macOS, a tab switched to in the middle of a scaled pinch is drawn once at the old
+  page's scale** (added 2026-11-17, `archive/plans/hidden-tab-place.md`, the walk; the same
+  on 1.9.3). On a document of over 2 600 elements a pinch scales the page with a transform
+  until the fingers lift; a tab that arrives meanwhile has its first frame under it (a mark
+  38 000 to 118 000 px off in that frame) and is right once the pinch ends (0.4 to 5.6 px,
+  measured).
+  *Accepted 2026-11-17. Reopen on a report of a tab flashing another place when switched to
+  during a pinch.*
+- [ ] **A tab torn off into a new window lands 33 px off** (added 2026-11-17,
+  `archive/plans/hidden-tab-place.md`, the walks; the same on 1.9.3). A window with one tab
+  has no tab strip, so its bar is shorter and the same offset shows the page 33 px lower
+  (measured on Windows and macOS).
+  *Accepted 2026-11-17. Reopen on a report, or at the next change to how a torn-off tab is
+  placed.*
+- [ ] **On macOS, a reopened tab once read 26 px off after a change of level** (added
+  2026-11-17, `archive/plans/hidden-tab-place.md`, the walk; on 1.9.3 too). The first place
+  of a close and reopen, once on each build, and 0 on every repeat. Not traced.
+  *Accepted 2026-11-17. Reopen on a report of a reopened tab landing a line off.*
+- [ ] **On Windows, some carets have no box, and the app's handling of them is unwalked**
+  (added 2026-11-17, `archive/plans/hidden-tab-place.md`, the re-walk). WebView2 gives a
+  caret a box of all zeros at the very end of a text whose line ends there and at the
+  newline of a code block's line: 72 offsets on the README at 150%, on 1.9.3 too (measured).
+  The hit test at the top of the view never returned one in the walks (0 of 1 478). If it
+  does, the box of the character before is taken, as on WebKit, where that is measured to be
+  the caret's own; on WebView2 it is reasoned.
+  *Accepted 2026-11-17. Reopen on a report from Windows of the page jumping on a zoom step.*
+- [ ] **Leaving a fully loaded 10 MB JSON tab takes up to half a second longer** (added
+  2026-11-17, `archive/plans/hidden-tab-place.md`, the walks and rulings 4 and 5). Banking
+  what is at the top of the view costs a hit test and a walk up the tree as a page leaves:
+  under 3 ms on the README and on it thirty times over (all three platforms). On a 10 MB
+  JSON loaded to its end, 5 to 41 ms at a median on macOS, and a real switch away 0.3 to
+  0.55 s longer than 1.9.3's 0.75 to 1.38 s (a spread of 0.3 s between runs); on Linux, on
+  another file with one array of 350 001 records, about 0.6 s longer, with a first call of
+  0.5 to 6 s. The walk up the tree was then changed to count back through the siblings,
+  which measured the same on macOS and on a made-up list on Linux; the Linux file was not
+  loaded again (the VM ran out of memory), so its cost since is unmeasured. Turned down by
+  the owner: banking no place above a size.
+  *Accepted 2026-11-17. Same trigger as the JSON viewer's memory and layout cost per chunk
+  (*Deferred*), or a report of a slow switch away from a large JSON document.*
+- [ ] **The first leave after a large JSON is first shown takes 22 to 47 ms** (added
+  2026-11-17, `archive/plans/hidden-tab-place.md`, the walks). The first hit test on the
+  10 MB JSON's first chunk: 44 to 47 ms on Windows, 22 ms on Linux, 10 ms at most on macOS,
+  once; under 1 ms after (measured; that it is the hit test and not the walk is reasoned
+  from the later runs).
+  *Accepted 2026-11-17. Same trigger as the entry above.*
