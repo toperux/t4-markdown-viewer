@@ -4351,17 +4351,36 @@ function probeCqw() {
 }
 
 /**
+ * A caret's box. Where a line wraps exactly at the caret WebKit gives it none,
+ * at a hit test and after a new layout alike, and a box of all zeros read as a
+ * place sent the page thousands of px off (measured, macOS). So the box of the
+ * character before it then, which has the caret's own top and height and is on
+ * the line the caret ends (measured); of the first character, for a caret at
+ * its text's start.
+ */
+function caretBox(range) {
+  const r = range.getBoundingClientRect();
+  const { startContainer: node, startOffset: i } = range;
+  if (r.x || r.y || r.width || r.height || node.nodeType !== 3 || !node.length) return r;
+  const beside = document.createRange();
+  beside.setStart(node, Math.max(0, i - 1));
+  beside.setEnd(node, Math.max(1, i));
+  return beside.getBoundingClientRect();
+}
+
+/**
  * What the reader is looking at, at a point in the window: a function that
  * says, after a change of level, how far it has moved since. Null when there
  * is nothing to hold on to. With `point`, for a pinch, the point itself is
  * held, and the function carries the node it measures as `node`.
  */
 function zoomAnchor(x, y, point = false) {
-  // The text at the point holds to the px (measured). A heading's button or a
-  // table's white space has no caret: its rectangle is all zeros.
+  // The text at the point holds to the px (measured). Where the hit test gives
+  // no caret in a text (a heading's button, white space with no line beside
+  // it), the rectangle is all zeros.
   const range = document.caretRangeFromPoint(x, y);
   if (range && els.content.contains(range.startContainer)) {
-    const r = range.getBoundingClientRect();
+    const r = caretBox(range);
     if (r.x || r.y || r.width || r.height) {
       // Under a pinch the fingers' point would slide down a line that grows if
       // its top were held. A pinch is no step, so it leaves no aim.
@@ -4369,7 +4388,7 @@ function zoomAnchor(x, y, point = false) {
         zoomHeld = null;
         const frac = r.height ? (y - r.top) / r.height : 0;
         const at = (rect) => rect.top + frac * rect.height;
-        return Object.assign(() => at(range.getBoundingClientRect()) - at(r), { node: range.startContainer });
+        return Object.assign(() => at(caretBox(range)) - at(r), { node: range.startContainer });
       }
       // A line the last step left within 2 px of its aim is taken to be that
       // line again, and goes back to the aim, not to where it ended: a step
@@ -4381,7 +4400,7 @@ function zoomAnchor(x, y, point = false) {
         Math.abs(r.top - zoomHeld.top) < 2;
       const top = again ? zoomHeld.top : r.top;
       zoomHeld = { top }; // `y` and `h` once the step has scrolled
-      return () => range.getBoundingClientRect().top - top;
+      return () => caretBox(range).top - top;
     }
   }
   zoomHeld = null; // no text held, so no aim for the next step
