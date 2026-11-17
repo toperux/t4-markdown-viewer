@@ -1,8 +1,10 @@
 # Text That Stops Shrinking When Zoomed Out Plan
 
-> **Status (2026-11-17):** written and reviewed (five passes: ten findings, then nine, five,
-> two and none, all taken). A plan to decide, and to try one option before it is built:
-> nothing is built until the owner rules (*The ruling*).
+> **Status (2026-11-17): done.** Written, reviewed (five passes: ten findings, then nine,
+> five, two and none, all taken) and ruled on the same day: **option A, wait for WebKit**
+> (the owner). Nothing was built and nothing was tried. Recorded as an accepted limit with a
+> trigger (`open-items.md`); Task 2, the trial of the private function, was not run and
+> stands ready if the limit is reopened.
 
 **Spec:** the open item *On macOS, text stops shrinking below about 64% zoom*
 (`docs/open-items.md` → Deferred, added 2026-11-17 in the triage of
@@ -243,6 +245,9 @@ Windows. Read: the cause, the missing public setting, the private function, WebK
 and that the release branches lack it. Worked out: the table, bar two rows. Not known:
 whether the private function works on the system's WebKit; when WebKit's change reaches a
 Mac or a Linux desktop.
+
+**Ruled 2026-11-17 by the owner: A.** Turned down: trying D first and then ruling, D itself,
+and B. C was not offered again.
 
 **Recommendation: A, with D close behind.** Zooming a document out below 64% still works,
 only unevenly; the owner kept it once; the engine's makers have since mended it. B removes

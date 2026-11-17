@@ -1704,6 +1704,10 @@ tooling; listed so nobody rediscovers them.
   `archive/plans/document-zoom.md`, Task 1). At 50% zoom the text stops shrinking at 9 px on
   Linux (measured) while the layout goes on to half size.
   *Kept 2026-11-13: the engine's own floor, and only at the two lowest levels.*
+  *Looked at again 2026-11-17 (`archive/plans/zoom-text-floor.md`): it reaches further than
+  that, and WebKit has changed the rule upstream. Kept again, now with a trigger:
+  `open-items.md`, Accepted limits, "On macOS and Linux, text stops shrinking when a
+  document is zoomed far out".*
 - [x] **On Linux at 150%, a box that steps out of the reading column scrolls 1 px sideways**
   (2026-11-13, `archive/plans/document-zoom.md`, Task 1b and the walk). A wide table, diagram
   or picture; measured.

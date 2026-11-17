@@ -260,8 +260,8 @@ worked out from after a change. One that fails its mark is never used for the ta
 
 The change above, in `src/app.js`. Comments as the code around them. Gates: `cargo fmt
 --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, `node --check
-src/app.js`. One local commit, a release-note line: *A tab keeps its place when the zoom
-changes while it is in the background*.
+src/app.js`. One local commit, a release-note line: *A background tab keeps its place when
+the zoom changes*.
 
 ### Task 2: the walk, on Windows, Linux and macOS
 

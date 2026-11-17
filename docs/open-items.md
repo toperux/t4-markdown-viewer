@@ -237,15 +237,6 @@ The next two came out of the session-restore walks (`archive/plans/session-resto
   holds one on screen, not a number of px. Needs a plan of its own. Reopen at the next change
   to the document zoom or to how a tab keeps its place.
 
-- [ ] **On macOS, text stops shrinking below about 64% zoom** (added 2026-11-17,
-  `archive/plans/smooth-pinch-macos.md`, the walk and triage). WebKit draws no text under
-  9 px on screen: body text (14 px) keeps that size from 64% down and code (12.25 px) from
-  73% down, while pictures, spacing and the column go on shrinking, so at 50% the letters are
-  1.29 times what the level says (measured, the keys and a pinch alike; since the document
-  zoom's release). Not looked into: where WebKit sets that floor, whether the app can lift
-  it, and whether WebView2 or WebKitGTK has one. Reopen at the next change to the document
-  zoom.
-
 ## Accepted limits
 
 Not bugs to fix; here so nobody rediscovers them. The three the 2026-09-12 review parked were
@@ -652,7 +643,7 @@ as it is found.
   of more than 2 600 elements, about three READMEs, is scaled as a picture while the fingers
   move and laid out once when they lift. Outside a band of levels the picture is not what the
   level lays out: the reading column switches between its two widths (at 86% in a 1100 px
-  window, at 119% in a 1512 px one), text stops shrinking under 9 px (*Deferred*), and from
+  window, at 119% in a 1512 px one), text stops shrinking under 9 px (its own limit below), and from
   about 160% the pane limits the column. One paragraph came out 1.33 to 1.87 times wider or
   0.8 times narrower, with other line breaks, and the page stood still for 0.17 to 0.45 s
   (measured). Smaller documents get the real zoom on every frame and do not change.
@@ -749,3 +740,24 @@ as it is found.
   cases were walked.
   *Accepted 2026-11-17. Reopen on a report of a page running away during a pinch after a
   save.*
+- [ ] **On macOS and Linux, text stops shrinking when a document is zoomed far out** (added
+  2026-11-17, `archive/plans/zoom-text-floor.md`; first kept on 2026-11-13 as *WebKit doesn't
+  draw body text smaller than 9 px*, `closed-items.md`, when it was known at 50% alone).
+  WebKit draws no text under 9 px on screen whose size at 100% is 9 px or more, while
+  pictures, spacing and the column go on shrinking. In the four Azure DevOps themes, the
+  default among them, body text stops below 64% and a code block below 73% (measured on the
+  Mac; at 50% the letters are 1.29 times what the level says), tables and code in a line
+  between, footnote marks and code inside footnotes from 77% to 88% (worked out). In the
+  other eleven bundled themes, whose text is larger, body text stops below 56% (54% in
+  Tufte). Linux has it at 50% and Windows has none (measured in the document zoom's trial;
+  Chromium applies its rule before the zoom). No public setting lifts it and no stylesheet
+  steps round it. WebKit changed the rule on 2026-08-04 (`006da4a5c5bd`, bug 319939,
+  `318509@main`: the floor is multiplied by the zoom when zooming out), which had not
+  reached a release branch by 2026-11-17 (`safari-7625`, `webkitglib/2.54`). Turned down by
+  the owner: a lowest level of 75% on these two platforms; a rebuild of the zoom under the
+  floor; and WebKit's private `WKPreferencesSetDoubleValueForKeyForTesting`, which may lift
+  the floor on macOS (read, not tried; the plan has the trial, T1 to T5, ready).
+  *Accepted 2026-11-17: the engine's own rule, already changed upstream. Reopen when macOS
+  or Safari on the owner's Mac, or WebKitGTK on the Linux VM, has had an update: measure one
+  line of body text at 50% against its width at 100%, and close this if it is half. Or at
+  the next change to the document zoom.*
