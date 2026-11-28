@@ -174,7 +174,7 @@ node .claude/skills/drive-app/scripts/wd.mjs click "#open-btn"
   the location box, the second (`""`) selects it.
 - A folder with a **single subfolder** is picked wrong: GTK completes the typed
   path into the subfolder, so the pick lands on the subfolder, not on the
-  folder you typed.
+  folder you typed. `examples` is one: in a clean clone it holds only `img`.
   Answer that one by hand, with Delete before Return to drop the completion:
   `xdotool key ctrl+l`, `xdotool type <path>`, `xdotool key Delete Return`.
 - `--cancel` presses Escape. `--dump` lists the app's visible windows.
