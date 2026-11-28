@@ -48,6 +48,12 @@ it. Copy it here if a later run will want it.
 
 ## 1. Before launching
 
+- **On Windows, drive the app on the Windows VM, not the owner's PC.** The
+  owner works on the PC, and a walk pops up windows, takes focus and touches
+  app data. Send the walk to the VM's Remote Control session
+  (`md-viewer-win` in `ListAgents`) with a self-contained brief. Builds,
+  `cargo test` and other gates that open no window still run on the PC. Ask
+  before driving any UI on the PC.
 - **Leave the user's viewer open; rename the debug build instead.**
   Single-instance locks on the app identifier (`{identifier}-sim`), so a debug
   exe built from `tauri.conf.json` as-is hands its argv to the installed app
@@ -188,10 +194,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/drive-app/scr
   `EBWebView\Variations` file, mirrored in `Local State`; a clean close
   doesn't reliably lower it (once a fully clean run reset 6 to 0; in other
   runs it stayed). From 4 in a row WebView2 drops Edge's server config and
-  Chromium's own defaults apply. Before `archive/plans/diagram-frame-isolation.md`
-  that broke every diagram ("The diagram renderer did not load."); other
-  surprises are possible, so a walk that fails oddly after many forced kills
-  should read the streak first. Reset it with the app closed: set it to 0 in
+  Chromium's own defaults apply. Surprises are possible, so a walk that fails
+  oddly after many forced kills should read the streak first. Reset it with
+  the app closed: set it to 0 in
   both files (the `Variations` file wins over `Local State` once).
 
 - **Spaces in paths.** The repo sits under `_ pet projects`. Wrap repeated
@@ -208,9 +213,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/drive-app/scr
   1/64 px, so in Palatino it read 8.40625 against a CSS `ch` of 8.395 (0.13%
   wider; the snapping is inferred from the numbers), enough to put "1 px under
   a switch width" past it and fake a mismatch.
-- **A reload now comes back with the window's last-reported tabs**, not a
-  boot at 0 tabs: `location.reload()` reopens whatever the window last
-  reported, so a clean page needs a fresh relaunch, not a reload.
+- **A reload comes back with the window's last-reported tabs**:
+  `location.reload()` reopens whatever the window last reported, so a clean
+  page needs a fresh relaunch, not a reload.
 - **Driving the crash screen.** CDP `Page.crash` (raw command — `cdpraw.mjs`)
   puts WebView2 on "This page is having a problem"; a real OS click on its
   Refresh button (`click.ps1`, with the window rect from `winshot.ps1`) drives
@@ -225,8 +230,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/drive-app/scr
   again after overlapping CDP calls — and a held `load_file` then stayed
   pending for good. Keep the native one once (`w.__trueOrig ??=
   w.chrome.webview.postMessage`) and install the wrapper over that in every
-  script, as the scratch `t2/run2.mjs` of `archive/plans/viewer-follow-ups.md`
-  does.
+  script.
 - **Real OS keystrokes for reload and Back accelerators.** CDP key events
   skip WebView2's browser accelerators; F5/Ctrl+R and Alt+←/→ need a real
   keystroke through `sendkeys.ps1` (`SetForegroundWindow` + `SendKeys`), not
@@ -280,9 +284,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/drive-app/scr
   say) before trusting it.
 - **Emulated media lasts as long as its connection.** `cdpraw.mjs
   Emulation.setEmulatedMedia` reverts the moment the script exits. Set it,
-  wait and read in one script that holds the socket, as the scratch `flip.mjs`
-  of `archive/plans/cheap-deferred-fixes.md` does. A `change` event fires only
-  on a real transition, so on a dark host step through `light,dark`.
+  wait and read in one script that holds the socket. A `change` event fires
+  only on a real transition, so on a dark host step through `light,dark`.
 - **Instrumentation piles up.** Listeners or wrappers installed by one `eval`
   stay for every later one; installing them again double-counts. Reload
   (`location.reload()`) and set up once when a probe needs a clean slate.

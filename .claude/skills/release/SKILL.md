@@ -50,10 +50,10 @@ v1.3.0 shipping an installer named 1.2.0, which the updater then refuses.
 
      Merge with `gh pr merge <n> --rebase`, which keeps Dependabot's `ci:` or
      `chore:` subject (`.github/dependabot.yml`), so the bump stays off the
-     release page; PR #10 went in that way. A bump that needs changes of its
-     own is redone locally instead, as a `chore:` or `ci:` commit naming the
-     PR (#3, #4, #5). A PR that changes the shipped runtime (any Cargo crate)
-     also gets the owner's ruling on whether it needs a walk before it ships.
+     release page. A bump that needs changes of its own is redone locally
+     instead, as a `chore:` or `ci:` commit naming the PR. A PR that changes
+     the shipped runtime (any Cargo crate) also gets the owner's ruling on
+     whether it needs a walk before it ships.
    - **highlight.js and mermaid.** `src/vendor/highlight.min.js` and
      `src/vendor/mermaid.min.js` are vendored, so Dependabot never offers a
      new release. Check for one; a bump swaps the file and its version line in
@@ -81,16 +81,15 @@ v1.3.0 shipping an installer named 1.2.0, which the updater then refuses.
    owner names the number; a go to release, or a "probably x.y.z?" left
    unanswered, is not a version. Recommend by this project's pattern, not by
    textbook semver or by how much work went in:
-   - **Minor** only for something the app could not do before. Every minor
-     since 1.0: macOS and Linux (1.1), update check (1.2), images (1.3),
-     folder sidebar (1.4), theme families (1.5), JSON (1.6), Mermaid (1.7),
-     find (1.8).
+   - **Minor** only for something the app could not do before: a new
+     platform, a new file type, a new panel, a new tool such as find or
+     zoom.
    - **Patch** for everything else: a fix, or a follow-up or change to what
-     the app already does, however large (the centred reading column, 1.8.1).
+     the app already does, however large (centring the reading column was a
+     patch).
 
-   A published version cannot be taken back: 1.9.0 went out unasked for the
-   centred column and was withdrawn within the hour, and copies that took it
-   cannot step down to 1.8.1.
+   A published version cannot be taken back: withdrawing it does not undo
+   the copies that took it, and they cannot step down to a lower version.
 4. **Bump** `Cargo.toml`, then `cargo check` to refresh `Cargo.lock`. Plain
    `x.y.z` only — the rpm tooling rejects a `-rc.1` suffix, and the workflow
    refuses such a tag, but only once the tag is already public. Catch it here.

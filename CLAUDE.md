@@ -28,8 +28,9 @@ Follow these steps in order. Don't skip a step, and don't merge two steps into o
    PR.
    - Rehearse the squash in a throwaway worktree first, and check that the final tree is identical before moving
      the branch.
-   - **Ask explicitly before every push, PR, tag and release.** Never do any of them on your own. A go on the task
-     is not a go to push; each needs the owner's go-ahead at that moment.
+   - **Ask explicitly before every push, PR, tag and release, and before deleting a branch, tag or release, local
+     or remote.** Never do any of them on your own. A go on the task is not a go to push; each needs the owner's
+     go-ahead at that moment.
 
 ## Commit messages
 
@@ -60,7 +61,7 @@ When one option is clearly right and the others are clearly worse, go with it an
 report for that step or review pass. If unsure whether it's obvious, ask.
 
 These stay with the owner however obvious they look: skipped findings, accepted limits and deferrals (step 6
-triage), and every push, PR, tag, release and delete (step 7).
+triage), and every push, PR, tag and release, and every delete of a branch, tag or release (step 7).
 
 Explain each decision so it can be made without digging, even by someone who has been away from the work:
 
@@ -76,3 +77,14 @@ Be concise, but never drop a detail that could lead to a wrong choice: a side ef
 platform difference, a cost that only shows later. Spell out every term and shorthand, such as check letters,
 commit hashes and internal names. When a question depends on earlier context, restate that context in a
 sentence; don't assume it is remembered.
+
+## Skill and instruction files
+
+`CLAUDE.md` and the files under `.claude/skills/` state rules and their reasons, not history. History goes stale
+when things move, and git already keeps it.
+
+- No lists of past releases, no incident stories, no PR or issue numbers from this repo, no pointers into
+  `docs/archive/`.
+- Give a rule's reason in general words.
+- A measured fact keeps its stamp (the date, OS and version it was measured on), so a reader knows when to
+  re-check it.
