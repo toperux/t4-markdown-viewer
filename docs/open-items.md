@@ -224,6 +224,14 @@ The next two came out of the session-restore walks (`archive/plans/session-resto
   the launcher keeps in `OWD`. Needs a plan of its own. Reopen at the next change to how the
   AppImage starts, or on a report.
 
+- [ ] **The Windows `drive-app` notes carry no "Proven on" stamp** (added 2026-11-28, the prompt
+  audit's full read). `linux.md` and `macos.md` each open with the OS and app version their
+  measured facts were taken on; `.claude/skills/drive-app/SKILL.md`, the Windows file, has none,
+  so nothing tells a reader when its measured gotchas need re-checking. The Windows and WebView2
+  versions those facts were measured on are not recorded, so the stamp cannot be added from
+  memory. Reopen at the next Windows walk: add the stamp with that run's Windows, WebView2 and
+  app versions.
+
 ## Accepted limits
 
 Not bugs to fix; here so nobody rediscovers them. The three the 2026-09-12 review parked were
