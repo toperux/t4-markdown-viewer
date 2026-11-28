@@ -249,8 +249,8 @@ node $W click "#open-btn"
   app uses none of them. Per wry #1593, an iframe's navigation on macOS
   reaches wry's new-window handler, and that handler may be part of what the
   plugin replaces (not checked). So a check of how the diagram frame loads, or
-  that nothing opens a window, runs on a plain build by the owner's eye. The
-  2026-09-28 frame check ran on a plain build for that reason, and passed;
-  whether a feature build would differ was not measured.
+  that nothing opens a window, runs on a plain build by the owner's eye.
+  Measured 2026-09-28 on a plain build: the frame check passed. A feature
+  build was not measured.
 - **Exposure.** While a feature build runs, anything local can drive it over
   `127.0.0.1:4445`, unauthenticated, as with the Windows CDP port.

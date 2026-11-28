@@ -234,11 +234,10 @@ gsettings get org.gnome.desktop.interface gtk-theme
 
 - **Link the desktop's settings into the scratch config.** With
   `XDG_CONFIG_HOME` in the scratchpad, GTK looks for the desktop's settings
-  there. Before launching, link in the three folders the 2026-09-28 run
-  linked (with `S` set, as in §2):
+  there. Before launching, link in three folders (with `S` set, as in §2):
   `for d in dconf gtk-3.0 gtk-4.0; do ln -s ~/.config/$d $S/config/$d; done`.
-  That GTK misses the switch without them is that run's reasoning; it
-  wasn't tried without.
+  Measured 2026-09-28 with them linked. That GTK misses the switch without
+  them is reasoned, not measured.
 - **GNOME has two switches, and the page is dark if either is.**
   `color-scheme` (Settings' Dark Style: `prefer-dark` / `default`) and
   `gtk-theme` (a dark one such as Ubuntu's default `Yaru-dark`, or
